@@ -1,2 +1,2 @@
 # Order-
-Order panel 
+Order panel for customer 
