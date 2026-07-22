@@ -375,23 +375,31 @@ function wireEvents() {
 // INJECT HTML
 // ─────────────────────────────────────────────────────────────
 function injectHTML() {
-  // ── Orders button — inserted before existing historyBtn ──
+  // ── Big grid button — sits right after the Expense button ──
+  // Matches the .menu-big-btn style of Tables / Parcel / Expense
   const btn = document.createElement('button');
   btn.id        = 'incOrdersBtn';
-  btn.innerHTML = `🔔 Orders <span id="incOrdersBadge" class="inc-badge">0</span>`;
+  btn.className = 'menu-big-btn';
+  btn.innerHTML = `
+    <span id="incOrdersBadge" class="inc-badge" style="display:none;">0</span>
+    <span class="icon">🔔</span>
+    <span class="title">Orders</span>`;
 
-  const historyBtn = document.getElementById('historyBtn');
-  if (historyBtn) {
-    historyBtn.parentNode.insertBefore(btn, historyBtn);
+  // Insert after the Expense button inside .home-grid
+  const homeGrid = document.querySelector('.home-grid');
+  if (homeGrid) {
+    homeGrid.appendChild(btn);       // last cell, right next to Expense
   } else {
-    // Fallback: prepend to body
-    document.body.prepend(btn);
+    // Fallback: before historyBtn in header
+    const historyBtn = document.getElementById('historyBtn');
+    if (historyBtn) historyBtn.parentNode.insertBefore(btn, historyBtn);
+    else document.body.prepend(btn);
   }
 
   // ── Overlay ──
   const overlay = document.createElement('div');
   overlay.id        = 'incOrdersOverlay';
-  overlay.className = 'drawer-overlay'; // reuse billing panel's class
+  overlay.className = 'drawer-overlay'; // reuse billing panel's existing class
   document.body.appendChild(overlay);
 
   // ── Drawer ──
@@ -414,43 +422,35 @@ function injectStyles() {
   const style = document.createElement('style');
   style.textContent = `
 
-    /* ── Orders button ─────────────────────────────────── */
+    /* ── Orders big-grid button (matches .menu-big-btn style) ── */
     #incOrdersBtn {
       position: relative;
-      background: #dc2626;
-      color: white;
-      border: none;
-      padding: 10px 15px;
-      border-radius: 8px;
-      font-weight: bold;
-      font-size: 0.95rem;
-      cursor: pointer;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-      transition: transform 0.15s;
+      background: linear-gradient(135deg, #b91c1c, #ef4444) !important;
     }
-    #incOrdersBtn:active { transform: scale(0.95); }
 
-    /* Pulsing ring when there are orders */
+    /* Pulsing glow when there are pending orders */
     #incOrdersBtn.has-orders {
-      animation: incPulse 1.6s ease-in-out infinite;
+      animation: incPulse 1.4s ease-in-out infinite;
     }
     @keyframes incPulse {
-      0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.5); }
-      50%      { box-shadow: 0 0 0 10px rgba(220,38,38,0); }
+      0%,100% { box-shadow: 0 4px 15px rgba(239,68,68,0.3); }
+      50%      { box-shadow: 0 0 0 12px rgba(239,68,68,0.12),
+                             0 4px 15px rgba(239,68,68,0.4); }
     }
 
-    /* ── Badge ─────────────────────────────────────────── */
+    /* ── Badge (top-right corner of the big button) ──────── */
     .inc-badge {
       position: absolute;
-      top: -7px; right: -7px;
+      top: 10px; right: 10px;
       background: white;
       color: #dc2626;
       border-radius: 50%;
-      width: 20px; height: 20px;
+      min-width: 24px; height: 24px;
       display: flex;
       align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 900;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      font-size: 13px; font-weight: 900;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      padding: 0 4px;
     }
 
     /* ── Drawer ─────────────────────────────────────────── */
