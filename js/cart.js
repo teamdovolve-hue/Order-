@@ -2,17 +2,20 @@
  * cart.js
  * ─────────────────────────────────────────────────────────────
  * In-memory cart state + DOM update helpers.
- * Other modules import { cart, addItem, removeItem, clearCart }.
+ * Calls requireCustomer() before the first add so the modal
+ * fires exactly once per session.
  */
+
+import { requireCustomer } from "./customer.js";
 
 /** @type {Map<string, { id: string, name: string, price: number, qty: number }>} */
 export const cart = new Map();
 
-// ── DOM refs (resolved lazily so this module is import-safe) ──
-const getCartBar        = () => document.getElementById("cartBar");
-const getCartCount      = () => document.getElementById("cartCountBadge");
-const getCartTotal      = () => document.getElementById("cartTotal");
-const getPlaceOrderBtn  = () => document.getElementById("placeOrderBtn");
+// ── DOM refs ──────────────────────────────────────────────────
+const getCartBar       = () => document.getElementById("cartBar");
+const getCartCount     = () => document.getElementById("cartCountBadge");
+const getCartTotal     = () => document.getElementById("cartTotal");
+const getPlaceOrderBtn = () => document.getElementById("placeOrderBtn");
 
 // ── Currency formatter ────────────────────────────────────────
 const fmt = (n) =>
@@ -28,7 +31,7 @@ export function refreshCartUI() {
     totalPrice += item.price * item.qty;
   }
 
-  const cartBar = getCartBar();
+  const cartBar  = getCartBar();
   const cartCount = getCartCount();
   const cartTotal = getCartTotal();
   const placeBtn  = getPlaceOrderBtn();
@@ -43,8 +46,12 @@ export function refreshCartUI() {
   }
 }
 
-// ── Add one unit of an item ───────────────────────────────────
+// ── Add one unit — gates on customer info ─────────────────────
 export function addItem(id, name, price) {
+  requireCustomer(() => _doAdd(id, name, price));
+}
+
+function _doAdd(id, name, price) {
   if (cart.has(id)) {
     cart.get(id).qty += 1;
   } else {
@@ -72,7 +79,7 @@ export function clearCart() {
   ids.forEach((id) => updateCardUI(id));
 }
 
-// ── Toggle the card between "Add" button and qty control ─────
+// ── Toggle card between "Add" button and qty control ──────────
 function updateCardUI(itemId) {
   const card    = document.querySelector(`.menu-card[data-id="${itemId}"]`);
   const wrapper = card?.querySelector(".card-action");
@@ -91,13 +98,15 @@ function updateCardUI(itemId) {
   } else {
     card.classList.remove("in-cart");
     wrapper.innerHTML = `
-      <button class="btn-add" data-id="${itemId}" data-name="${escHtml(card.dataset.name)}" data-price="${card.dataset.price}">
+      <button class="btn-add"
+              data-id="${itemId}"
+              data-name="${escHtml(card.dataset.name)}"
+              data-price="${card.dataset.price}">
         Add
       </button>`;
   }
 }
 
-// ── Tiny HTML escape (for data attributes) ───────────────────
 function escHtml(s = "") {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }

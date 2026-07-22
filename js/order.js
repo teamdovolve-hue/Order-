@@ -1,21 +1,23 @@
 /**
  * order.js
  * ─────────────────────────────────────────────────────────────
- * Reads Table ID from the URL, submits the cart to Firestore,
- * and handles success / error overlays.
+ * Reads Table ID from URL, handles order flow.
  *
- * Firestore write target:
- *   Collection : pending_table_orders
- *   Each doc   : { tableId, items[], totalItems, totalPrice,
- *                  status: "pending", createdAt: serverTimestamp }
+ * 🚧 TESTING MODE — Firebase write is disabled.
+ *    Orders are saved to localStorage history only.
+ *    To go live: remove the TEST_MODE block and uncomment
+ *    the Firestore section below.
  */
 
-import { db }                          from "./firebase-config.js";
-import { collection, addDoc, serverTimestamp }
-                                       from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { cart, clearCart }             from "./cart.js";
+// import { db }                          from "./firebase-config.js";
+// import { collection, addDoc, serverTimestamp }
+//                                        from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-const ORDER_COLLECTION = "pending_table_orders";
+import { cart, clearCart }             from "./cart.js";
+import { getCustomer }                 from "./customer.js";
+import { saveOrderToHistory }          from "./history.js";
+
+// const ORDER_COLLECTION = "pending_table_orders";
 
 // ── Read ?table=XX from the URL ───────────────────────────────
 export function getTableId() {
@@ -33,8 +35,9 @@ export async function placeOrder() {
     btn.textContent = "Placing…";
   }
 
-  const tableId = getTableId();
-  const items   = [];
+  const tableId  = getTableId();
+  const customer = getCustomer();
+  const items    = [];
   let totalItems = 0;
   let totalPrice = 0;
 
@@ -52,32 +55,47 @@ export async function placeOrder() {
 
   const orderPayload = {
     tableId,
+    customer: customer || { name: "Guest", phone: "" },
     items,
     totalItems,
-    totalPrice: +totalPrice.toFixed(2),
-    status:     "pending",
-    createdAt:  serverTimestamp(),
+    totalPrice:  +totalPrice.toFixed(2),
+    status:      "pending",
   };
 
-  try {
-    const ref = await addDoc(collection(db, ORDER_COLLECTION), orderPayload);
-    console.log("[order.js] Order saved:", ref.id);
+  // ── 🚧 TESTING MODE ───────────────────────────────────────
+  // No Firebase write — just save locally and show test message.
+  saveOrderToHistory(orderPayload);
+  clearCart();
+  showTestOverlay(tableId, totalItems, totalPrice, customer);
+  if (btn) {
+    btn.disabled    = false;
+    btn.textContent = "Place Order →";
+  }
+  // ── END TESTING MODE ──────────────────────────────────────
 
+  /* ── PRODUCTION (uncomment when ready to go live) ──────────
+  try {
+    const ref = await addDoc(collection(db, ORDER_COLLECTION), {
+      ...orderPayload,
+      createdAt: serverTimestamp(),
+    });
+    console.log("[order.js] Order saved:", ref.id);
+    saveOrderToHistory(orderPayload);
     clearCart();
-    showSuccessOverlay(tableId, totalItems, totalPrice);
+    showSuccessOverlay(tableId, totalItems, totalPrice, customer);
   } catch (err) {
     console.error("[order.js] Order submission failed:", err);
     showErrorOverlay(err.message);
-    // Re-enable button so user can retry
     if (btn) {
       btn.disabled    = false;
       btn.textContent = "Place Order →";
     }
   }
+  ─────────────────────────────────────────────────────────── */
 }
 
-// ── Success overlay ───────────────────────────────────────────
-function showSuccessOverlay(tableId, totalItems, totalPrice) {
+// ── Test-mode overlay ─────────────────────────────────────────
+function showTestOverlay(tableId, totalItems, totalPrice, customer) {
   const fmt = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
@@ -86,7 +104,29 @@ function showSuccessOverlay(tableId, totalItems, totalPrice) {
 
   if (msg) {
     msg.innerHTML = `
-      Table <strong>${escHtml(tableId)}</strong> — 
+      <span class="test-badge">🚧 Testing Mode</span><br/>
+      Your place order is working!<br/>
+      <small style="color:var(--text-3)">
+        ${customer?.name ? `Hi ${escHtml(customer.name)} · ` : ""}
+        Table <strong>${escHtml(tableId)}</strong> —
+        ${totalItems} item${totalItems !== 1 ? "s" : ""} · ${fmt(totalPrice)}
+      </small>`;
+  }
+  overlay?.classList.remove("hidden");
+}
+
+// ── Live success overlay (used in production mode) ────────────
+function showSuccessOverlay(tableId, totalItems, totalPrice, customer) {
+  const fmt = (n) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
+
+  const overlay = document.getElementById("successOverlay");
+  const msg     = document.getElementById("overlayMsg");
+
+  if (msg) {
+    msg.innerHTML = `
+      ${customer?.name ? `Hi <strong>${escHtml(customer.name)}</strong>!<br/>` : ""}
+      Table <strong>${escHtml(tableId)}</strong> —
       ${totalItems} item${totalItems !== 1 ? "s" : ""} for ${fmt(totalPrice)}<br/>
       Your order is being prepared!`;
   }
@@ -101,7 +141,6 @@ function showErrorOverlay(detail = "") {
   overlay?.classList.remove("hidden");
 }
 
-// ── Tiny escape ───────────────────────────────────────────────
 function escHtml(s = "") {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

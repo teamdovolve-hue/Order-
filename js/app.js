@@ -1,46 +1,58 @@
 /**
  * app.js — Entry point
  * ─────────────────────────────────────────────────────────────
- * Bootstraps the QR Menu Panel:
- *   1. Sets the Table ID badge from the URL
- *   2. Initialises the menu (fetch + render)
- *   3. Wires the "Place Order" and overlay close buttons
+ * Boot sequence:
+ *   1. Set table badge from URL (auto-set by QR code)
+ *   2. Show customer greeting if returning visitor
+ *   3. Init menu (fetch + render from Firestore)
+ *   4. Init order history drawer
+ *   5. Wire all buttons
  */
 
-import { initMenu }              from "./menu.js";
-import { placeOrder, getTableId } from "./order.js";
+import { initMenu }                from "./menu.js";
+import { placeOrder, getTableId }  from "./order.js";
+import { updateGreeting }          from "./customer.js";
+import { initHistory }             from "./history.js";
 
-// ── Boot ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
 
-  // 1. Show table badge
+  // 1. Table badge — value comes from ?table=T4 in the QR URL
   const tableId = getTableId();
   const badge   = document.getElementById("tableBadge");
   if (badge) badge.textContent = `Table ${tableId}`;
 
-  // 2. Load menu from Firestore
+  // 2. Greeting chip (visible if customer already submitted their info)
+  updateGreeting();
+
+  // 3. Menu
   initMenu();
 
-  // 3. Place Order button
-  document.getElementById("placeOrderBtn")?.addEventListener("click", placeOrder);
+  // 4. History drawer
+  initHistory();
 
-  // 4. Retry button on load-error
-  document.getElementById("retryBtn")?.addEventListener("click", () => {
-    document.getElementById("errorState")?.classList.add("hidden");
-    initMenu();
-  });
+  // 5. Place Order
+  document.getElementById("placeOrderBtn")
+    ?.addEventListener("click", placeOrder);
 
-  // 5. Success overlay — close → back to menu
-  document.getElementById("overlayCloseBtn")?.addEventListener("click", () => {
-    document.getElementById("successOverlay")?.classList.add("hidden");
-    // Reset Place Order button text
-    const btn = document.getElementById("placeOrderBtn");
-    if (btn) btn.textContent = "Place Order →";
-  });
+  // 6. Retry on menu load error
+  document.getElementById("retryBtn")
+    ?.addEventListener("click", () => {
+      document.getElementById("errorState")?.classList.add("hidden");
+      initMenu();
+    });
 
-  // 6. Error overlay — close
-  document.getElementById("errorOverlayCloseBtn")?.addEventListener("click", () => {
-    document.getElementById("errorOverlay")?.classList.add("hidden");
-  });
+  // 7. Success overlay close
+  document.getElementById("overlayCloseBtn")
+    ?.addEventListener("click", () => {
+      document.getElementById("successOverlay")?.classList.add("hidden");
+      const btn = document.getElementById("placeOrderBtn");
+      if (btn) btn.textContent = "Place Order →";
+    });
+
+  // 8. Error overlay close
+  document.getElementById("errorOverlayCloseBtn")
+    ?.addEventListener("click", () => {
+      document.getElementById("errorOverlay")?.classList.add("hidden");
+    });
 
 });
