@@ -2,22 +2,18 @@
  * order.js
  * ─────────────────────────────────────────────────────────────
  * Reads Table ID from URL, handles order flow.
- *
- * 🚧 TESTING MODE — Firebase write is disabled.
- *    Orders are saved to localStorage history only.
- *    To go live: remove the TEST_MODE block and uncomment
- *    the Firestore section below.
+ * Writes to Firestore → billing panel picks it up in real-time.
  */
 
-// import { db }                          from "./firebase-config.js";
-// import { collection, addDoc, serverTimestamp }
-//                                        from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { db }                          from "./firebase-config.js";
+import { collection, addDoc, serverTimestamp }
+                                       from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 import { cart, clearCart }             from "./cart.js";
 import { getCustomer }                 from "./customer.js";
 import { saveOrderToHistory }          from "./history.js";
 
-// const ORDER_COLLECTION = "pending_table_orders";
+const ORDER_COLLECTION = "pending_table_orders";
 
 // ── Read ?table=XX from the URL ───────────────────────────────
 export function getTableId() {
@@ -62,18 +58,7 @@ export async function placeOrder() {
     status:      "pending",
   };
 
-  // ── 🚧 TESTING MODE ───────────────────────────────────────
-  // No Firebase write — just save locally and show test message.
-  saveOrderToHistory(orderPayload);
-  clearCart();
-  showTestOverlay(tableId, totalItems, totalPrice, customer);
-  if (btn) {
-    btn.disabled    = false;
-    btn.textContent = "Place Order →";
-  }
-  // ── END TESTING MODE ──────────────────────────────────────
-
-  /* ── PRODUCTION (uncomment when ready to go live) ──────────
+  // ── PRODUCTION — write to Firestore ──────────────────────
   try {
     const ref = await addDoc(collection(db, ORDER_COLLECTION), {
       ...orderPayload,
@@ -91,7 +76,7 @@ export async function placeOrder() {
       btn.textContent = "Place Order →";
     }
   }
-  ─────────────────────────────────────────────────────────── */
+  // ──────────────────────────────────────────────────────────
 }
 
 // ── Test-mode overlay ─────────────────────────────────────────

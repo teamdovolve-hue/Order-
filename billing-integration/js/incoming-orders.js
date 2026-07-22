@@ -30,6 +30,8 @@ const ORDERS_COL = 'pending_table_orders';
 
 // ── Module state ──────────────────────────────────────────────
 let pendingOrders  = [];
+// Sound disabled — set to true to re-enable
+const SOUND_ENABLED = false;
 let alertInterval  = null;
 let audioCtx       = null;
 let alertBuf       = null;
@@ -95,55 +97,13 @@ function flashBtn() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SOUND  (Web Audio — no extra file needed)
+// SOUND  — disabled (set SOUND_ENABLED = true to re-enable)
 // ─────────────────────────────────────────────────────────────
-function buildAlertSound() {
-  try {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // 2-tone descending alert  880 Hz → 660 Hz, 0.6 s
-    const sr  = audioCtx.sampleRate;
-    const dur = 0.6;
-    const buf = audioCtx.createBuffer(1, sr * dur, sr);
-    const ch  = buf.getChannelData(0);
-
-    for (let i = 0; i < ch.length; i++) {
-      const t   = i / sr;
-      const env = Math.sin(Math.PI * (t / dur)); // smooth fade in/out
-      const f   = 880 - (220 * (t / dur));        // sweep 880→660
-      ch[i]     = env * 0.45 * Math.sin(2 * Math.PI * f * t);
-    }
-    alertBuf = buf;
-  } catch (e) {}
-}
-
-function unlockAudio() {
-  if (audioUnlocked || !audioCtx) return;
-  audioCtx.resume().catch(() => {});
-  audioUnlocked = true;
-}
-
-function playBeep() {
-  if (!audioCtx || !alertBuf) return;
-  try {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const src  = audioCtx.createBufferSource();
-    const gain = audioCtx.createGain();
-    src.buffer      = alertBuf;
-    gain.gain.value = 0.65;
-    src.connect(gain);
-    gain.connect(audioCtx.destination);
-    src.start(0);
-  } catch (e) {}
-}
-
-function startAlert() {
-  if (alertInterval) return;          // already running
-  playBeep();
-  alertInterval = setInterval(playBeep, 2200);
-}
-
-function stopAlert() {
+function buildAlertSound() { /* sound off */ }
+function unlockAudio()     { /* sound off */ }
+function playBeep()        { /* sound off */ }
+function startAlert()      { /* sound off */ }
+function stopAlert()       {
   clearInterval(alertInterval);
   alertInterval = null;
 }
