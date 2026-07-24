@@ -320,59 +320,100 @@ function esc(s = '') {
 // WIRE EVENTS
 // ─────────────────────────────────────────────────────────────
 function wireEvents() {
-  // Unlock audio on first user interaction (browser requirement)
   document.addEventListener('click', unlockAudio, { once: true });
 
-  document.getElementById('incOrdersBtn')
-    ?.addEventListener('click', openDrawer);
-  document.getElementById('incOrdersOverlay')
-    ?.addEventListener('click', closeDrawer);
-  document.getElementById('incOrdersClose')
-    ?.addEventListener('click', closeDrawer);
+  // Expose globally — works even if button has onclick= in HTML
+  window._incOpenDrawer  = openDrawer;
+  window._incCloseDrawer = closeDrawer;
+
+  const btn     = document.getElementById('incOrdersBtn');
+  const overlay = document.getElementById('incOrdersOverlay');
+  const close   = document.getElementById('incOrdersClose');
+
+  if (btn)     btn.addEventListener('click', openDrawer);
+  if (overlay) overlay.addEventListener('click', closeDrawer);
+  if (close)   close.addEventListener('click', closeDrawer);
+
+  // Safety net: also re-wire after a short delay in case of late DOM
+  setTimeout(() => {
+    const b = document.getElementById('incOrdersBtn');
+    if (b && !b._incWired) {
+      b._incWired = true;
+      b.addEventListener('click', openDrawer);
+    }
+  }, 800);
 }
 
 // ─────────────────────────────────────────────────────────────
 // INJECT HTML
 // ─────────────────────────────────────────────────────────────
 function injectHTML() {
-  // ── Big grid button — sits right after the Expense button ──
-  // Matches the .menu-big-btn style of Tables / Parcel / Expense
-  const btn = document.createElement('button');
-  btn.id        = 'incOrdersBtn';
-  btn.className = 'menu-big-btn';
-  btn.innerHTML = `
-    <span id="incOrdersBadge" class="inc-badge" style="display:none;">0</span>
-    <span class="icon">🔔</span>
-    <span class="title">Orders</span>`;
+  // ── Button ──
+  // If the billing panel already has a hardcoded button anywhere on the page
+  // (with any id/class), we find it by looking for the bell emoji text OR by
+  // id. We just ensure it has the right id so wireEvents() can attach clicks.
+  let btn = document.getElementById('incOrdersBtn');
 
-  // Insert after the Expense button inside .home-grid
-  const homeGrid = document.querySelector('.home-grid');
-  if (homeGrid) {
-    homeGrid.appendChild(btn);       // last cell, right next to Expense
+  if (!btn) {
+    // Look for a hardcoded button containing "Incoming Orders" text
+    const allBtns = Array.from(document.querySelectorAll('button, .menu-big-btn'));
+    btn = allBtns.find(b => b.textContent.toLowerCase().includes('incoming') ||
+                            b.textContent.includes('🔔'));
+  }
+
+  if (btn) {
+    // Found a hardcoded button — adopt it
+    btn.id = 'incOrdersBtn';
+    // Inject badge inside it if not already there
+    if (!btn.querySelector('.inc-badge')) {
+      const badge = document.createElement('span');
+      badge.id             = 'incOrdersBadge';
+      badge.className      = 'inc-badge';
+      badge.style.display  = 'none';
+      badge.textContent    = '0';
+      btn.prepend(badge);
+    }
   } else {
-    // Fallback: before historyBtn in header
-    const historyBtn = document.getElementById('historyBtn');
-    if (historyBtn) historyBtn.parentNode.insertBefore(btn, historyBtn);
-    else document.body.prepend(btn);
+    // No hardcoded button — create and inject one
+    btn            = document.createElement('button');
+    btn.id         = 'incOrdersBtn';
+    btn.className  = 'menu-big-btn';
+    btn.innerHTML  = `
+      <span id="incOrdersBadge" class="inc-badge" style="display:none;">0</span>
+      <span class="icon">🔔</span>
+      <span class="title">Incoming Orders</span>`;
+
+    const homeGrid = document.querySelector('.home-grid');
+    if (homeGrid) {
+      homeGrid.appendChild(btn);
+    } else {
+      const historyBtn = document.getElementById('historyBtn');
+      if (historyBtn) historyBtn.parentNode.insertBefore(btn, historyBtn);
+      else document.body.prepend(btn);
+    }
   }
 
   // ── Overlay ──
-  const overlay = document.createElement('div');
-  overlay.id        = 'incOrdersOverlay';
-  overlay.className = 'drawer-overlay'; // reuse billing panel's existing class
-  document.body.appendChild(overlay);
+  if (!document.getElementById('incOrdersOverlay')) {
+    const overlay      = document.createElement('div');
+    overlay.id         = 'incOrdersOverlay';
+    overlay.className  = 'drawer-overlay';
+    document.body.appendChild(overlay);
+  }
 
   // ── Drawer ──
-  const drawer = document.createElement('div');
-  drawer.id        = 'incomingOrdersDrawer';
-  drawer.className = 'inc-drawer';
-  drawer.innerHTML = `
-    <div class="drawer-header">
-      <h3 style="margin:0;color:#f9fafb;">🔔 Incoming Orders</h3>
-      <button id="incOrdersClose" class="close-btn">❌</button>
-    </div>
-    <div id="incOrdersList" class="drawer-content" style="padding:12px;"></div>`;
-  document.body.appendChild(drawer);
+  if (!document.getElementById('incomingOrdersDrawer')) {
+    const drawer      = document.createElement('div');
+    drawer.id         = 'incomingOrdersDrawer';
+    drawer.className  = 'inc-drawer';
+    drawer.innerHTML  = `
+      <div class="drawer-header">
+        <h3 style="margin:0;color:#f9fafb;">🔔 Incoming Orders</h3>
+        <button id="incOrdersClose" class="close-btn">❌</button>
+      </div>
+      <div id="incOrdersList" class="drawer-content" style="padding:12px;"></div>`;
+    document.body.appendChild(drawer);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
