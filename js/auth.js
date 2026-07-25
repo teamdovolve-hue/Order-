@@ -292,7 +292,7 @@ function _setLoadingBtn(id, loading, text) {
 function _friendly(err) {
   const c = err?.code || "";
   if (c.includes("unauthorized-domain"))      return "This website domain is not authorized in Firebase. Add the exact domain shown in your browser to Firebase → Authentication → Settings → Authorized domains.";
-  if (c.includes("operation-not-allowed"))   return "Phone sign-in is disabled in Firebase. Enable Phone in Authentication → Sign-in method.";
+  if (c.includes("operation-not-allowed"))   return "Firebase rejected Phone Auth for project billing-system-f8531. Confirm Phone is saved in this exact project, then enable the Identity Toolkit API in Google Cloud Console → APIs & Services → Library.";
   if (c.includes("invalid-api-key"))         return "Firebase configuration is invalid. Check the web app configuration in Firebase.";
   if (c.includes("app-not-authorized"))      return "This app is not authorized for Firebase Phone Auth. Check the Firebase web app and authorized domains.";
   if (c.includes("invalid-phone-number"))       return "Invalid phone number. Check and try again.";
