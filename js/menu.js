@@ -1,36 +1,50 @@
 /**
  * menu.js
  * ─────────────────────────────────────────────────────────────
- * Fetches menu items from Firestore and renders them to the DOM.
- * Supports real-time search and category filtering.
+ * Fetches menu items from Firestore using a real-time listener (onSnapshot)
+ * so out-of-stock changes from the billing panel reflect instantly.
  *
  * Firestore collection: menu_items
  * Required fields: name (string), price (number)
- * Optional: category, description, available/inStock (boolean)
+ * Optional:
+ *   category       string
+ *   description    string
+ *   available      boolean  (false → hide item)
+ *   inStock        boolean  (false → hide item)
+ *   sizes          array    [{ label, price, available }]
  */
 
 import { db }                              from "./firebase-config.js";
-import { collection, getDocs }
-                                           from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import {
+  collection, onSnapshot, query, orderBy,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { addItem, removeItem }             from "./cart.js";
 
-// ── ✏️  Change this to match your Firestore collection name ───
 const MENU_COLLECTION = "menu_items";
 
-// ── Module-level state ────────────────────────────────────────
 let allItems       = [];
 let activeCategory = "All";
 let activeSearch   = "";
+let _unsub         = null;
 
-// ── Public: load, render, wire events ────────────────────────
-export async function initMenu() {
+// ── Public ────────────────────────────────────────────────────
+
+export function initMenu() {
   showLoading(true);
 
-  try {
-    allItems = await fetchMenuItems();
+  // Stop any previous listener
+  if (_unsub) { _unsub(); _unsub = null; }
+
+  const q = query(collection(db, MENU_COLLECTION));
+
+  _unsub = onSnapshot(q, (snap) => {
+    allItems = snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter(_isAvailable)
+      .sort(_sortItems);
 
     if (allItems.length === 0) {
-      showError("No menu items found.\nCheck the Firestore collection name.");
+      showError("No menu items available.\nCheck Firestore collection.");
       return;
     }
 
@@ -38,43 +52,51 @@ export async function initMenu() {
     applyFilter();
     showLoading(false);
     document.getElementById("menuGrid")?.classList.remove("hidden");
-  } catch (err) {
-    console.error("[menu.js] Firestore fetch failed:", err);
-    showError("Couldn't load the menu.\nCheck your Firebase config.");
-  }
+  }, (err) => {
+    console.error("[menu] Firestore error:", err);
+    showError("Couldn't load the menu. Please check your connection.");
+  });
 }
 
-/**
- * Called by search.js on every keystroke.
- * Overrides category filter when a query is active.
- */
+/** Called by search.js on every keystroke. */
 export function filterBySearch(query) {
   activeSearch = query.trim().toLowerCase();
 
-  // When searching, collapse category tabs
   const catNav = document.getElementById("categoryNav");
   if (catNav) catNav.style.display = activeSearch ? "none" : "";
 
   applyFilter();
 }
 
-// ── Fetch from Firestore ──────────────────────────────────────
-async function fetchMenuItems() {
-  const ref  = collection(db, MENU_COLLECTION);
-  const snap = await getDocs(ref);
+// ── Availability check ────────────────────────────────────────
 
-  return snap.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((item) => item.inStock !== false && item.available !== false)
-    .sort((a, b) => {
-      const catA = (a.category || "Other").toLowerCase();
-      const catB = (b.category || "Other").toLowerCase();
-      if (catA !== catB) return catA < catB ? -1 : 1;
-      return (a.name || "").toLowerCase() < (b.name || "").toLowerCase() ? -1 : 1;
-    });
+function _isAvailable(item) {
+  // Top-level flags
+  if (item.inStock   === false) return false;
+  if (item.available === false) return false;
+
+  // If item has sizes, only show if at least one size is available
+  if (Array.isArray(item.sizes) && item.sizes.length > 0) {
+    const hasAvailableSize = item.sizes.some(
+      (s) => s.available !== false && s.inStock !== false
+    );
+    if (!hasAvailableSize) return false;
+  }
+
+  return true;
 }
 
-// ── Combined filter (search + category) ──────────────────────
+// ── Sort: by category then by name ───────────────────────────
+
+function _sortItems(a, b) {
+  const catA = (a.category || "Other").toLowerCase();
+  const catB = (b.category || "Other").toLowerCase();
+  if (catA !== catB) return catA < catB ? -1 : 1;
+  return (a.name || "").toLowerCase() < (b.name || "").toLowerCase() ? -1 : 1;
+}
+
+// ── Combined filter ───────────────────────────────────────────
+
 function applyFilter() {
   let items;
 
@@ -96,16 +118,21 @@ function applyFilter() {
   }
 }
 
-// ── Build category tabs ───────────────────────────────────────
+// ── Category tabs ─────────────────────────────────────────────
+
 function renderCategoryTabs(items) {
   const categories = ["All", ...new Set(items.map((i) => i.category || "Other"))];
   const scroll     = document.querySelector(".category-scroll");
   if (!scroll) return;
 
+  // Preserve active category if it still exists
+  if (!categories.includes(activeCategory)) activeCategory = "All";
+
   scroll.innerHTML = categories
     .map(
       (cat) =>
-        `<button class="cat-btn${cat === "All" ? " active" : ""}" data-cat="${cat}">${escHtml(cat)}</button>`
+        `<button class="cat-btn${cat === activeCategory ? " active" : ""}"
+                 data-cat="${escHtml(cat)}">${escHtml(cat)}</button>`
     )
     .join("");
 
@@ -116,137 +143,151 @@ function renderCategoryTabs(items) {
     btn.classList.add("active");
     activeCategory = btn.dataset.cat;
     // Clear search when switching category
-    const input = document.getElementById("searchInput");
-    const clear = document.getElementById("searchClear");
-    if (input) { input.value = ""; }
-    if (clear)  { clear.classList.add("hidden"); }
+    const searchInput = document.getElementById("searchInput");
+    if (searchInput) searchInput.value = "";
     activeSearch = "";
-    document.getElementById("categoryNav").style.display = "";
+    const catNav = document.getElementById("categoryNav");
+    if (catNav) catNav.style.display = "";
     applyFilter();
   });
 }
 
-// ── Render item cards ─────────────────────────────────────────
-function renderMenuItems(items, highlight = "") {
+// ── Menu item cards ───────────────────────────────────────────
+
+function renderMenuItems(items, query) {
   const grid = document.getElementById("menuGrid");
   if (!grid) return;
 
   if (items.length === 0) {
-    const msg = highlight
-      ? `No results for "<strong>${escHtml(highlight)}</strong>"`
-      : "No items in this category.";
-    grid.innerHTML = `<p class="menu-empty-msg">${msg}</p>`;
+    grid.innerHTML = `
+      <div class="menu-empty">
+        <span>🍽️</span>
+        <p>${query ? `No results for "<strong>${escHtml(query)}</strong>"` : "No items in this category."}</p>
+      </div>`;
+    // Wire events after inserting
+    _wireCardEvents(grid);
     return;
   }
 
-  if (highlight) {
-    // Search results: flat list, no section labels
-    grid.innerHTML = items.map((i) => buildCardHTML(i, highlight)).join("");
-  } else {
-    // Category view: grouped by section
-    const grouped = groupByCategory(items);
-    let html = "";
-    for (const [cat, catItems] of Object.entries(grouped)) {
-      html += `<div class="section-label">${escHtml(cat)}</div>`;
-      for (const item of catItems) html += buildCardHTML(item, "");
-    }
-    grid.innerHTML = html;
-  }
-
-  attachCardListeners(grid);
+  grid.innerHTML = items.map((item) => _buildCard(item, query)).join("");
+  _wireCardEvents(grid);
 }
 
-// ── Build a single card's HTML ────────────────────────────────
-function buildCardHTML(item, highlight) {
-  const desc  = item.description
-    ? `<p class="card-desc">${highlight ? highlightText(escHtml(item.description), highlight) : escHtml(item.description)}</p>`
-    : "";
+function _buildCard(item, query) {
+  const name  = query ? highlight(item.name        || "", query) : escHtml(item.name || "");
+  const desc  = query ? highlight(item.description || "", query) : escHtml(item.description || "");
+  const cat   = query ? highlight(item.category    || "", query) : escHtml(item.category || "");
 
-  const price    = Number(item.price || 0);
-  const priceStr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(price);
-  const nameHtml = highlight
-    ? highlightText(escHtml(item.name), highlight)
-    : escHtml(item.name);
+  // Determine display price
+  const displayPrice = _getDisplayPrice(item);
+  const priceLabel   = Array.isArray(item.sizes) && item.sizes.length > 0
+    ? `from ₹${displayPrice}`
+    : `₹${displayPrice}`;
+
+  // Sizes chips (if item has size variants)
+  const sizesHTML = _buildSizesHTML(item);
 
   return `
     <div class="menu-card"
-         data-id="${item.id}"
-         data-name="${escHtml(item.name)}"
-         data-price="${price}">
-      <div class="card-info">
-        <div class="card-name">${nameHtml}</div>
-        ${desc}
-        <div class="card-price">${priceStr}</div>
-      </div>
-      <div class="card-action">
-        <button class="btn-add"
-                data-id="${item.id}"
-                data-name="${escHtml(item.name)}"
-                data-price="${price}">
-          Add
-        </button>
+         data-id="${escHtml(item.id)}"
+         data-name="${escHtml(item.name || "")}"
+         data-price="${displayPrice}">
+      <div class="card-body">
+        ${item.imageUrl ? `<img class="card-img" src="${escHtml(item.imageUrl)}" alt="${escHtml(item.name || "")}" loading="lazy"/>` : ""}
+        <div class="card-info">
+          <h3 class="card-name">${name}</h3>
+          ${cat   ? `<span class="card-category">${cat}</span>` : ""}
+          ${desc  ? `<p class="card-desc">${desc}</p>` : ""}
+          ${sizesHTML}
+          <div class="card-footer">
+            <span class="card-price">${priceLabel}</span>
+            <div class="card-action">
+              <button class="btn-add"
+                      data-id="${escHtml(item.id)}"
+                      data-name="${escHtml(item.name || "")}"
+                      data-price="${displayPrice}">
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
 
-/** Wrap matched text in a highlight span. */
-function highlightText(html, query) {
-  if (!query) return html;
-  const re = new RegExp(`(${escRegex(query)})`, "gi");
-  return html.replace(re, `<mark class="search-highlight">$1</mark>`);
+function _getDisplayPrice(item) {
+  if (Array.isArray(item.sizes) && item.sizes.length > 0) {
+    const available = item.sizes.filter((s) => s.available !== false && s.inStock !== false);
+    if (available.length > 0) {
+      return Math.min(...available.map((s) => s.price || 0));
+    }
+  }
+  return item.price || 0;
 }
 
-function escRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function _buildSizesHTML(item) {
+  if (!Array.isArray(item.sizes) || item.sizes.length === 0) return "";
+  const chips = item.sizes
+    .filter((s) => s.available !== false && s.inStock !== false)
+    .map(
+      (s) => `<span class="size-chip">${escHtml(s.label || "")} ₹${s.price || 0}</span>`
+    )
+    .join("");
+  return chips ? `<div class="size-chips">${chips}</div>` : "";
 }
 
-// ── Delegate click events on the grid ────────────────────────
-function attachCardListeners(grid) {
-  // Remove previous listener by replacing node
+// ── Wire add/remove events (event delegation) ─────────────────
+
+function _wireCardEvents(grid) {
+  // Remove previous listener by cloning (prevents duplicate listeners)
   const fresh = grid.cloneNode(true);
   grid.parentNode?.replaceChild(fresh, grid);
-  const g = document.getElementById("menuGrid");
 
-  g.addEventListener("click", (e) => {
+  fresh.addEventListener("click", (e) => {
+    // Add button
     const addBtn = e.target.closest(".btn-add");
-    if (addBtn) { addItem(addBtn.dataset.id, addBtn.dataset.name, addBtn.dataset.price); return; }
-
-    const plusBtn = e.target.closest(".qty-plus");
-    if (plusBtn) { addItem(plusBtn.dataset.id, getNameFromCard(plusBtn), getPriceFromCard(plusBtn)); return; }
-
-    const minusBtn = e.target.closest(".qty-minus");
-    if (minusBtn) removeItem(minusBtn.dataset.id);
+    if (addBtn) {
+      addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      return;
+    }
+    // Qty minus
+    const minus = e.target.closest(".qty-minus");
+    if (minus) { removeItem(minus.dataset.id); return; }
+    // Qty plus
+    const plus = e.target.closest(".qty-plus");
+    if (plus) {
+      const card = plus.closest(".menu-card");
+      if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
+      return;
+    }
   });
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function groupByCategory(items) {
-  return items.reduce((acc, item) => {
-    const cat = item.category || "Other";
-    (acc[cat] = acc[cat] || []).push(item);
-    return acc;
-  }, {});
-}
+// ── Loading / error states ────────────────────────────────────
 
-function getNameFromCard(el) { return el.closest(".menu-card")?.dataset.name || ""; }
-function getPriceFromCard(el) { return el.closest(".menu-card")?.dataset.price || 0; }
-
-function escHtml(s = "") {
-  return String(s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-// ── Loading / error helpers ───────────────────────────────────
 function showLoading(visible) {
   document.getElementById("loadingState")?.classList.toggle("hidden", !visible);
-  document.getElementById("errorState")?.classList.add("hidden");
+  if (visible) document.getElementById("menuGrid")?.classList.add("hidden");
 }
 
 function showError(msg) {
   showLoading(false);
   const state = document.getElementById("errorState");
-  const text  = document.querySelector(".error-text");
-  if (state) state.classList.remove("hidden");
-  if (text)  text.innerHTML = msg.replace(/\n/g, "<br/>");
+  const text  = document.getElementById("errorText");
+  if (text) text.textContent = msg;
+  state?.classList.remove("hidden");
+}
+
+// ── Highlight helper ──────────────────────────────────────────
+
+function highlight(text, query) {
+  if (!query) return escHtml(text);
+  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  return escHtml(text).replace(re, '<mark class="search-highlight">$1</mark>');
+}
+
+function escHtml(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

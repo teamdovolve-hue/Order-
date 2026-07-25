@@ -1,10 +1,11 @@
 # QR Menu — Customer Order Panel
 
-Mobile-first, dark-themed QR menu for restaurant tables. Customers scan a QR code, log in, browse items, and place orders saved live to Firestore. The billing panel picks them up in real-time.
+Mobile-first, dark-themed QR menu for restaurant tables. Customers scan a QR code, browse the menu freely, add items to cart, tap "Place Order", verify via Firebase Phone OTP, and their order goes live to Firestore. The billing panel picks it up in real-time.
 
 ## Stack
 - Pure HTML / CSS / Vanilla JavaScript (ES Modules)
-- Firebase Firestore v10 (CDN, no build step)
+- Firebase Firestore v10 (real-time `onSnapshot` for menu + orders)
+- Firebase Authentication v10 (Phone OTP — no passwords)
 - Served with `npx serve`
 
 ## How to Run
@@ -15,54 +16,67 @@ Open with a table param in the URL:
 https://your-repl.repl.co/?table=T4
 ```
 
+## Authentication Flow
+The login screen does NOT appear on page load. Customers browse freely.
+
+```
+Customer opens website
+  → Browse menu freely
+  → Add items to cart
+  → Tap "Place Order"
+  → If not logged in: OTP modal slides up
+  → Enter phone number (+91)
+  → Enter 6-digit OTP
+  → Order is placed automatically
+  → Permanently logged in (Firebase Auth persistence)
+```
+
 ## File Structure
 ```
-index.html                ← App shell & all overlays
+index.html                ← App shell + OTP modal
 css/
-  style.css               ← Full dark theme, login, search, active orders
+  style.css               ← Full dark theme, OTP modal, menu, active orders
 js/
-  firebase-config.js      ← Firebase init & db export (live keys inside)
-  login.js                ← First-time login (Truecaller → WhatsApp → manual)
-  search.js               ← Real-time menu search
-  order-status.js         ← Live order status (pending → preparing → history)
-  menu.js                 ← Fetch & render menu items, search support
+  firebase-config.js      ← Firebase init — exports db + auth
+  auth.js                 ← Firebase Phone OTP auth (replaces old login.js)
+  customer.js             ← Thin shim over auth.js (backward-compat API)
+  app.js                  ← Entry point; wires everything via onAuthStateChanged
+  menu.js                 ← Real-time menu via onSnapshot; out-of-stock propagation
   cart.js                 ← Cart state + DOM updates
   order.js                ← Order submission to Firestore
-  customer.js             ← Thin shim over login.js (backward compat)
-  history.js              ← Order history drawer (localStorage)
-  app.js                  ← Entry point, wires everything together
+  order-status.js         ← Live order status (pending → preparing → history)
+  search.js               ← Real-time menu search
+  history.js              ← Order history drawer (localStorage, key: qrmenu_history)
 billing-integration/
   js/incoming-orders.js   ← Drop into billing panel: incoming orders + KOT/settle hooks
   HOW-TO-ADD.md           ← 4-step setup guide for the billing panel
 ```
 
-## Configuration
+## Firebase Phone Auth — One-time Setup
+**Before going live**, add your Replit domain to Firebase → Authentication → Settings → Authorized Domains.
 
-### Login system (js/login.js)
-```javascript
-const WHATSAPP_NUMBER        = "919999999999"; // ← replace with business WhatsApp number
-const TRUECALLER_PARTNER_KEY = "";             // ← set for Truecaller 1-tap, or leave ""
-```
+For testing, add test phone numbers: Firebase → Authentication → Sign-in method → Phone → Test phone numbers.
 
-### Firestore Collections
+## Firestore Collections
 | Collection | Purpose |
 |---|---|
 | `menu_items` | Source of menu cards shown to customers |
 | `pending_table_orders` | Orders written by customers, read by billing panel |
 
-### Order Status Flow
+## Order Status Flow
 | Firestore `status` | Customer sees |
 |---|---|
 | `pending` / `accepted` | Order Received — Kitchen notified soon |
 | `kot` | Preparing • X min (live timer from `kotAt`) |
-| `completed` | Removed from Active Orders, saved to history |
+| `completed` | Removed from Active Orders → saved to Order History |
+| `dismissed` / `rejected` | Silently removed from Active Orders (NOT saved to history) |
 
-### Billing Panel Integration
+## Billing Panel Integration
 See `billing-integration/HOW-TO-ADD.md` for 4-step setup. Key hooks:
 - `window._orderStatusKOT(tableName)` — call when KOT is printed
 - `window._orderStatusComplete(tableName, 'save_exit'|'bill_settle')` — call on settle
 
-### Firestore Security Rules (minimum)
+## Firestore Security Rules (minimum)
 ```js
 rules_version = '2';
 service cloud.firestore {
@@ -79,8 +93,8 @@ service cloud.firestore {
 
 ## User Preferences
 - Dark theme (#0f0f0f background, #f5a623 amber accent), mobile-first
-- Login screen background: #1A1E29
 - No dummy/hardcoded data — everything from live Firestore
-- Modular JS (one concern per file)
+- Firebase is single source of truth for auth + order status
+- Modular JS (one concern per file), no build step
 - Currency: INR (₹)
-- No build step — pure ES modules via CDN
+- All billing panel ↔ customer panel sync happens instantly via Firestore onSnapshot

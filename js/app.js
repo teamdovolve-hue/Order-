@@ -2,22 +2,25 @@
  * app.js — Entry point
  * ─────────────────────────────────────────────────────────────
  * Boot sequence:
- *   1. Set table badge from URL
- *   2. Init login system (wire events; show screen if first visit)
- *   3. Init menu (fetch + render from Firestore)
+ *   1. Set table badge from ?table= URL param
+ *   2. Init auth (wire OTP modal events)
+ *   3. Init menu (real-time Firestore listener — no auth needed)
  *   4. Init search
  *   5. Init order history drawer
- *   6. Init real-time order status (requires login)
- *   7. Wire all buttons
+ *   6. Watch Firebase Auth state → start/stop order status listener
+ *   7. Wire Place Order button (gates on login via requireLogin)
+ *   8. Wire overlay close buttons
  */
 
-import { initMenu, filterBySearch }      from "./menu.js";
-import { placeOrder, getTableId }        from "./order.js";
-import { updateGreeting }                from "./customer.js";
-import { initHistory }                   from "./history.js";
-import { initLogin, isLoggedIn, requireLogin } from "./login.js";
-import { initSearch }                          from "./search.js";
-import { initOrderStatus }                     from "./order-status.js";
+import { initMenu, filterBySearch }         from "./menu.js";
+import { placeOrder, getTableId }           from "./order.js";
+import { updateGreeting, initAuth,
+         requireLogin, onAuthReady }        from "./auth.js";
+import { initHistory }                      from "./history.js";
+import { initSearch }                       from "./search.js";
+import { initOrderStatus, stopOrderStatus } from "./order-status.js";
+import { auth }                             from "./firebase-config.js";
+import { onAuthStateChanged }               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 document.addEventListener("DOMContentLoaded", () => {
 
@@ -26,33 +29,33 @@ document.addEventListener("DOMContentLoaded", () => {
   const badge   = document.getElementById("tableBadge");
   if (badge) badge.textContent = `Table ${tableId}`;
 
-  // 2. Login system — wire events
-  initLogin();
+  // 2. Auth — wire OTP modal, logout button; update greeting chip
+  initAuth();
 
-  // 3. Menu (loads in background while login screen may be showing)
+  // 3. Menu loads immediately (customers can browse before logging in)
   initMenu();
 
-  // 4. Search — filters menu in real-time
+  // 4. Real-time search
   initSearch(filterBySearch);
 
   // 5. History drawer
   initHistory();
 
-  // 6. Show login on first visit; start order status after login resolves
-  if (isLoggedIn()) {
+  // 6. Auth state watcher — start/stop order-status listener
+  onAuthStateChanged(auth, (user) => {
     updateGreeting();
-    initOrderStatus();
-  } else {
-    // Show login screen immediately on page load
-    requireLogin(() => {
-      updateGreeting();
-      initOrderStatus();
-    });
-  }
+    if (user) {
+      initOrderStatus();   // subscribe to this customer's orders
+    } else {
+      stopOrderStatus();   // unsubscribe on logout
+    }
+  });
 
-  // 7. Place Order button — also gates on login via cart.js → requireCustomer
+  // 7. Place Order — prompts login if needed, then submits
   document.getElementById("placeOrderBtn")
-    ?.addEventListener("click", placeOrder);
+    ?.addEventListener("click", () => {
+      requireLogin(() => placeOrder());
+    });
 
   // 8. Retry on menu load error
   document.getElementById("retryBtn")
@@ -61,15 +64,15 @@ document.addEventListener("DOMContentLoaded", () => {
       initMenu();
     });
 
-  // 10. Success overlay close
+  // 9. Success overlay close
   document.getElementById("overlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("successOverlay")?.classList.add("hidden");
       const btn = document.getElementById("placeOrderBtn");
-      if (btn) btn.textContent = "Place Order →";
+      if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
     });
 
-  // 11. Error overlay close
+  // 10. Error overlay close
   document.getElementById("errorOverlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorOverlay")?.classList.add("hidden");

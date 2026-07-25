@@ -1,57 +1,16 @@
 /**
  * cart.js
  * ─────────────────────────────────────────────────────────────
- * In-memory cart state + DOM update helpers.
- * Calls requireCustomer() before the first add so the modal
- * fires exactly once per session.
+ * In-memory cart state. Exports addItem, removeItem, clearCart,
+ * and the cart Map for order.js to read.
  */
 
-import { requireCustomer } from "./customer.js";
-
-/** @type {Map<string, { id: string, name: string, price: number, qty: number }>} */
+/** Map<itemId, { id, name, price, qty }> */
 export const cart = new Map();
 
-// ── DOM refs ──────────────────────────────────────────────────
-const getCartBar       = () => document.getElementById("cartBar");
-const getCartCount     = () => document.getElementById("cartCountBadge");
-const getCartTotal     = () => document.getElementById("cartTotal");
-const getPlaceOrderBtn = () => document.getElementById("placeOrderBtn");
+// ── Add one unit ───────────────────────────────────────────────
 
-// ── Currency formatter ────────────────────────────────────────
-const fmt = (n) =>
-  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
-
-// ── Recalculate & refresh cart UI ────────────────────────────
-export function refreshCartUI() {
-  let totalItems = 0;
-  let totalPrice = 0;
-
-  for (const item of cart.values()) {
-    totalItems += item.qty;
-    totalPrice += item.price * item.qty;
-  }
-
-  const cartBar  = getCartBar();
-  const cartCount = getCartCount();
-  const cartTotal = getCartTotal();
-  const placeBtn  = getPlaceOrderBtn();
-
-  if (totalItems > 0) {
-    cartBar?.classList.remove("hidden");
-    if (cartCount) cartCount.textContent = totalItems;
-    if (cartTotal) cartTotal.textContent = fmt(totalPrice);
-    if (placeBtn)  placeBtn.disabled = false;
-  } else {
-    cartBar?.classList.add("hidden");
-  }
-}
-
-// ── Add one unit — gates on customer info ─────────────────────
 export function addItem(id, name, price) {
-  requireCustomer(() => _doAdd(id, name, price));
-}
-
-function _doAdd(id, name, price) {
   if (cart.has(id)) {
     cart.get(id).qty += 1;
   } else {
@@ -61,7 +20,8 @@ function _doAdd(id, name, price) {
   updateCardUI(id);
 }
 
-// ── Remove one unit (or delete if qty hits 0) ─────────────────
+// ── Remove one unit (or delete if qty hits 0) ──────────────────
+
 export function removeItem(id) {
   if (!cart.has(id)) return;
   const item = cart.get(id);
@@ -71,7 +31,8 @@ export function removeItem(id) {
   updateCardUI(id);
 }
 
-// ── Clear entire cart ─────────────────────────────────────────
+// ── Clear entire cart ──────────────────────────────────────────
+
 export function clearCart() {
   const ids = [...cart.keys()];
   cart.clear();
@@ -79,8 +40,39 @@ export function clearCart() {
   ids.forEach((id) => updateCardUI(id));
 }
 
-// ── Toggle card between "Add" button and qty control ──────────
-function updateCardUI(itemId) {
+// ── Cart bar UI ───────────────────────────────────────────────
+
+export function refreshCartUI() {
+  const bar   = document.getElementById("cartBar");
+  const badge = document.getElementById("cartCountBadge");
+  const total = document.getElementById("cartTotal");
+  const btn   = document.getElementById("placeOrderBtn");
+
+  if (!bar) return;
+
+  let totalQty = 0;
+  let totalAmt = 0;
+  for (const item of cart.values()) {
+    totalQty += item.qty;
+    totalAmt += item.price * item.qty;
+  }
+
+  const hasItems = totalQty > 0;
+  bar.classList.toggle("hidden", !hasItems);
+
+  if (badge) badge.textContent = totalQty;
+  if (total) {
+    total.textContent = new Intl.NumberFormat("en-IN", {
+      style: "currency", currency: "INR",
+    }).format(totalAmt);
+  }
+  if (btn) btn.disabled = !hasItems;
+}
+
+// ── Per-card UI (Add button ↔ qty control) ────────────────────
+
+export function updateCardUI(itemId) {
+  // The menu grid may have been replaced via cloneNode; query fresh each time
   const card    = document.querySelector(`.menu-card[data-id="${itemId}"]`);
   const wrapper = card?.querySelector(".card-action");
   if (!card || !wrapper) return;
@@ -108,5 +100,5 @@ function updateCardUI(itemId) {
 }
 
 function escHtml(s = "") {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }

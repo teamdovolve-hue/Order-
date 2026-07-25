@@ -2,25 +2,27 @@
  * order.js
  * ─────────────────────────────────────────────────────────────
  * Reads Table ID from URL, handles order submission to Firestore.
- * History is populated by order-status.js when billing panel
- * marks an order "completed" — not at place time.
+ * History is written by order-status.js when billing panel marks "completed".
  */
 
 import { db }                          from "./firebase-config.js";
-import { collection, addDoc, serverTimestamp }
-                                       from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import {
+  collection, addDoc, serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { cart, clearCart }             from "./cart.js";
 import { getCustomer }                 from "./customer.js";
 
 const ORDER_COLLECTION = "pending_table_orders";
 
 // ── Read ?table=XX from the URL ───────────────────────────────
+
 export function getTableId() {
   const params = new URLSearchParams(window.location.search);
   return params.get("table") || "Unknown";
 }
 
 // ── Submit order ──────────────────────────────────────────────
+
 export async function placeOrder() {
   if (cart.size === 0) return;
 
@@ -28,7 +30,7 @@ export async function placeOrder() {
   if (btn) { btn.disabled = true; btn.textContent = "Placing…"; }
 
   const tableId  = getTableId();
-  const customer = getCustomer();
+  const customer = getCustomer();    // { name, phone, uid } from Firebase Auth
   const items    = [];
   let   totalItems = 0;
   let   totalPrice = 0;
@@ -47,7 +49,9 @@ export async function placeOrder() {
 
   const payload = {
     tableId,
-    customer: customer || { name: "Guest", phone: "" },
+    customer: customer
+      ? { name: customer.phone, phone: customer.phone, uid: customer.uid }
+      : { name: "Guest", phone: "", uid: "" },
     items,
     totalItems,
     totalPrice:  +totalPrice.toFixed(2),
@@ -57,19 +61,19 @@ export async function placeOrder() {
 
   try {
     const ref = await addDoc(collection(db, ORDER_COLLECTION), payload);
-    console.log("[order.js] Order saved:", ref.id);
+    console.log("[order] Order saved:", ref.id);
     clearCart();
-    showSuccessOverlay(tableId, totalItems, totalPrice, customer);
-    // History is populated by order-status.js when billing panel marks completed
+    _showSuccess(tableId, totalItems, totalPrice, customer);
   } catch (err) {
-    console.error("[order.js] Submission failed:", err);
-    showErrorOverlay(err.message);
+    console.error("[order] Submission failed:", err);
+    _showError(err.message);
     if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
   }
 }
 
 // ── Success overlay ───────────────────────────────────────────
-function showSuccessOverlay(tableId, totalItems, totalPrice, customer) {
+
+function _showSuccess(tableId, totalItems, totalPrice, customer) {
   const fmt = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
@@ -78,24 +82,25 @@ function showSuccessOverlay(tableId, totalItems, totalPrice, customer) {
 
   if (msg) {
     msg.innerHTML = `
-      ${customer?.name ? `Hi <strong>${escHtml(customer.name)}</strong>!<br/>` : ""}
-      <strong>Table ${escHtml(tableId)}</strong> —
+      <strong>Table ${_esc(tableId)}</strong> —
       ${totalItems} item${totalItems !== 1 ? "s" : ""} · ${fmt(totalPrice)}<br/>
       <span style="color:var(--text-3);font-size:13px;">
-        Track your order status in <em>Active Orders</em> above.
+        Track your order in <em>Active Orders</em> above.
       </span>`;
   }
   overlay?.classList.remove("hidden");
 }
 
 // ── Error overlay ─────────────────────────────────────────────
-function showErrorOverlay(detail = "") {
+
+function _showError(detail = "") {
   const overlay = document.getElementById("errorOverlay");
   const msg     = document.getElementById("errorOverlayMsg");
   if (msg && detail) msg.textContent = detail;
   overlay?.classList.remove("hidden");
 }
 
-function escHtml(s = "") {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function _esc(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

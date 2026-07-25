@@ -7,7 +7,6 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Palette */
   --bg:          #0f0f0f;
   --surface:     #1a1a1a;
   --surface-2:   #222222;
@@ -20,21 +19,17 @@
   --green-soft:  rgba(39, 174, 96, 0.15);
   --red:         #e74c3c;
   --blue:        #3b82f6;
-  --wa-green:    #25d366;
-  --tc-blue:     #0B55A4;
   --text-1:      #f0f0f0;
   --text-2:      #aaaaaa;
   --text-3:      #666666;
   --white:       #ffffff;
 
-  /* Spacing */
   --r-sm:  8px;
   --r-md:  12px;
   --r-lg:  16px;
   --r-xl:  20px;
   --r-2xl: 24px;
 
-  /* Cart bar height — used to pad main content */
   --cart-h: 72px;
 }
 
@@ -60,252 +55,219 @@ mark.search-highlight {
 
 
 /* ══════════════════════════════════════════════════════════════
-   LOGIN SCREEN
+   OTP MODAL (Phone verification — slides up on "Place Order")
 ══════════════════════════════════════════════════════════════ */
-.login-screen {
+.otp-modal {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: #1A1E29;
   display: flex;
-  align-items: flex-end;      /* card slides up from bottom */
+  align-items: flex-end;
   justify-content: center;
-  padding: 0;
-  animation: loginFadeIn 0.3s ease;
+  animation: otpFadeIn 0.25s ease;
 }
 
-@keyframes loginFadeIn {
+@keyframes otpFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
-.login-bg-blur {
+.otp-backdrop {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse at 20% 10%, rgba(245,166,35,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 90%, rgba(37,211,102,0.06) 0%, transparent 50%);
-  pointer-events: none;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
 }
 
-.login-card {
+.otp-sheet {
   position: relative;
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background: #1E2235;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 28px 28px 0 0;
-  padding: 32px 28px 48px;
-  animation: loginSlideUp 0.45s cubic-bezier(0.32, 0.72, 0, 1);
+  padding: 28px 24px 44px;
+  animation: otpSlideUp 0.4s cubic-bezier(0.32, 0.72, 0, 1);
   box-shadow: 0 -20px 60px rgba(0,0,0,0.5);
 }
 
-@keyframes loginSlideUp {
+@keyframes otpSlideUp {
   from { transform: translateY(100%); opacity: 0; }
   to   { transform: translateY(0);   opacity: 1; }
 }
 
-/* Brand header inside login */
-.login-brand {
+/* ── Brand inside sheet ──────────────────────────────────────── */
+.otp-brand {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
-.login-brand-icon {
-  font-size: 48px;
+.otp-brand-icon {
+  font-size: 44px;
   display: block;
-  margin-bottom: 12px;
-  filter: drop-shadow(0 4px 12px rgba(245,166,35,0.3));
+  margin-bottom: 10px;
+  filter: drop-shadow(0 4px 12px rgba(245,166,35,0.25));
 }
 
-.login-brand-name {
-  font-size: 26px;
+.otp-brand-name {
+  font-size: 22px;
   font-weight: 800;
   color: var(--white);
-  letter-spacing: -0.5px;
-  margin-bottom: 6px;
+  letter-spacing: -0.4px;
+  margin-bottom: 5px;
 }
 
-.login-brand-sub {
-  font-size: 14px;
-  color: rgba(255,255,255,0.45);
-  font-weight: 400;
-}
-
-/* Status line */
-.login-status {
-  text-align: center;
+.otp-brand-sub {
   font-size: 13px;
-  color: var(--text-3);
-  min-height: 18px;
-  margin-bottom: 8px;
-}
-
-/* Sections */
-.login-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* ── Login buttons ───────────────────────────────────────────── */
-.login-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  width: 100%;
-  padding: 15px 20px;
-  border: none;
-  border-radius: var(--r-xl);
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.15s, opacity 0.15s, box-shadow 0.2s;
-  letter-spacing: 0.1px;
-  text-align: center;
-}
-
-.login-btn:active { transform: scale(0.97); }
-
-.login-btn-icon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-/* Truecaller */
-.login-btn-tc {
-  background: #0B55A4;
-  color: #ffffff;
-  box-shadow: 0 4px 20px rgba(11,85,164,0.4);
-}
-.login-btn-tc:hover { box-shadow: 0 6px 24px rgba(11,85,164,0.55); }
-
-/* WhatsApp */
-.login-btn-wa {
-  background: #25D366;
-  color: #ffffff;
-  box-shadow: 0 4px 20px rgba(37,211,102,0.35);
-}
-.login-btn-wa:hover { box-shadow: 0 6px 24px rgba(37,211,102,0.5); }
-
-/* Manual / primary */
-.login-btn-primary {
-  background: var(--accent);
-  color: #000;
-  box-shadow: 0 4px 20px rgba(245,166,35,0.35);
-}
-.login-btn-primary:hover { background: var(--accent-dark); }
-
-/* ── Divider ─────────────────────────────────────────────────── */
-.login-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: rgba(255,255,255,0.2);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin: -4px 0;
-}
-.login-divider::before,
-.login-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,0.1);
-}
-
-/* ── WhatsApp hint (shown after tapping WA) ─────────────────── */
-.login-wa-hint {
-  text-align: center;
-  font-size: 13px;
-  color: var(--wa-green);
-  font-weight: 500;
-  background: rgba(37,211,102,0.08);
-  border: 1px solid rgba(37,211,102,0.2);
-  border-radius: var(--r-md);
-  padding: 10px 14px;
-}
-
-/* ── Cash counter hint ───────────────────────────────────────── */
-.login-cash-hint {
-  text-align: center;
-  font-size: 12.5px;
-  color: rgba(255,255,255,0.3);
-  line-height: 1.55;
-  margin-top: -4px;
-}
-.login-cash-hint strong { color: rgba(255,255,255,0.5); }
-
-/* ── Skip link ───────────────────────────────────────────────── */
-.login-skip-link {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.35);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-  padding: 4px;
-  transition: color 0.15s;
-}
-.login-skip-link:hover { color: rgba(255,255,255,0.6); }
-
-/* ── Manual form title ───────────────────────────────────────── */
-.login-manual-title {
-  text-align: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.8);
-  margin-bottom: 4px;
-}
-
-/* ── Form fields (shared with login and customer modal) ─────── */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-label {
-  font-size: 11px;
-  font-weight: 700;
   color: rgba(255,255,255,0.4);
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
 }
 
-.form-input {
+/* ── Phone input row ──────────────────────────────────────────── */
+.otp-phone-row {
+  display: flex;
+  align-items: center;
   background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: var(--r-md);
-  color: var(--text-1);
-  font-size: 16px;
-  padding: 13px 16px;
-  outline: none;
-  transition: border-color 0.2s, background 0.2s;
-  -webkit-appearance: none;
-  width: 100%;
+  overflow: hidden;
+  margin-bottom: 10px;
+  transition: border-color 0.2s;
 }
 
-.form-input::placeholder { color: rgba(255,255,255,0.25); }
-.form-input:focus {
+.otp-phone-row:focus-within {
   border-color: var(--accent);
   background: rgba(255,255,255,0.08);
 }
 
-.form-error {
+.otp-country-code {
+  padding: 14px 12px 14px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  border-right: 1px solid rgba(255,255,255,0.1);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.otp-field-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-1);
+  font-size: 17px;
+  font-weight: 500;
+  padding: 14px 16px;
+  outline: none;
+  -webkit-appearance: none;
+  width: 100%;
+  letter-spacing: 0.5px;
+}
+
+.otp-field-input::placeholder { color: rgba(255,255,255,0.2); }
+
+/* ── OTP code input ──────────────────────────────────────────── */
+.otp-code-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r-md);
+  color: var(--text-1);
+  font-size: 22px;
+  font-weight: 700;
+  padding: 14px 16px;
+  outline: none;
+  width: 100%;
+  margin-bottom: 10px;
+  text-align: center;
+  letter-spacing: 8px;
+  transition: border-color 0.2s, background 0.2s;
+  -webkit-appearance: none;
+}
+
+.otp-code-input:focus {
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.08);
+}
+
+.otp-code-input::placeholder {
+  color: rgba(255,255,255,0.2);
+  letter-spacing: 2px;
+  font-size: 14px;
+}
+
+/* ── Code step subtitle ──────────────────────────────────────── */
+.otp-code-subtitle {
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 16px;
+}
+
+/* ── Error message ───────────────────────────────────────────── */
+.otp-error {
   font-size: 12px;
-  color: var(--red);
-  min-height: 16px;
+  color: #f87171;
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.2);
   border-radius: var(--r-sm);
   padding: 8px 12px;
-  background: rgba(231,76,60,0.1);
-  border: 1px solid rgba(231,76,60,0.25);
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
-.form-error.hidden { display: none !important; }
+
+/* ── Primary action button ────────────────────────────────────── */
+.otp-btn-primary {
+  width: 100%;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: var(--r-md);
+  padding: 15px;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  letter-spacing: 0.2px;
+  margin-top: 4px;
+}
+
+.otp-btn-primary:hover   { background: var(--accent-dark); }
+.otp-btn-primary:active  { transform: scale(0.98); }
+.otp-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Secondary link button ────────────────────────────────────── */
+.otp-btn-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 12px;
+  text-align: center;
+  transition: color 0.15s;
+}
+
+.otp-btn-link:hover { color: rgba(255,255,255,0.7); }
+
+/* ── Hint text ───────────────────────────────────────────────── */
+.otp-hint {
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+/* ── Wide screens: center-modal instead of bottom sheet ─────── */
+@media (min-width: 600px) {
+  .otp-modal { align-items: center; padding: 24px; }
+  .otp-sheet { border-radius: 28px; max-width: 420px; padding: 36px 32px 48px; }
+}
 
 
 /* ══════════════════════════════════════════════════════════════
@@ -391,6 +353,23 @@ mark.search-highlight {
 }
 .btn-history:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Logout icon button */
+.btn-icon-sm {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-3);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.2s, color 0.2s;
+}
+.btn-icon-sm:hover { border-color: var(--red); color: var(--red); }
+
 
 /* ══════════════════════════════════════════════════════════════
    SEARCH BAR
@@ -400,7 +379,7 @@ mark.search-highlight {
   border-bottom: 1px solid var(--border);
   padding: 10px 16px;
   position: sticky;
-  top: 57px;           /* below header */
+  top: 57px;
   z-index: 35;
 }
 
@@ -431,7 +410,6 @@ mark.search-highlight {
   outline: none;
   transition: border-color 0.2s, background 0.2s;
   -webkit-appearance: none;
-  /* Remove browser search-input decorations */
   appearance: none;
 }
 .search-input::-webkit-search-cancel-button { display: none; }
@@ -459,7 +437,6 @@ mark.search-highlight {
 }
 .search-clear:hover { background: var(--border); color: var(--text-1); }
 
-/* ── Empty search state ───────────────────────────────────── */
 .menu-empty-msg {
   text-align: center;
   padding: 48px 20px;
@@ -476,7 +453,7 @@ mark.search-highlight {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky;
-  top: 104px;     /* below header (57px) + search (47px) */
+  top: 104px;
   z-index: 30;
 }
 
@@ -504,9 +481,7 @@ mark.search-highlight {
   transition: background 0.2s, color 0.2s, border-color 0.2s;
   white-space: nowrap;
 }
-
 .cat-btn:hover { border-color: var(--accent); color: var(--accent); }
-
 .cat-btn.active {
   background: var(--accent);
   color: #000;
@@ -615,7 +590,6 @@ mark.search-highlight {
   font-weight: 600;
 }
 
-/* Pending */
 .aos-pending {
   background: rgba(245,166,35,0.07);
   border: 1px solid rgba(245,166,35,0.2);
@@ -647,9 +621,6 @@ mark.search-highlight {
   opacity: 0.65;
   font-weight: 400;
 }
-
-/* Preparing */
-.aos-card.preparing { border-color: var(--green); }
 
 .aos-preparing {
   background: rgba(39,174,96,0.08);
@@ -714,26 +685,27 @@ mark.search-highlight {
   margin: 0 auto;
 }
 
-/* ── Section Label ─────────────────────────────────────────── */
-.section-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--text-3);
-  padding: 16px 0 10px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 14px;
-}
 
-/* ── Menu Grid ─────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   MENU GRID & CARDS
+══════════════════════════════════════════════════════════════ */
 .menu-grid { display: flex; flex-direction: column; gap: 2px; }
 
-/* ── Menu Card ─────────────────────────────────────────────── */
-.menu-card {
+.menu-empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.6;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+}
+
+.menu-empty span { font-size: 36px; }
+
+.menu-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -745,7 +717,23 @@ mark.search-highlight {
 .menu-card:hover { border-color: var(--surface-3); background: var(--surface-2); }
 .menu-card.in-cart { border-color: var(--accent); }
 
-.card-info { flex: 1; min-width: 0; padding-right: 12px; }
+.card-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-img {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-md);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-3);
+}
+
+.card-info { flex: 1; min-width: 0; }
 
 .card-name {
   font-size: 15px;
@@ -754,6 +742,15 @@ mark.search-highlight {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+
+.card-category {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
   margin-bottom: 4px;
 }
 
@@ -768,15 +765,41 @@ mark.search-highlight {
   overflow: hidden;
 }
 
+/* Pizza / variant size chips */
+.size-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.size-chip {
+  background: var(--surface-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
 .card-price {
   font-size: 15px;
   font-weight: 700;
   color: var(--accent);
 }
 
+.card-action { flex-shrink: 0; }
+
 /* ── Add / Qty buttons ─────────────────────────────────────── */
 .btn-add {
-  flex-shrink: 0;
   background: var(--accent);
   color: #000;
   border: none;
@@ -788,12 +811,10 @@ mark.search-highlight {
   transition: background 0.15s, transform 0.1s;
   white-space: nowrap;
 }
-
 .btn-add:active { transform: scale(0.95); }
 .btn-add:hover  { background: var(--accent-dark); }
 
 .qty-control {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -818,7 +839,6 @@ mark.search-highlight {
   transition: background 0.15s;
   line-height: 1;
 }
-
 .qty-btn:hover  { background: var(--accent-soft); }
 .qty-btn:active { background: var(--accent); color: #000; }
 
@@ -885,7 +905,9 @@ mark.search-highlight {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.15s;
 }
+.btn-retry:hover { background: var(--accent-dark); }
 
 
 /* ══════════════════════════════════════════════════════════════
@@ -964,10 +986,8 @@ mark.search-highlight {
   transition: background 0.15s, transform 0.1s;
   letter-spacing: 0.2px;
 }
-
 .btn-place-order:hover  { background: var(--accent-dark); }
 .btn-place-order:active { transform: scale(0.97); }
-
 .btn-place-order:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1066,7 +1086,6 @@ mark.search-highlight {
   cursor: pointer;
   transition: background 0.15s;
 }
-
 .btn-overlay-close:hover { background: var(--accent-dark); }
 
 
@@ -1295,19 +1314,16 @@ mark.search-highlight {
 
 
 /* ══════════════════════════════════════════════════════════════
-   RESPONSIVE (larger screens)
+   RESPONSIVE — larger screens
 ══════════════════════════════════════════════════════════════ */
 @media (min-width: 600px) {
   .menu-grid { gap: 0; }
+  .history-panel { bottom: 24px; border-radius: 20px; }
+}
 
-  /* Login card occupies center on wide screens */
-  .login-screen {
-    align-items: center;
-    padding: 24px;
-  }
-  .login-card {
-    border-radius: 28px;
-    max-width: 400px;
-    padding: 40px 36px 48px;
-  }
+/* ── Safe-area insets (notched phones) ──────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .cart-bar    { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .history-list { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .otp-sheet   { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
 }

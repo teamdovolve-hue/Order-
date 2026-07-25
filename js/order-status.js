@@ -3,83 +3,105 @@
  * ─────────────────────────────────────────────────────────────
  * Real-time active-order tracking for the customer panel.
  *
- * Statuses (set by billing panel via billing-integration/incoming-orders.js):
+ * Statuses (set by billing panel):
  *   pending / accepted → "Order Received — Kitchen notified soon"
  *   kot               → "Preparing • X min"  (live elapsed timer)
- *   completed         → removed from active view, saved to local history
- *   rejected          → silent remove from active view
+ *   completed         → removed from active view, saved to history
+ *   dismissed/rejected→ removed from active view silently (NOT saved to history)
+ *
+ * Firebase Auth is the source of truth for the current user's phone.
  */
 
+import { auth }                           from "./firebase-config.js";
 import { db }                             from "./firebase-config.js";
-import { collection, query, where, onSnapshot }
-                                          from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { getLoginInfo }                   from "./login.js";
+import {
+  collection, query, where, onSnapshot,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { saveOrderToHistory }             from "./history.js";
 
 const ORDERS_COL   = "pending_table_orders";
-const MOVED_KEY    = "qrmenu_moved_to_history";   // docIds already saved to local history
+const MOVED_KEY    = "qrmenu_moved_to_history";
+
+// Statuses that should appear in Active Orders view
+const ACTIVE_STATUSES = new Set(["pending", "accepted", "kot"]);
+
+// Statuses that should be quietly dropped (not shown, not saved)
+const SILENT_DISCARD = new Set(["dismissed", "rejected"]);
 
 let _unsub         = null;
-let _timerInterval = null;
+let _timerHandle   = null;
 let _activeOrders  = [];
 
 // ── Public ────────────────────────────────────────────────────
 
-/** Start listening for this customer's orders. Call after login. */
+/** Start listening for this customer's orders (keyed by Firebase Auth phone). */
 export function initOrderStatus() {
-  const login = getLoginInfo();
-  if (!login?.phone) return;
-  _startListener(login.phone);
+  const phone = auth.currentUser?.phoneNumber;
+  if (!phone) return;
+  _startListener(phone);
 }
 
-/** Stop listener (e.g. on logout). */
+/** Stop listener — call on logout. */
 export function stopOrderStatus() {
-  _unsub?.();
-  clearInterval(_timerInterval);
-  _timerInterval = null;
+  if (_unsub) { _unsub(); _unsub = null; }
+  clearInterval(_timerHandle);
+  _timerHandle  = null;
+  _activeOrders = [];
+  _render();
 }
 
 // ── Firestore listener ────────────────────────────────────────
 
 function _startListener(phone) {
-  if (_unsub) _unsub();
+  // Stop any existing listener first
+  if (_unsub) { _unsub(); _unsub = null; }
 
-  // Single query by phone — filter statuses client-side to avoid composite index
-  const q = query(collection(db, ORDERS_COL), where("customer.phone", "==", phone));
+  // 24-hour window so old orders don't pile up
+  const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+
+  const q = query(
+    collection(db, ORDERS_COL),
+    where("customer.phone", "==", phone)
+  );
 
   _unsub = onSnapshot(q, (snap) => {
-    const now        = Date.now();
-    const cutoff     = now - 24 * 60 * 60 * 1000; // 24-hour window
-    const movedSet   = _getMovedSet();
-    let   changed    = false;
-
-    const active = [];
+    const movedSet = _getMovedSet();
+    let   dirty    = false;
+    const active   = [];
 
     snap.docs.forEach((d) => {
       const data   = { _docId: d.id, ...d.data() };
-      const status = data.status || "pending";
-      const ts     = data.createdAt?.seconds
+      const status = (data.status || "pending").toLowerCase();
+
+      const ts = data.createdAt?.seconds
         ? data.createdAt.seconds * 1000
         : new Date(data.placedAt || 0).getTime();
 
-      if (status === "completed" && !movedSet.has(d.id)) {
-        saveOrderToHistory({ ...data, firestoreId: d.id });
-        movedSet.add(d.id);
-        changed = true;
+      // ── completed → save to history once, then discard from active ────────
+      if (status === "completed") {
+        if (!movedSet.has(d.id)) {
+          saveOrderToHistory({ ...data, firestoreId: d.id });
+          movedSet.add(d.id);
+          dirty = true;
+        }
+        return; // not shown in active
       }
 
-      // Show in active view if within last 24 h and still active
-      if (["pending", "accepted", "kot"].includes(status) && ts > cutoff) {
+      // ── dismissed / rejected → silently drop (never save to history) ──────
+      if (SILENT_DISCARD.has(status)) return;
+
+      // ── active statuses → show if within 24-hour window ──────────────────
+      if (ACTIVE_STATUSES.has(status) && ts > cutoffMs) {
         active.push(data);
       }
     });
 
-    if (changed) _setMovedSet(movedSet);
+    if (dirty) _setMovedSet(movedSet);
 
     _activeOrders = active.sort((a, b) => {
       const ta = a.createdAt?.seconds || 0;
       const tb = b.createdAt?.seconds || 0;
-      return tb - ta;
+      return tb - ta; // newest first
     });
 
     _render();
@@ -98,6 +120,7 @@ function _render() {
 
   if (_activeOrders.length === 0) {
     section.classList.add("hidden");
+    container.innerHTML = "";
     return;
   }
 
@@ -106,13 +129,15 @@ function _render() {
 }
 
 function _buildCard(order) {
-  const status = order.status || "pending";
+  const status = (order.status || "pending").toLowerCase();
   const isKot  = status === "kot";
   const fmt    = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
+  // Elapsed preparing time
   const kotSec    = order.kotAt?.seconds || 0;
-  const elapsedMn = kotSec ? Math.floor((Date.now() - kotSec * 1000) / 60000) : 0;
+  const nowMs     = Date.now();
+  const elapsedMn = kotSec ? Math.floor((nowMs - kotSec * 1000) / 60_000) : 0;
 
   const statusHTML = isKot
     ? `<div class="aos-status aos-preparing">
@@ -126,38 +151,50 @@ function _buildCard(order) {
         <span class="aos-status-sub">Kitchen will be notified soon</span>
        </div>`;
 
-  const items = (order.items || [])
-    .map((it) => `<li><span class="aos-item-name">${_esc(it.name)}</span><span class="aos-item-qty">×${it.quantity}</span></li>`)
+  const itemsHTML = (order.items || [])
+    .map((it) => `
+      <li>
+        <span class="aos-item-name">${_esc(it.name)}</span>
+        <span class="aos-item-qty">×${it.quantity}</span>
+      </li>`)
     .join("");
 
   return `
-    <div class="aos-card" data-docid="${order._docId}">
+    <div class="aos-card" data-docid="${_esc(order._docId)}">
       <div class="aos-card-top">
         <div class="aos-card-left">
           <span class="aos-table-tag">Table ${_esc(order.tableId || "—")}</span>
-          <span class="aos-item-count">${order.totalItems || 0} item${(order.totalItems || 0) !== 1 ? "s" : ""}</span>
+          <span class="aos-item-count">
+            ${order.totalItems || 0} item${(order.totalItems || 0) !== 1 ? "s" : ""}
+          </span>
         </div>
         <span class="aos-total">${fmt(order.totalPrice || 0)}</span>
       </div>
       ${statusHTML}
-      <ul class="aos-items">${items}</ul>
+      <ul class="aos-items">${itemsHTML}</ul>
     </div>`;
 }
 
-// ── Live timers ────────────────────────────────────────────────
+// ── Live timer (ticks every minute) ──────────────────────────
 
 function _startTimers() {
-  clearInterval(_timerInterval);
-  if (!_activeOrders.some((o) => o.status === "kot")) return;
+  clearInterval(_timerHandle);
 
-  _timerInterval = setInterval(() => {
-    document.querySelectorAll(".aos-timer[data-kotat]").forEach((el) => {
-      const sec = parseInt(el.dataset.kotat, 10);
-      if (!sec) return;
-      const mins = Math.floor((Date.now() - sec * 1000) / 60000);
-      el.textContent = `• ${mins} min`;
-    });
-  }, 15_000);
+  const hasKot = _activeOrders.some((o) => (o.status || "").toLowerCase() === "kot");
+  if (!hasKot) return;
+
+  // Tick immediately then every 60 s
+  _tickTimers();
+  _timerHandle = setInterval(_tickTimers, 60_000);
+}
+
+function _tickTimers() {
+  document.querySelectorAll(".aos-timer[data-kotat]").forEach((el) => {
+    const sec = parseInt(el.dataset.kotat, 10);
+    if (!sec) return;
+    const mins = Math.floor((Date.now() - sec * 1000) / 60_000);
+    el.textContent = `• ${mins} min`;
+  });
 }
 
 // ── Moved-set helpers ─────────────────────────────────────────

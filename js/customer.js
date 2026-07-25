@@ -1,26 +1,27 @@
 /**
  * customer.js
  * ─────────────────────────────────────────────────────────────
- * Thin compatibility shim over login.js.
- * cart.js and order.js import from here — unchanged API.
+ * Thin shim over auth.js — unchanged public API for cart.js and order.js.
  */
 
 import {
-  getLoginInfo, requireLogin, updateGreeting as _updateGreeting,
-} from "./login.js";
+  getLoginInfo,
+  requireLogin as _requireLogin,
+  updateGreeting as _updateGreeting,
+} from "./auth.js";
 
-/** Returns { name, phone } or null. */
+/** Returns { name, phone, uid } or null. */
 export function getCustomer() {
   return getLoginInfo();
 }
 
 /**
- * Call before any cart action.
- * If user is logged in, cb() fires immediately.
- * Otherwise the login screen is shown first, then cb().
+ * Call before any action that needs a logged-in customer.
+ * If already signed in, cb() fires immediately.
+ * Otherwise the OTP modal is shown first, then cb().
  */
 export function requireCustomer(cb) {
-  requireLogin(cb);
+  _requireLogin(cb);
 }
 
 /** Refresh the greeting chip in the header. */
