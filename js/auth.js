@@ -143,14 +143,8 @@ async function _onPhoneSubmit(e) {
   _expectedOTP = String(Math.floor(100000 + Math.random() * 900000));
 
   try {
-    const url = `https://www.fast2sms.com/dev/bulkV2?variables_values=${_expectedOTP}&route=otp&numbers=${phone}`;
-    const res  = await fetch(url, {
-      method: "GET",
-      headers: {
-        "authorization": "x0v38I3oRTe1UpDhCMbpbeT86z5bNJPYmu0E4FQ9g1MirVJh6Gp9Hkm0uuW8",
-        "Content-Type": "application/json",
-      },
-    });
+    const url = `/api/send-otp?phone=${phone}&otp=${_expectedOTP}`;
+    const res  = await fetch(url);
     const data = await res.json();
 
     if (!data.return) {
