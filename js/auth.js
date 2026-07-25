@@ -291,6 +291,10 @@ function _setLoadingBtn(id, loading, text) {
 
 function _friendly(err) {
   const c = err?.code || "";
+  if (c.includes("unauthorized-domain"))      return "This website domain is not authorized in Firebase. Add the exact domain shown in your browser to Firebase → Authentication → Settings → Authorized domains.";
+  if (c.includes("operation-not-allowed"))   return "Phone sign-in is disabled in Firebase. Enable Phone in Authentication → Sign-in method.";
+  if (c.includes("invalid-api-key"))         return "Firebase configuration is invalid. Check the web app configuration in Firebase.";
+  if (c.includes("app-not-authorized"))      return "This app is not authorized for Firebase Phone Auth. Check the Firebase web app and authorized domains.";
   if (c.includes("invalid-phone-number"))       return "Invalid phone number. Check and try again.";
   if (c.includes("too-many-requests"))           return "Too many attempts. Please wait a moment.";
   if (c.includes("quota-exceeded"))             return "Service busy. Try again in a minute.";
@@ -298,5 +302,5 @@ function _friendly(err) {
   if (c.includes("code-expired"))               return "OTP expired. Go back and resend.";
   if (c.includes("missing-phone-number"))       return "Please enter your phone number.";
   if (c.includes("captcha-check-failed"))       return "Verification failed. Please refresh and retry.";
-  return "Something went wrong. Please try again.";
+  return err?.message || "Something went wrong. Please try again.";
 }
