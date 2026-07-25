@@ -277,7 +277,8 @@ async function buildCard({ id, data }) {
   if (phone) {
     const meta = document.createElement('div');
     meta.style.cssText = 'font-size:.8rem;opacity:.6;margin-bottom:6px;';
-    meta.textContent = `📱 ${phone} · ${ordinal} order`;
+    const customerName = customer.name || 'Guest';
+    meta.textContent = `👤 ${customerName} · 📱 ${phone} · ${ordinal} order`;
     card.appendChild(meta);
   }
 

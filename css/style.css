@@ -123,6 +123,21 @@ mark.search-highlight {
 }
 
 /* ── Phone input row ──────────────────────────────────────────── */
+.otp-name-input {
+  display: block;
+  flex: none;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r-md);
+  margin-bottom: 10px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.otp-name-input:focus {
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.08);
+}
+
 .otp-phone-row {
   display: flex;
   align-items: center;

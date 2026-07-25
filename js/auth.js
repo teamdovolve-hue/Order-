@@ -5,7 +5,7 @@
  *
  * Flow:
  *   Customer browses freely → taps "Place Order" → if not logged in →
- *   OTP modal appears → enters phone → enters OTP → order placed.
+ *   OTP modal appears → enters name and phone → enters OTP → order placed.
  *
  * After first login, Firebase Auth persists the session permanently
  * (IndexedDB-backed localStorage). No login prompt on subsequent visits.
@@ -16,6 +16,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   onAuthStateChanged,
+  updateProfile,
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
@@ -34,6 +35,7 @@ let _pendingCb           = null;   // callback to run after login
 let _confirmationResult  = null;   // result from signInWithPhoneNumber
 let _recaptchaVerifier   = null;   // RecaptchaVerifier instance
 let _authReady           = false;  // true once onAuthStateChanged has fired once
+let _pendingCustomerName = "";     // name collected before phone verification
 
 // ── Auth state listener ──────────────────────────────────────────────────────
 
@@ -42,10 +44,10 @@ onAuthStateChanged(auth, (user) => {
   _authReady   = true;
   _updateGreeting();
 
-  if (user && _pendingCb) {
-    const cb = _pendingCb;
-    _pendingCb = null;
-    cb();
+  // A newly verified user must wait until their submitted name is applied
+  // before the pending order callback runs.
+  if (user && _pendingCb && !_pendingCustomerName) {
+    _runPendingCallback();
   }
 });
 
@@ -65,7 +67,7 @@ export function getLoginInfo() {
   if (!_currentUser) return null;
   const phone = _currentUser.phoneNumber || "";
   return {
-    name:  phone,                  // display as phone; app can format as needed
+    name:  _currentUser.displayName || phone,
     phone,
     uid:   _currentUser.uid,
   };
@@ -125,9 +127,10 @@ function _hideModal() {
 function _showPhoneStep() {
   document.getElementById("otpPhoneStep")?.classList.remove("hidden");
   document.getElementById("otpCodeStep")?.classList.add("hidden");
+  _clearError("otpNameError");
   _clearError("otpPhoneError");
   _clearError("otpCodeError");
-  document.getElementById("otpPhoneInput")?.focus();
+  document.getElementById("otpNameInput")?.focus();
 }
 
 function _showCodeStep(phone) {
@@ -142,16 +145,25 @@ function _showCodeStep(phone) {
 
 async function _onPhoneSubmit(e) {
   e.preventDefault();
+  _clearError("otpNameError");
   _clearError("otpPhoneError");
 
+  const name  = (document.getElementById("otpNameInput")?.value || "").trim();
   const raw   = document.getElementById("otpPhoneInput")?.value || "";
   const phone = raw.replace(/\D/g, "").slice(-10);
+
+  if (name.length < 2) {
+    _setError("otpNameError", "Please enter your name.");
+    document.getElementById("otpNameInput")?.focus();
+    return;
+  }
 
   if (phone.length !== 10) {
     _setError("otpPhoneError", "Enter a valid 10-digit mobile number.");
     return;
   }
 
+  _pendingCustomerName = name;
   _setLoadingBtn("otpSendBtn", true, "Sending…");
 
   try {
@@ -204,8 +216,13 @@ async function _onOTPSubmit(e) {
   _setLoadingBtn("otpVerifyBtn", true, "Verifying…");
 
   try {
-    await _confirmationResult.confirm(code);
-    // onAuthStateChanged fires → _currentUser set → _pendingCb called
+    const result = await _confirmationResult.confirm(code);
+    if (_pendingCustomerName && result.user) {
+      await updateProfile(result.user, { displayName: _pendingCustomerName });
+    }
+    _currentUser = result.user;
+    _updateGreeting();
+    _runPendingCallback();
     _hideModal();
   } catch (err) {
     console.error("[auth] OTP confirm:", err);
@@ -213,6 +230,14 @@ async function _onOTPSubmit(e) {
   } finally {
     _setLoadingBtn("otpVerifyBtn", false, "Verify OTP");
   }
+}
+
+function _runPendingCallback() {
+  if (!_pendingCb) return;
+  const cb = _pendingCb;
+  _pendingCb = null;
+  _pendingCustomerName = "";
+  cb();
 }
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -235,7 +260,7 @@ function _updateGreeting() {
   if (_currentUser?.phoneNumber) {
     const last4 = _currentUser.phoneNumber.slice(-4);
     if (chip) {
-      chip.textContent = `👤 ···${last4}`;
+      chip.textContent = `👤 ${_currentUser.displayName || `···${last4}`}`;
       chip.classList.remove("hidden");
     }
     logoutBtn?.classList.remove("hidden");

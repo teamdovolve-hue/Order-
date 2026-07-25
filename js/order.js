@@ -50,7 +50,7 @@ export async function placeOrder() {
   const payload = {
     tableId,
     customer: customer
-      ? { name: customer.phone, phone: customer.phone, uid: customer.uid }
+      ? { name: customer.name, phone: customer.phone, uid: customer.uid }
       : { name: "Guest", phone: "", uid: "" },
     items,
     totalItems,

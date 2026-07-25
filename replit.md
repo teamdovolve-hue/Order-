@@ -25,7 +25,7 @@ Customer opens website
   → Add items to cart
   → Tap "Place Order"
   → If not logged in: OTP modal slides up
-  → Enter phone number (+91)
+  → Enter name and phone number (+91)
   → Enter 6-digit OTP
   → Order is placed automatically
   → Permanently logged in (Firebase Auth persistence)
@@ -62,6 +62,8 @@ For testing, add test phone numbers: Firebase → Authentication → Sign-in met
 |---|---|
 | `menu_items` | Source of menu cards shown to customers |
 | `pending_table_orders` | Orders written by customers, read by billing panel |
+
+Each order stores the verified customer's name, phone number, and Firebase UID.
 
 ## Order Status Flow
 | Firestore `status` | Customer sees |

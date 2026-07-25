@@ -25,9 +25,19 @@
         <p class="otp-brand-sub">Verify your phone to place the order</p>
       </div>
 
-      <!-- Step 1 — Phone number -->
+      <!-- Step 1 — Customer details and phone number -->
       <div id="otpPhoneStep">
         <form id="otpPhoneForm" novalidate autocomplete="off">
+          <input
+            class="otp-field-input otp-name-input"
+            type="text"
+            id="otpNameInput"
+            placeholder="Your name"
+            maxlength="80"
+            autocomplete="name"
+            required
+          />
+          <p class="otp-error hidden" id="otpNameError"></p>
           <div class="otp-phone-row">
             <span class="otp-country-code">+91</span>
             <input
