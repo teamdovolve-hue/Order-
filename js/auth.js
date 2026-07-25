@@ -143,8 +143,9 @@ async function _onPhoneSubmit(e) {
   _expectedOTP = String(Math.floor(100000 + Math.random() * 900000));
 
   try {
-    const url = `/api/send-otp?phone=${phone}&otp=${_expectedOTP}`;
-    const res  = await fetch(url);
+    // Called from browser (user's IP) — Replit's server IP is blocked by Fast2SMS
+    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=x0v38I3oRTe1UpDhCMbpbeT86z5bNJPYmu0E4FQ9g1MirVJh6Gp9Hkm0uuW8&route=otp&variables_values=${_expectedOTP}&numbers=${phone}`;
+    const res  = await fetch(url);   // no custom headers — Fast2SMS CORS allows this
     const data = await res.json();
 
     if (!data.return) {
