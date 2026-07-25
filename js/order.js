@@ -1,17 +1,16 @@
 /**
  * order.js
  * ─────────────────────────────────────────────────────────────
- * Reads Table ID from URL, handles order flow.
- * Writes to Firestore → billing panel picks it up in real-time.
+ * Reads Table ID from URL, handles order submission to Firestore.
+ * History is populated by order-status.js when billing panel
+ * marks an order "completed" — not at place time.
  */
 
 import { db }                          from "./firebase-config.js";
 import { collection, addDoc, serverTimestamp }
                                        from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-
 import { cart, clearCart }             from "./cart.js";
 import { getCustomer }                 from "./customer.js";
-import { saveOrderToHistory }          from "./history.js";
 
 const ORDER_COLLECTION = "pending_table_orders";
 
@@ -26,16 +25,13 @@ export async function placeOrder() {
   if (cart.size === 0) return;
 
   const btn = document.getElementById("placeOrderBtn");
-  if (btn) {
-    btn.disabled    = true;
-    btn.textContent = "Placing…";
-  }
+  if (btn) { btn.disabled = true; btn.textContent = "Placing…"; }
 
   const tableId  = getTableId();
   const customer = getCustomer();
   const items    = [];
-  let totalItems = 0;
-  let totalPrice = 0;
+  let   totalItems = 0;
+  let   totalPrice = 0;
 
   for (const item of cart.values()) {
     items.push({
@@ -49,58 +45,30 @@ export async function placeOrder() {
     totalPrice += item.price * item.qty;
   }
 
-  const orderPayload = {
+  const payload = {
     tableId,
     customer: customer || { name: "Guest", phone: "" },
     items,
     totalItems,
     totalPrice:  +totalPrice.toFixed(2),
     status:      "pending",
+    createdAt:   serverTimestamp(),
   };
 
-  // ── PRODUCTION — write to Firestore ──────────────────────
   try {
-    const ref = await addDoc(collection(db, ORDER_COLLECTION), {
-      ...orderPayload,
-      createdAt: serverTimestamp(),
-    });
+    const ref = await addDoc(collection(db, ORDER_COLLECTION), payload);
     console.log("[order.js] Order saved:", ref.id);
-    saveOrderToHistory(orderPayload);
     clearCart();
     showSuccessOverlay(tableId, totalItems, totalPrice, customer);
+    // History is populated by order-status.js when billing panel marks completed
   } catch (err) {
-    console.error("[order.js] Order submission failed:", err);
+    console.error("[order.js] Submission failed:", err);
     showErrorOverlay(err.message);
-    if (btn) {
-      btn.disabled    = false;
-      btn.textContent = "Place Order →";
-    }
+    if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
   }
-  // ──────────────────────────────────────────────────────────
 }
 
-// ── Test-mode overlay ─────────────────────────────────────────
-function showTestOverlay(tableId, totalItems, totalPrice, customer) {
-  const fmt = (n) =>
-    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
-
-  const overlay = document.getElementById("successOverlay");
-  const msg     = document.getElementById("overlayMsg");
-
-  if (msg) {
-    msg.innerHTML = `
-      <span class="test-badge">🚧 Testing Mode</span><br/>
-      Your place order is working!<br/>
-      <small style="color:var(--text-3)">
-        ${customer?.name ? `Hi ${escHtml(customer.name)} · ` : ""}
-        Table <strong>${escHtml(tableId)}</strong> —
-        ${totalItems} item${totalItems !== 1 ? "s" : ""} · ${fmt(totalPrice)}
-      </small>`;
-  }
-  overlay?.classList.remove("hidden");
-}
-
-// ── Live success overlay (used in production mode) ────────────
+// ── Success overlay ───────────────────────────────────────────
 function showSuccessOverlay(tableId, totalItems, totalPrice, customer) {
   const fmt = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
@@ -111,9 +79,11 @@ function showSuccessOverlay(tableId, totalItems, totalPrice, customer) {
   if (msg) {
     msg.innerHTML = `
       ${customer?.name ? `Hi <strong>${escHtml(customer.name)}</strong>!<br/>` : ""}
-      Table <strong>${escHtml(tableId)}</strong> —
-      ${totalItems} item${totalItems !== 1 ? "s" : ""} for ${fmt(totalPrice)}<br/>
-      Your order is being prepared!`;
+      <strong>Table ${escHtml(tableId)}</strong> —
+      ${totalItems} item${totalItems !== 1 ? "s" : ""} · ${fmt(totalPrice)}<br/>
+      <span style="color:var(--text-3);font-size:13px;">
+        Track your order status in <em>Active Orders</em> above.
+      </span>`;
   }
   overlay?.classList.remove("hidden");
 }

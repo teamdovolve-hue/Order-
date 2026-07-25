@@ -1,6 +1,6 @@
-# Adding Incoming Orders to Your Billing Panel
+# Adding Incoming Orders + Order Status to Your Billing Panel
 
-3 changes. That's it.
+4 steps. Copy the file, add a script tag, expose two functions, and hook into KOT/Settle.
 
 ---
 
@@ -11,7 +11,7 @@ Copy `js/incoming-orders.js` from this folder into your billing panel's `js/` fo
 ```
 your-billing-panel/
   js/
-    incoming-orders.js   ← add this file here
+    incoming-orders.js   ← add / replace this file
     firebase-config.js
     tables.js
     cart.js
@@ -20,9 +20,9 @@ your-billing-panel/
 
 ---
 
-## Step 2 — Add one `<script>` tag to `index.html`
+## Step 2 — Add one `<script>` tag to index.html
 
-Open your billing panel's `index.html` and paste this **just before the closing `</body>` tag**:
+Open your billing panel's `index.html` and paste this **just before `</body>`**:
 
 ```html
 <script type="module" src="js/incoming-orders.js"></script>
@@ -30,52 +30,71 @@ Open your billing panel's `index.html` and paste this **just before the closing 
 
 ---
 
-## Step 3 — Expose `openPOS` in `tables.js`
+## Step 3 — Expose `openPOS` and `loadGrid` in tables.js
 
-Open `js/tables.js`. Find the closing `}` of the `openPOS` function (around line 126–150).
-Add these **two lines immediately after** that closing brace:
-
-```javascript
-    window._posOpenTable = openPOS;   // ← ADD THIS
-    window._posLoadGrid  = loadGrid;  // ← ADD THIS
-```
-
-Like this:
+Open `js/tables.js`. After the closing `}` of the `openPOS` function (around line 126–150), add:
 
 ```javascript
-    function openPOS(name, targetTab = 'C1') {
-        // ... existing code stays as-is ...
-    }
     window._posOpenTable = openPOS;   // ← NEW
     window._posLoadGrid  = loadGrid;  // ← NEW
 ```
 
 ---
 
-## What you'll see
+## Step 4 — Hook KOT and Settle into order-status (NEW)
 
-After reload, a red **🔔 Orders** button appears in your home screen grid,
-**right next to your Expense button** — same size, same style.
+This makes the customer panel show **"Preparing • X min"** live timers and move orders
+to history automatically when you settle a table.
 
+### 4a — KOT hook
+
+Wherever you print the KOT in your billing panel (the function / button handler that
+prints the kitchen order ticket), add **one line**:
+
+```javascript
+// Your existing KOT print code here …
+window._orderStatusKOT?.(currentTableName);   // ← ADD THIS
 ```
-┌──────────────┬──────────────┐
-│  🪑 Dine-In  │  📦 Parcel   │
-├──────────────┴──────────────┤
-│      ⚡ Quick Sale Entry     │
-├──────────────┬──────────────┤
-│ 💸 Expense   │ 🔔 Orders ← │
-└──────────────┴──────────────┘
+
+Replace `currentTableName` with the variable that holds the active table's name
+(e.g. `"Table 4"`, `selectedTable`, `activeTable`, etc.).
+
+### 4b — Save & Exit hook
+
+In your "Save & Exit" handler:
+
+```javascript
+window._orderStatusComplete?.(currentTableName, 'save_exit');   // ← ADD THIS
+// … rest of your save/exit code
 ```
 
-- **New order arrives** → red number badge appears on the button + alert beep loops
-- **Touch Orders** → beep stops, drawer slides in
-- **Drawer shows** → Table, customer name, phone, "3rd order from this customer", items, total
-- **Accept** → items added to that table's cart → you're taken straight to the POS screen
-- **Reject** → order marked rejected, disappears
+### 4c — Bill & Settle hook
+
+In your "Bill & Settle" handler:
+
+```javascript
+window._orderStatusComplete?.(currentTableName, 'bill_settle');  // ← ADD THIS
+// … rest of your settle code
+```
+
+> **Note:** `window._orderStatusKOT` and `window._orderStatusComplete` are defined by
+> `incoming-orders.js` and are safe to call with `?.` — they no-op if the file isn't
+> loaded or if no QR order was accepted for that table.
 
 ---
 
-## Table ID mapping (your QR code URLs)
+## What you'll see after setup
+
+| Action in billing panel | Customer panel updates to |
+|---|---|
+| Order placed via QR | **Order Received** — kitchen notified soon |
+| You press KOT | **Preparing • 0 min** (timer starts, ticks live) |
+| You press Save & Exit | Order disappears from Active Orders, saved to history |
+| You press Bill & Settle | Same as above |
+
+---
+
+## Table ID mapping
 
 | QR URL param | Maps to |
 |---|---|
@@ -87,11 +106,30 @@ After reload, a red **🔔 Orders** button appears in your home screen grid,
 
 ## Firestore Security Rules
 
-In Firebase Console → Firestore → Rules, make sure these paths are allowed:
-
 ```javascript
-match /pending_table_orders/{doc} {
-  allow read, update: if true;  // billing panel: reads + accept/reject
-  allow create: if true;         // customer QR panel: writes new orders
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /menu_items/{doc} {
+      allow read: if true;
+    }
+    match /pending_table_orders/{doc} {
+      allow read, create, update: if true;
+    }
+  }
 }
+```
+
+---
+
+## Home screen layout (after setup)
+
+```
+┌──────────────┬──────────────┐
+│  🪑 Dine-In  │  📦 Parcel   │
+├──────────────┴──────────────┤
+│      ⚡ Quick Sale Entry     │
+├──────────────┬──────────────┤
+│ 💸 Expense   │ 🔔 Orders ←  │
+└──────────────┴──────────────┘
 ```

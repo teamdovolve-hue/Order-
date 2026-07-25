@@ -1,49 +1,66 @@
-# Customer QR Menu Panel
+# QR Menu — Customer Order Panel
 
-A mobile-first, dark-themed QR code menu for restaurant tables. Customers scan a QR code, browse items, and place orders — all saved live to Firestore.
+Mobile-first, dark-themed QR menu for restaurant tables. Customers scan a QR code, log in, browse items, and place orders saved live to Firestore. The billing panel picks them up in real-time.
 
 ## Stack
 - Pure HTML / CSS / Vanilla JavaScript (ES Modules)
 - Firebase Firestore v10 (CDN, no build step)
-
-## File Structure
-```
-index.html            ← App shell & layout
-css/
-  style.css           ← Dark theme, mobile-first styles
-js/
-  firebase-config.js  ← Firebase init & db export
-  menu.js             ← Fetch & render menu items
-  cart.js             ← Cart state + DOM updates
-  order.js            ← Order submission to Firestore
-  app.js              ← Entry point, wires everything together
-```
+- Served with `npx serve`
 
 ## How to Run
-Open `index.html` directly (no build needed).  
-Append `?table=T4` to the URL to simulate table T4, e.g.:
+The app is served at port 5000 via the **Start application** workflow (`npx --yes serve . -p 5000 -s`).
+
+Open with a table param in the URL:
 ```
 https://your-repl.repl.co/?table=T4
 ```
 
-## Firebase Setup
+## File Structure
+```
+index.html                ← App shell & all overlays
+css/
+  style.css               ← Full dark theme, login, search, active orders
+js/
+  firebase-config.js      ← Firebase init & db export (live keys inside)
+  login.js                ← First-time login (Truecaller → WhatsApp → manual)
+  search.js               ← Real-time menu search
+  order-status.js         ← Live order status (pending → preparing → history)
+  menu.js                 ← Fetch & render menu items, search support
+  cart.js                 ← Cart state + DOM updates
+  order.js                ← Order submission to Firestore
+  customer.js             ← Thin shim over login.js (backward compat)
+  history.js              ← Order history drawer (localStorage)
+  app.js                  ← Entry point, wires everything together
+billing-integration/
+  js/incoming-orders.js   ← Drop into billing panel: incoming orders + KOT/settle hooks
+  HOW-TO-ADD.md           ← 4-step setup guide for the billing panel
+```
+
+## Configuration
+
+### Login system (js/login.js)
+```javascript
+const WHATSAPP_NUMBER        = "919999999999"; // ← replace with business WhatsApp number
+const TRUECALLER_PARTNER_KEY = "";             // ← set for Truecaller 1-tap, or leave ""
+```
 
 ### Firestore Collections
 | Collection | Purpose |
 |---|---|
 | `menu_items` | Source of menu cards shown to customers |
-| `pending_table_orders` | Destination for placed orders |
+| `pending_table_orders` | Orders written by customers, read by billing panel |
 
-### `menu_items` document fields
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `name` | string | ✅ | Displayed as card title |
-| `price` | number | ✅ | In INR |
-| `category` | string | optional | Used for filter tabs (e.g. "Starters") |
-| `description` | string | optional | Short description under name |
-| `available` | boolean | optional | Set `false` to hide an item |
+### Order Status Flow
+| Firestore `status` | Customer sees |
+|---|---|
+| `pending` / `accepted` | Order Received — Kitchen notified soon |
+| `kot` | Preparing • X min (live timer from `kotAt`) |
+| `completed` | Removed from Active Orders, saved to history |
 
-> **Rename the collection?** Edit `MENU_COLLECTION` at the top of `js/menu.js`.
+### Billing Panel Integration
+See `billing-integration/HOW-TO-ADD.md` for 4-step setup. Key hooks:
+- `window._orderStatusKOT(tableName)` — call when KOT is printed
+- `window._orderStatusComplete(tableName, 'save_exit'|'bill_settle')` — call on settle
 
 ### Firestore Security Rules (minimum)
 ```js
@@ -54,14 +71,16 @@ service cloud.firestore {
       allow read: if true;
     }
     match /pending_table_orders/{doc} {
-      allow create: if true;
+      allow read, create, update: if true;
     }
   }
 }
 ```
 
 ## User Preferences
-- Dark theme, mobile-first
+- Dark theme (#0f0f0f background, #f5a623 amber accent), mobile-first
+- Login screen background: #1A1E29
 - No dummy/hardcoded data — everything from live Firestore
 - Modular JS (one concern per file)
 - Currency: INR (₹)
+- No build step — pure ES modules via CDN

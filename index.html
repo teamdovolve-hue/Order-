@@ -3,14 +3,105 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f0f0f" />
+  <meta name="theme-color" content="#1A1E29" />
   <title>Menu — Order Panel</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" href="data:," />
 </head>
 <body>
 
-  <!-- ── Header ───────────────────────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════════════
+       LOGIN SCREEN — full-page, shown on first visit
+  ═══════════════════════════════════════════════════════════════ -->
+  <div class="login-screen hidden" id="loginScreen" role="dialog" aria-modal="true" aria-label="Login">
+    <div class="login-bg-blur"></div>
+    <div class="login-card">
+
+      <!-- Brand -->
+      <div class="login-brand">
+        <span class="login-brand-icon">🍽️</span>
+        <h1 class="login-brand-name">Our Menu</h1>
+        <p class="login-brand-sub">Quick login to start ordering</p>
+      </div>
+
+      <!-- Status line (shown during Truecaller attempt) -->
+      <p class="login-status" id="loginStatus"></p>
+
+      <!-- Primary section: Truecaller + WhatsApp -->
+      <div class="login-section" id="loginPrimarySection">
+
+        <!-- Truecaller (hidden unless TRUECALLER_PARTNER_KEY is set) -->
+        <button class="login-btn login-btn-tc hidden" id="loginTruecallerBtn" aria-label="Verify with Truecaller">
+          <span class="login-btn-icon">
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#0B55A4"/>
+              <path d="M20 8C13.373 8 8 13.373 8 20C8 26.627 13.373 32 20 32C26.627 32 32 26.627 32 20C32 13.373 26.627 8 20 8ZM20 28C15.582 28 12 24.418 12 20C12 15.582 15.582 12 20 12C24.418 12 28 15.582 28 20C28 24.418 24.418 28 20 28Z" fill="white"/>
+              <circle cx="20" cy="20" r="5" fill="white"/>
+            </svg>
+          </span>
+          Verify with Truecaller
+        </button>
+
+        <div class="login-divider hidden" id="loginTcDivider"><span>or</span></div>
+
+        <!-- WhatsApp -->
+        <button class="login-btn login-btn-wa" id="loginWhatsAppBtn" aria-label="Continue with WhatsApp">
+          <span class="login-btn-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 2C6.477 2 2 6.477 2 12C2 13.89 2.525 15.66 3.438 17.168L2 22L6.832 20.563C8.34 21.475 10.11 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" fill="#25D366"/>
+              <path d="M16.5 14.25C16.25 14.625 15.875 15 15.375 15.125C14.875 15.25 13.625 15 12 13.875C10.125 12.625 9.125 10.875 9 10.625C8.875 10.375 8.25 9.375 8.25 8.375C8.25 7.375 8.75 6.875 8.875 6.625C9 6.375 9.125 6.375 9.375 6.375H10C10.25 6.375 10.375 6.375 10.5 6.75C10.625 7.125 11 8 11 8.125C11 8.25 11 8.375 10.875 8.5L10.375 9.125C10.25 9.25 10.25 9.375 10.375 9.625C10.625 10 11.125 10.75 11.875 11.375C12.75 12.125 13.375 12.375 13.625 12.5C13.875 12.625 14 12.625 14.125 12.5L14.75 11.875C14.875 11.75 15 11.75 15.125 11.75L16.375 12.5C16.625 12.625 16.75 12.75 16.75 12.875C16.875 13.25 16.875 13.875 16.5 14.25Z" fill="white"/>
+            </svg>
+          </span>
+          Continue with WhatsApp
+        </button>
+
+        <p class="login-wa-hint hidden" id="loginWaHint">
+          Message sent ✓ — enter your details below to continue.
+        </p>
+
+        <!-- Cash counter fallback -->
+        <p class="login-cash-hint">
+          Having trouble? Please place your order directly at the&nbsp;<strong>cash counter</strong>.
+        </p>
+
+        <!-- Skip to manual form -->
+        <button class="login-skip-link" id="loginSkipBtn">Enter details manually</button>
+      </div>
+
+      <!-- Manual form section (shown after WA tap or skip) -->
+      <div class="login-section hidden" id="loginManualSection">
+        <p class="login-manual-title">Enter your details to continue</p>
+        <form id="loginManualForm" novalidate autocomplete="off">
+          <div class="form-group">
+            <label class="form-label" for="loginName">Your Name</label>
+            <input class="form-input" type="text" id="loginName"
+                   placeholder="e.g. Rahul" autocomplete="name" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="loginPhone">Phone Number</label>
+            <input class="form-input" type="tel" id="loginPhone"
+                   placeholder="10-digit mobile number"
+                   maxlength="10" autocomplete="tel" inputmode="numeric" />
+          </div>
+          <p class="form-error hidden" id="loginError"></p>
+          <button type="submit" class="login-btn login-btn-primary">
+            Continue →
+          </button>
+        </form>
+        <button class="login-skip-link" id="loginBackBtn" style="margin-top:12px">
+          ← Back
+        </button>
+      </div>
+
+    </div><!-- /login-card -->
+  </div><!-- /login-screen -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN APP
+  ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="app-header">
     <div class="header-inner">
       <div class="header-brand">
@@ -18,11 +109,8 @@
         <h1 class="brand-name">Our Menu</h1>
       </div>
       <div class="header-right">
-        <!-- Greeting chip (shown once customer fills in their info) -->
         <span class="customer-chip hidden" id="customerChip"></span>
-        <!-- Table badge — auto-set from ?table= in QR URL -->
         <div class="table-badge" id="tableBadge">Table —</div>
-        <!-- Order history -->
         <button class="btn-history" id="historyBtn" aria-label="My Orders">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -37,16 +125,51 @@
     </div>
   </header>
 
-  <!-- ── Category Tabs ─────────────────────────────────────────── -->
-  <nav class="category-nav" id="categoryNav">
+  <!-- ── Search Bar ─────────────────────────────────────────── -->
+  <div class="search-wrap" id="searchWrap">
+    <div class="search-inner">
+      <svg class="search-icon" width="17" height="17" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input
+        type="search"
+        id="searchInput"
+        class="search-input"
+        placeholder="Search menu…"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+        aria-label="Search menu"
+      />
+      <button class="search-clear hidden" id="searchClear" aria-label="Clear search">✕</button>
+    </div>
+  </div>
+
+  <!-- ── Category Tabs ──────────────────────────────────────── -->
+  <nav class="category-nav" id="categoryNav" aria-label="Menu categories">
     <div class="category-scroll">
       <!-- Populated by menu.js -->
     </div>
   </nav>
 
-  <!-- ── Main Content ──────────────────────────────────────────── -->
+  <!-- ── Main Content ───────────────────────────────────────── -->
   <main class="main-content" id="mainContent">
 
+    <!-- Active Orders (hidden until user has live orders) -->
+    <div class="active-orders-section hidden" id="activeOrdersSection">
+      <div class="aos-section-header">
+        <span class="aos-section-title">
+          <span class="aos-section-dot"></span>
+          Active Orders
+        </span>
+      </div>
+      <div id="activeOrdersList"></div>
+    </div>
+
+    <!-- Loading skeletons -->
     <div class="loading-state" id="loadingState">
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
@@ -54,17 +177,19 @@
       <div class="skeleton-card"></div>
     </div>
 
+    <!-- Error state -->
     <div class="error-state hidden" id="errorState">
       <div class="error-icon">⚠️</div>
       <p class="error-text">Couldn't load the menu.<br/>Please try again.</p>
       <button class="btn-retry" id="retryBtn">Retry</button>
     </div>
 
+    <!-- Menu grid -->
     <div class="menu-grid hidden" id="menuGrid"></div>
 
   </main>
 
-  <!-- ── Cart Bar ───────────────────────────────────────────────── -->
+  <!-- ── Cart Bar ──────────────────────────────────────────── -->
   <div class="cart-bar hidden" id="cartBar">
     <div class="cart-summary">
       <div class="cart-count">
@@ -76,31 +201,7 @@
     <button class="btn-place-order" id="placeOrderBtn">Place Order →</button>
   </div>
 
-  <!-- ── Customer Info Modal (shown once on first Add) ─────────── -->
-  <div class="overlay hidden" id="customerModal">
-    <div class="overlay-card customer-card">
-      <div class="customer-modal-icon">👋</div>
-      <h2 class="overlay-title">Quick intro!</h2>
-      <p class="overlay-subtitle">We just need your name and number — asked only once.</p>
-      <form id="customerForm" novalidate>
-        <div class="form-group">
-          <label class="form-label" for="custName">Your Name</label>
-          <input class="form-input" type="text" id="custName"
-                 placeholder="e.g. Rahul" autocomplete="name" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="custPhone">Phone Number</label>
-          <input class="form-input" type="tel" id="custPhone"
-                 placeholder="10-digit mobile number"
-                 maxlength="10" autocomplete="tel" inputmode="numeric" />
-        </div>
-        <p class="form-error hidden" id="custError"></p>
-        <button type="submit" class="btn-overlay-close">Let's Order →</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- ── Order Success Overlay ─────────────────────────────────── -->
+  <!-- ── Order Success Overlay ─────────────────────────────── -->
   <div class="overlay hidden" id="successOverlay">
     <div class="overlay-card">
       <div class="overlay-icon success-icon">✓</div>
@@ -110,7 +211,7 @@
     </div>
   </div>
 
-  <!-- ── Order Error Overlay ───────────────────────────────────── -->
+  <!-- ── Order Error Overlay ───────────────────────────────── -->
   <div class="overlay hidden" id="errorOverlay">
     <div class="overlay-card error-card">
       <div class="overlay-icon error-icon-lg">✕</div>
@@ -120,10 +221,10 @@
     </div>
   </div>
 
-  <!-- ── History Backdrop ───────────────────────────────────────── -->
+  <!-- ── History Backdrop ───────────────────────────────────── -->
   <div class="history-backdrop hidden" id="historyBackdrop"></div>
 
-  <!-- ── History Drawer (slide up from bottom) ─────────────────── -->
+  <!-- ── History Drawer ────────────────────────────────────── -->
   <div class="history-panel hidden" id="historyPanel">
     <div class="history-drag-handle"></div>
     <div class="history-header">
@@ -135,7 +236,7 @@
     </div>
   </div>
 
-  <!-- ── Scripts ───────────────────────────────────────────────── -->
+  <!-- ── Scripts ───────────────────────────────────────────── -->
   <script type="module" src="js/app.js"></script>
 
 </body>

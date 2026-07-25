@@ -3,39 +3,38 @@
  * ─────────────────────────────────────────────────────────────────
  * Listens for new customer QR orders in real-time.
  * • Shows a pulsing 🔔 Orders button with red badge
- * • Plays a looping alert sound until the button is touched
- * • Drawer shows: customer name, phone, order number (1st/5th/…),
- *   table, item list, total — with Accept / Reject buttons
- * • Accept  → adds items to localStorage cart → navigates to that table
+ * • Drawer shows: customer name, phone, order count, items, total
+ * • Accept  → adds items to localStorage cart → navigates to table
  * • Reject  → marks order rejected in Firestore
  *
- * ── Setup (3 steps) ────────────────────────────────────────────
- * 1. Copy this file to:  billing-panel/js/incoming-orders.js
- * 2. In index.html, just before </body>:
- *      <script type="module" src="js/incoming-orders.js"></script>
- * 3. In js/tables.js, inside DOMContentLoaded, after openPOS is
- *    defined (around line 126), add these two lines:
- *      window._posOpenTable = openPOS;
- *      window._posLoadGrid  = loadGrid;
+ * NEW (order-status integration):
+ * • KOT hook     — call window._orderStatusKOT(tableName) when KOT is printed
+ * • Complete hook — call window._orderStatusComplete(tableName, type) on Save/Settle
+ *
+ * ── Setup ──────────────────────────────────────────────────────
+ * See billing-integration/HOW-TO-ADD.md for full setup instructions.
  * ────────────────────────────────────────────────────────────────
  */
 
 import { db } from './firebase-config.js';
 import {
   collection, query, where, onSnapshot,
-  doc, updateDoc, getDocs,
+  doc, updateDoc, getDocs, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 
 const ORDERS_COL = 'pending_table_orders';
 
 // ── Module state ──────────────────────────────────────────────
 let pendingOrders  = [];
-// Sound disabled — set to true to re-enable
 const SOUND_ENABLED = false;
 let alertInterval  = null;
-let audioCtx       = null;
-let alertBuf       = null;
-let audioUnlocked  = false;
+
+/**
+ * Maps normalised table name → array of Firestore docIds.
+ * Populated on Accept; cleared on Complete.
+ * e.g. { "Table 4": ["abc123", "def456"] }
+ */
+const tableDocMap = {};
 
 // ─────────────────────────────────────────────────────────────
 // BOOT
@@ -44,12 +43,12 @@ document.addEventListener('DOMContentLoaded', () => {
   injectStyles();
   injectHTML();
   wireEvents();
-  buildAlertSound();
   startOrdersListener();
+  exposeOrderStatusHooks();
 });
 
 // ─────────────────────────────────────────────────────────────
-// FIRESTORE LISTENER
+// FIRESTORE LISTENER — pending orders
 // ─────────────────────────────────────────────────────────────
 function startOrdersListener() {
   const q = query(collection(db, ORDERS_COL), where('status', '==', 'pending'));
@@ -63,15 +62,68 @@ function startOrdersListener() {
 
     if (pendingOrders.length > 0) {
       startAlert();
-      if (hadNone) flashBtn(); // extra visual pop on first arrival
+      if (hadNone) flashBtn();
     } else {
       stopAlert();
     }
 
-    // If drawer is open, refresh it live
     const drawer = document.getElementById('incomingOrdersDrawer');
     if (drawer?.classList.contains('open')) renderOrdersList();
   });
+}
+
+// ─────────────────────────────────────────────────────────────
+// ORDER-STATUS HOOKS (called by billing panel)
+// ─────────────────────────────────────────────────────────────
+
+function exposeOrderStatusHooks() {
+
+  /**
+   * Call this when KOT is printed for a table.
+   * Updates all accepted orders for that table to status "kot".
+   *
+   * @param {string} tableName  e.g. "Table 4"
+   */
+  window._orderStatusKOT = async function (tableName) {
+    const norm   = normalizeTableName(tableName);
+    const docIds = tableDocMap[norm] || [];
+    if (!docIds.length) return;
+
+    const updates = docIds.map((id) =>
+      updateDoc(doc(db, ORDERS_COL, id), {
+        status: 'kot',
+        kotAt:  serverTimestamp(),
+      }).catch((e) => console.warn('[incoming-orders] KOT update failed for', id, e))
+    );
+    await Promise.all(updates);
+    console.log('[incoming-orders] KOT marked for', norm, docIds);
+  };
+
+  /**
+   * Call this when Save & Exit OR Bill & Settle is pressed for a table.
+   * Updates all accepted orders for that table to status "completed".
+   *
+   * @param {string} tableName       e.g. "Table 4"
+   * @param {string} [completionType]  "save_exit" | "bill_settle"
+   */
+  window._orderStatusComplete = async function (tableName, completionType = 'save_exit') {
+    const norm   = normalizeTableName(tableName);
+    const docIds = tableDocMap[norm] || [];
+    if (!docIds.length) return;
+
+    const updates = docIds.map((id) =>
+      updateDoc(doc(db, ORDERS_COL, id), {
+        status:         'completed',
+        completedAt:    serverTimestamp(),
+        completionType,
+      }).catch((e) => console.warn('[incoming-orders] complete update failed for', id, e))
+    );
+    await Promise.all(updates);
+
+    // Clear tracking for this table
+    delete tableDocMap[norm];
+    console.log('[incoming-orders] Completed marked for', norm, completionType);
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -81,12 +133,8 @@ function updateBadge() {
   const badge = document.getElementById('incOrdersBadge');
   const btn   = document.getElementById('incOrdersBtn');
   const count = pendingOrders.length;
-
-  if (badge) {
-    badge.textContent  = count;
-    badge.style.display = count > 0 ? 'flex' : 'none';
-  }
-  if (btn) btn.classList.toggle('has-orders', count > 0);
+  if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'flex' : 'none'; }
+  if (btn)   btn.classList.toggle('has-orders', count > 0);
 }
 
 function flashBtn() {
@@ -99,21 +147,18 @@ function flashBtn() {
 // ─────────────────────────────────────────────────────────────
 // SOUND  — disabled (set SOUND_ENABLED = true to re-enable)
 // ─────────────────────────────────────────────────────────────
-function buildAlertSound() { /* sound off */ }
-function unlockAudio()     { /* sound off */ }
-function playBeep()        { /* sound off */ }
-function startAlert()      { /* sound off */ }
-function stopAlert()       {
-  clearInterval(alertInterval);
-  alertInterval = null;
-}
+function buildAlertSound() { /* disabled */ }
+function unlockAudio()     { /* disabled */ }
+function playBeep()        { /* disabled */ }
+function startAlert()      { /* disabled */ }
+function stopAlert()       { clearInterval(alertInterval); alertInterval = null; }
 
 // ─────────────────────────────────────────────────────────────
-// DRAWER  open / close
+// DRAWER
 // ─────────────────────────────────────────────────────────────
 async function openDrawer() {
   unlockAudio();
-  stopAlert();                        // stop sound on touch ✅
+  stopAlert();
   await renderOrdersList();
   document.getElementById('incomingOrdersDrawer')?.classList.add('open');
   document.getElementById('incOrdersOverlay')?.classList.add('open');
@@ -140,7 +185,6 @@ async function renderOrdersList() {
     return;
   }
 
-  // Fetch order counts for each customer (parallel)
   const enriched = await Promise.all(
     pendingOrders.map(async (order) => {
       const count = await getCustomerOrderCount(order.customer?.phone);
@@ -169,7 +213,7 @@ function buildOrderCard(order, orderCount) {
             <span>👤 <strong>${esc(order.customer?.name || 'Guest')}</strong></span>
             <span>📱 ${esc(order.customer?.phone || '—')}</span>
           </div>
-          <div class="inc-ordinal-badge">${ordinal} Order from this customer</div>
+          <div class="inc-ordinal-badge">${ordinal} order from this customer</div>
         </div>
         <div class="inc-order-right">
           <div class="inc-total">${fmt(order.totalPrice)}</div>
@@ -199,7 +243,7 @@ function buildOrderCard(order, orderCount) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ACCEPT  (global so onclick works in injected HTML)
+// ACCEPT
 // ─────────────────────────────────────────────────────────────
 window._incAccept = async function (docId, tableName) {
   const order = pendingOrders.find(o => o._docId === docId);
@@ -208,7 +252,7 @@ window._incAccept = async function (docId, tableName) {
   const btn = document.querySelector(`[onclick*="_incAccept('${docId}'"]`);
   if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
 
-  // 1.  Merge items into localStorage cart  (Table X → C1)
+  // 1. Merge items into localStorage cart
   const cartKey = `cart_${tableName}_C1`;
   let cart = [];
   try { cart = JSON.parse(localStorage.getItem(cartKey)) || []; } catch (e) {}
@@ -228,13 +272,18 @@ window._incAccept = async function (docId, tableName) {
   }
   localStorage.setItem(cartKey, JSON.stringify(cart));
 
-  // 2.  Mark accepted in Firestore
+  // 2. Track docId → table for KOT/complete hooks
+  const norm = normalizeTableName(tableName);
+  tableDocMap[norm] = tableDocMap[norm] || [];
+  if (!tableDocMap[norm].includes(docId)) tableDocMap[norm].push(docId);
+
+  // 3. Mark accepted in Firestore
   await updateDoc(doc(db, ORDERS_COL, docId), {
     status:     'accepted',
-    acceptedAt: new Date().toISOString(),
+    acceptedAt: serverTimestamp(),
   });
 
-  // 3.  Close drawer → navigate to the table
+  // 4. Close drawer → navigate
   closeDrawer();
   navigateToTable(tableName);
 };
@@ -245,64 +294,46 @@ window._incAccept = async function (docId, tableName) {
 window._incReject = async function (docId) {
   const card = document.querySelector(`.inc-order-card [onclick*="_incReject('${docId}'"]`)
     ?.closest('.inc-order-card');
-  if (card) {
-    card.style.opacity   = '0.4';
-    card.style.pointerEvents = 'none';
-  }
+  if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
 
   await updateDoc(doc(db, ORDERS_COL, docId), {
     status:     'rejected',
-    rejectedAt: new Date().toISOString(),
+    rejectedAt: serverTimestamp(),
   });
-  // onSnapshot will remove it from pendingOrders and re-render automatically
 };
 
 // ─────────────────────────────────────────────────────────────
-// NAVIGATE  (uses the two lines you added to tables.js)
+// NAVIGATE
 // ─────────────────────────────────────────────────────────────
 function navigateToTable(tableName) {
   try {
-    // Make sure we're showing the table grid first
-    if (typeof window._posLoadGrid === 'function') {
-      window._posLoadGrid('table');
-    }
-    // Short delay so grid screen is visible, then jump into POS
+    if (typeof window._posLoadGrid === 'function') window._posLoadGrid('table');
     setTimeout(() => {
       if (typeof window._posOpenTable === 'function') {
         window._posOpenTable(tableName, 'C1');
-        // Fire load-table-cart so cart.js picks up the newly written localStorage
         window.dispatchEvent(new Event('load-table-cart'));
       }
     }, 120);
-  } catch (e) {
-    console.warn('[incoming-orders] navigate failed:', e);
-  }
+  } catch (e) { console.warn('[incoming-orders] navigate failed:', e); }
 }
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────
-
-/** Count how many orders (any status) this phone number has made */
 async function getCustomerOrderCount(phone) {
   if (!phone) return 1;
   try {
     const q    = query(collection(db, ORDERS_COL), where('customer.phone', '==', phone));
     const snap = await getDocs(q);
-    return Math.max(1, snap.size); // includes the current pending one
+    return Math.max(1, snap.size);
   } catch (e) { return 1; }
 }
 
-/**
- * Map QR table IDs → billing panel table names
- * "T4" | "t4" | "4" → "Table 4"
- * "Table 4"          → "Table 4"  (passthrough)
- */
 function normalizeTableName(id = '') {
   const s = String(id).trim();
-  if (/^[Tt]\d+$/.test(s))     return `Table ${s.replace(/\D/g, '')}`;
-  if (/^\d+$/.test(s))         return `Table ${s}`;
-  return s; // already "Table 4", "Parcel A", etc.
+  if (/^[Tt]\d+$/.test(s))  return `Table ${s.replace(/\D/g, '')}`;
+  if (/^\d+$/.test(s))      return `Table ${s}`;
+  return s;
 }
 
 function toOrdinal(n) {
@@ -322,7 +353,6 @@ function esc(s = '') {
 function wireEvents() {
   document.addEventListener('click', unlockAudio, { once: true });
 
-  // Expose globally — works even if button has onclick= in HTML
   window._incOpenDrawer  = openDrawer;
   window._incCloseDrawer = closeDrawer;
 
@@ -334,13 +364,9 @@ function wireEvents() {
   if (overlay) overlay.addEventListener('click', closeDrawer);
   if (close)   close.addEventListener('click', closeDrawer);
 
-  // Safety net: also re-wire after a short delay in case of late DOM
   setTimeout(() => {
     const b = document.getElementById('incOrdersBtn');
-    if (b && !b._incWired) {
-      b._incWired = true;
-      b.addEventListener('click', openDrawer);
-    }
+    if (b && !b._incWired) { b._incWired = true; b.addEventListener('click', openDrawer); }
   }, 800);
 }
 
@@ -348,37 +374,27 @@ function wireEvents() {
 // INJECT HTML
 // ─────────────────────────────────────────────────────────────
 function injectHTML() {
-  // ── Button ──
-  // If the billing panel already has a hardcoded button anywhere on the page
-  // (with any id/class), we find it by looking for the bell emoji text OR by
-  // id. We just ensure it has the right id so wireEvents() can attach clicks.
   let btn = document.getElementById('incOrdersBtn');
 
   if (!btn) {
-    // Look for a hardcoded button containing "Incoming Orders" text
     const allBtns = Array.from(document.querySelectorAll('button, .menu-big-btn'));
-    btn = allBtns.find(b => b.textContent.toLowerCase().includes('incoming') ||
-                            b.textContent.includes('🔔'));
+    btn = allBtns.find(b =>
+      b.textContent.toLowerCase().includes('incoming') || b.textContent.includes('🔔')
+    );
   }
 
   if (btn) {
-    // Found a hardcoded button — adopt it
     btn.id = 'incOrdersBtn';
-    // Inject badge inside it if not already there
     if (!btn.querySelector('.inc-badge')) {
       const badge = document.createElement('span');
-      badge.id             = 'incOrdersBadge';
-      badge.className      = 'inc-badge';
-      badge.style.display  = 'none';
-      badge.textContent    = '0';
-      btn.prepend(badge);
+      badge.id = 'incOrdersBadge'; badge.className = 'inc-badge'; badge.style.display = 'none';
+      badge.textContent = '0'; btn.prepend(badge);
     }
   } else {
-    // No hardcoded button — create and inject one
-    btn            = document.createElement('button');
-    btn.id         = 'incOrdersBtn';
-    btn.className  = 'menu-big-btn';
-    btn.innerHTML  = `
+    btn           = document.createElement('button');
+    btn.id        = 'incOrdersBtn';
+    btn.className = 'menu-big-btn';
+    btn.innerHTML = `
       <span id="incOrdersBadge" class="inc-badge" style="display:none;">0</span>
       <span class="icon">🔔</span>
       <span class="title">Incoming Orders</span>`;
@@ -393,20 +409,16 @@ function injectHTML() {
     }
   }
 
-  // ── Overlay ──
   if (!document.getElementById('incOrdersOverlay')) {
-    const overlay      = document.createElement('div');
-    overlay.id         = 'incOrdersOverlay';
-    overlay.className  = 'drawer-overlay';
+    const overlay = document.createElement('div');
+    overlay.id = 'incOrdersOverlay'; overlay.className = 'drawer-overlay';
     document.body.appendChild(overlay);
   }
 
-  // ── Drawer ──
   if (!document.getElementById('incomingOrdersDrawer')) {
-    const drawer      = document.createElement('div');
-    drawer.id         = 'incomingOrdersDrawer';
-    drawer.className  = 'inc-drawer';
-    drawer.innerHTML  = `
+    const drawer = document.createElement('div');
+    drawer.id = 'incomingOrdersDrawer'; drawer.className = 'inc-drawer';
+    drawer.innerHTML = `
       <div class="drawer-header">
         <h3 style="margin:0;color:#f9fafb;">🔔 Incoming Orders</h3>
         <button id="incOrdersClose" class="close-btn">❌</button>
@@ -422,144 +434,58 @@ function injectHTML() {
 function injectStyles() {
   const style = document.createElement('style');
   style.textContent = `
-
-    /* ── Orders big-grid button (matches .menu-big-btn style) ── */
     #incOrdersBtn {
       position: relative;
       background: linear-gradient(135deg, #b91c1c, #ef4444) !important;
     }
-
-    /* Pulsing glow when there are pending orders */
     #incOrdersBtn.has-orders {
       animation: incPulse 1.4s ease-in-out infinite;
     }
     @keyframes incPulse {
       0%,100% { box-shadow: 0 4px 15px rgba(239,68,68,0.3); }
-      50%      { box-shadow: 0 0 0 12px rgba(239,68,68,0.12),
-                             0 4px 15px rgba(239,68,68,0.4); }
+      50%      { box-shadow: 0 0 0 12px rgba(239,68,68,0.12), 0 4px 15px rgba(239,68,68,0.4); }
     }
-
-    /* ── Badge (top-right corner of the big button) ──────── */
     .inc-badge {
-      position: absolute;
-      top: 10px; right: 10px;
-      background: white;
-      color: #dc2626;
-      border-radius: 50%;
-      min-width: 24px; height: 24px;
-      display: flex;
+      position: absolute; top: 10px; right: 10px;
+      background: white; color: #dc2626; border-radius: 50%;
+      min-width: 24px; height: 24px; display: flex;
       align-items: center; justify-content: center;
       font-size: 13px; font-weight: 900;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-      padding: 0 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35); padding: 0 4px;
     }
-
-    /* ── Drawer ─────────────────────────────────────────── */
     .inc-drawer {
-      position: fixed;
-      top: 0; right: -440px;
-      width: 430px; max-width: 100vw;
-      height: 100vh;
-      background: #1f2937;
-      z-index: 10000;
+      position: fixed; top: 0; right: -440px;
+      width: 430px; max-width: 100vw; height: 100vh;
+      background: #1f2937; z-index: 10000;
       display: flex; flex-direction: column;
       transition: right 0.3s cubic-bezier(0.32,0.72,0,1);
       box-shadow: -6px 0 30px rgba(0,0,0,0.5);
     }
     .inc-drawer.open { right: 0; }
-
-    /* ── Order card ─────────────────────────────────────── */
     .inc-order-card {
-      background: #374151;
-      border: 1px solid #4b5563;
-      border-radius: 12px;
-      padding: 14px;
-      margin-bottom: 12px;
+      background: #374151; border: 1px solid #4b5563;
+      border-radius: 12px; padding: 14px; margin-bottom: 12px;
     }
-    .inc-order-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .inc-order-left { flex: 1; }
-    .inc-order-right { text-align: right; flex-shrink: 0; }
-
-    .inc-table-tag {
-      font-size: 17px;
-      font-weight: 800;
-      color: #f9fafb;
-      margin-bottom: 5px;
-    }
-    .inc-customer {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      font-size: 13px;
-      color: #9ca3af;
-      margin-bottom: 6px;
-    }
+    .inc-order-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
+    .inc-order-left { flex:1; }
+    .inc-order-right { text-align:right; flex-shrink:0; }
+    .inc-table-tag { font-size:17px; font-weight:800; color:#f9fafb; margin-bottom:5px; }
+    .inc-customer { display:flex; flex-direction:column; gap:2px; font-size:13px; color:#9ca3af; margin-bottom:6px; }
     .inc-ordinal-badge {
-      display: inline-block;
-      background: rgba(245,166,35,0.15);
-      color: #f5a623;
-      border: 1px solid rgba(245,166,35,0.3);
-      border-radius: 20px;
-      padding: 2px 10px;
-      font-size: 11px;
-      font-weight: 700;
+      display:inline-block; background:rgba(245,166,35,0.15); color:#f5a623;
+      border:1px solid rgba(245,166,35,0.3); border-radius:20px;
+      padding:2px 10px; font-size:11px; font-weight:700;
     }
-    .inc-total {
-      font-size: 18px;
-      font-weight: 800;
-      color: #f5a623;
-    }
-    .inc-time {
-      font-size: 12px;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    /* ── Items list ─────────────────────────────────────── */
-    .inc-items {
-      list-style: none;
-      padding: 8px 0;
-      margin: 0 0 12px;
-      border-top: 1px solid #4b5563;
-      border-bottom: 1px solid #4b5563;
-    }
-    .inc-items li {
-      display: flex;
-      justify-content: space-between;
-      font-size: 13px;
-      color: #d1d5db;
-      padding: 3px 0;
-    }
-
-    /* ── Action buttons ─────────────────────────────────── */
-    .inc-actions { display: flex; gap: 8px; }
-    .inc-btn {
-      flex: 1;
-      padding: 11px 8px;
-      border: none;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-      transition: opacity 0.15s, transform 0.1s;
-    }
-    .inc-btn:active { transform: scale(0.97); opacity: 0.85; }
-    .inc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .inc-reject {
-      background: transparent;
-      color: #ef4444;
-      border: 1.5px solid #ef4444;
-    }
-    .inc-accept {
-      background: #059669;
-      color: white;
-    }
+    .inc-total { font-size:18px; font-weight:800; color:#f5a623; }
+    .inc-time  { font-size:12px; color:#6b7280; margin-top:2px; }
+    .inc-items { list-style:none; padding:8px 0; margin:0 0 12px; border-top:1px solid #4b5563; border-bottom:1px solid #4b5563; }
+    .inc-items li { display:flex; justify-content:space-between; font-size:13px; color:#d1d5db; padding:3px 0; }
+    .inc-actions { display:flex; gap:8px; }
+    .inc-btn { flex:1; padding:11px 8px; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; transition:opacity .15s,transform .1s; }
+    .inc-btn:active { transform:scale(0.97); opacity:.85; }
+    .inc-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .inc-reject { background:transparent; color:#ef4444; border:1.5px solid #ef4444; }
+    .inc-accept { background:#059669; color:white; }
   `;
   document.head.appendChild(style);
 }

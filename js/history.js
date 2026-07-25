@@ -1,26 +1,40 @@
 /**
  * history.js
  * ─────────────────────────────────────────────────────────────
- * Saves orders to localStorage and renders the history drawer.
- * Orders are stored newest-first; last 30 are kept.
+ * Saves completed orders to localStorage and renders the history drawer.
+ * Orders are stored newest-first; up to 50 are kept.
+ *
+ * History is written by order-status.js when Firestore status → "completed".
+ * Legacy: saveOrderToHistory() still accepts direct calls.
  */
 
 const HISTORY_KEY = "qrmenu_orders";
+const MAX_HISTORY = 50;
 
 const fmt = (n) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
 // ── Public ────────────────────────────────────────────────────
 
-/** Prepend a new order record and persist. */
+/** Prepend a new order record and persist. Deduplicated by firestoreId. */
 export function saveOrderToHistory(order) {
   const history = getHistory();
+
+  // Deduplicate by firestoreId (for Firestore-completed orders)
+  if (order.firestoreId) {
+    const exists = history.some((h) => h.firestoreId === order.firestoreId);
+    if (exists) return;
+  }
+
   history.unshift({
     ...order,
-    localId:  `ORD-${Date.now()}`,
-    placedAt: new Date().toISOString(),
+    localId:     order.localId  || `ORD-${Date.now()}`,
+    placedAt:    order.placedAt || new Date().toISOString(),
+    completedAt: order.completedAt || null,
+    status:      order.status || "completed",
   });
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 30)));
+
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
 }
 
 /** Returns full order history array. */
@@ -31,15 +45,12 @@ export function getHistory() {
 
 /** Wire up the history button, close button, and backdrop. */
 export function initHistory() {
-  document.getElementById("historyBtn")
-    ?.addEventListener("click", openHistory);
-  document.getElementById("historyCloseBtn")
-    ?.addEventListener("click", closeHistory);
-  document.getElementById("historyBackdrop")
-    ?.addEventListener("click", closeHistory);
+  document.getElementById("historyBtn")?.addEventListener("click", openHistory);
+  document.getElementById("historyCloseBtn")?.addEventListener("click", closeHistory);
+  document.getElementById("historyBackdrop")?.addEventListener("click", closeHistory);
 }
 
-/** Open drawer and re-render (call after placing a new order too). */
+/** Open drawer and re-render. */
 export function openHistory() {
   renderHistory();
   document.getElementById("historyPanel")?.classList.remove("hidden");
@@ -48,6 +59,7 @@ export function openHistory() {
 }
 
 // ── Internal ──────────────────────────────────────────────────
+
 function closeHistory() {
   document.getElementById("historyPanel")?.classList.add("hidden");
   document.getElementById("historyBackdrop")?.classList.add("hidden");
@@ -64,7 +76,7 @@ function renderHistory() {
     list.innerHTML = `
       <div class="history-empty">
         <span class="history-empty-icon">🧾</span>
-        <p>No orders yet.<br/>Your order history will appear here.</p>
+        <p>No orders yet.<br/>Completed orders appear here.</p>
       </div>`;
     return;
   }
@@ -76,12 +88,20 @@ function renderHistory() {
       const dateStr = date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
       const orderNum = orders.length - i;
 
+      // Completion timestamp line
+      let completedLine = "";
+      if (order.completedAt) {
+        const cd = new Date(order.completedAt?.seconds ? order.completedAt.seconds * 1000 : order.completedAt);
+        const ct = cd.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+        completedLine = `<span class="history-completed-time">Completed at ${ct}</span>`;
+      }
+
       return `
         <div class="history-order">
           <div class="history-order-meta">
             <div class="history-order-left">
               <span class="history-order-num">Order #${orderNum}</span>
-              <span class="history-table-tag">Table ${escHtml(order.tableId)}</span>
+              <span class="history-table-tag">Table ${escHtml(order.tableId || "—")}</span>
             </div>
             <div class="history-order-time">
               <span class="history-date">${dateStr}</span>
@@ -102,7 +122,10 @@ function renderHistory() {
           </ul>
 
           <div class="history-order-footer">
-            <span class="history-status-badge">Placed</span>
+            <div class="history-footer-left">
+              <span class="history-status-badge">Completed</span>
+              ${completedLine}
+            </div>
             <span class="history-total">${fmt(order.totalPrice)}</span>
           </div>
         </div>`;
@@ -111,5 +134,7 @@ function renderHistory() {
 }
 
 function escHtml(s = "") {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
