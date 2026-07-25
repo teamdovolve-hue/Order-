@@ -55,7 +55,7 @@ async function fetchMenuItems() {
 
   return snap.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((item) => item.available !== false) // skip unavailable items
+    .filter((item) => item.inStock !== false) // skip unavailable items
     .sort((a, b) => {
       // sort client-side: category first, then name
       const catA = (a.category || "Other").toLowerCase();
