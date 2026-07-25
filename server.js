@@ -18,7 +18,7 @@ app.get("/api/send-otp", async (req, res) => {
   }
 
   try {
-    const url = `https://www.fast2sms.com/dev/bulkV2?variables_values=${otp}&route=otp&numbers=${phone}`;
+    const url = `https://www.fast2sms.com/dev/otp/send?otp=${otp}&mobile_number=${phone}`;
     const response = await fetch(url, {
       method: "GET",
       headers: {
