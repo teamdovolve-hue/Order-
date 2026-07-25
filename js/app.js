@@ -7,7 +7,7 @@
  *   3. Init menu (real-time Firestore listener — no auth needed)
  *   4. Init search
  *   5. Init order history drawer
- *   6. Watch Firebase Auth state → start/stop order status listener
+ *   6. Watch custom auth state → start/stop order status listener
  *   7. Wire Place Order button (gates on login via requireLogin)
  *   8. Wire overlay close buttons
  */
@@ -15,12 +15,10 @@
 import { initMenu, filterBySearch }         from "./menu.js";
 import { placeOrder, getTableId }           from "./order.js";
 import { updateGreeting, initAuth,
-         requireLogin, onAuthReady }        from "./auth.js";
+         requireLogin, isLoggedIn }         from "./auth.js";
 import { initHistory }                      from "./history.js";
 import { initSearch }                       from "./search.js";
 import { initOrderStatus, stopOrderStatus } from "./order-status.js";
-import { auth }                             from "./firebase-config.js";
-import { onAuthStateChanged }               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 document.addEventListener("DOMContentLoaded", () => {
 
@@ -42,14 +40,24 @@ document.addEventListener("DOMContentLoaded", () => {
   initHistory();
 
   // 6. Auth state watcher — start/stop order-status listener
-  onAuthStateChanged(auth, (user) => {
+  //    Fires on login / logout via the custom event dispatched by auth.js
+  const _handleAuthChange = (user) => {
     updateGreeting();
     if (user) {
       initOrderStatus();   // subscribe to this customer's orders
     } else {
       stopOrderStatus();   // unsubscribe on logout
     }
+  };
+
+  window.addEventListener("customAuthStateChanged", (e) => {
+    _handleAuthChange(e.detail?.user ?? null);
   });
+
+  // Also handle the already-logged-in state on page load
+  if (isLoggedIn()) {
+    initOrderStatus();
+  }
 
   // 7. Place Order — prompts login if needed, then submits
   document.getElementById("placeOrderBtn")

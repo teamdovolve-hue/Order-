@@ -1,24 +1,16 @@
 /**
  * auth.js
  * ─────────────────────────────────────────────────────────────
- * Firebase Phone Authentication (OTP).
+ * Custom OTP verification via Fast2SMS (no Firebase Phone Auth).
  *
  * Flow:
  *   Customer browses freely → taps "Place Order" → if not logged in →
- *   OTP modal appears → enters name and phone → enters OTP → order placed.
+ *   OTP modal appears → enters name and phone → Fast2SMS sends OTP →
+ *   customer enters 6-digit code → verified in JS → order placed.
  *
- * After first login, Firebase Auth persists the session permanently
- * (IndexedDB-backed localStorage). No login prompt on subsequent visits.
+ * Session is stored in localStorage so the customer stays logged in
+ * across page reloads (until they explicitly log out).
  */
-
-import { auth } from "./firebase-config.js";
-import {
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  onAuthStateChanged,
-  updateProfile,
-  signOut,
-} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 // ── One-time cleanup: purge old localStorage-based login data ────────────────
 const _OLD_KEYS = ["qrmenu_login", "qrmenu_moved_to_history", "qrmenu_orders"];
@@ -29,54 +21,35 @@ _OLD_KEYS.forEach((k) => {
   }
 });
 
+// ── Session storage key ───────────────────────────────────────────────────────
+const SESSION_KEY = "qrmenu_user"; // stores { name, phone }
+
 // ── Module state ─────────────────────────────────────────────────────────────
-let _currentUser         = null;   // Firebase User | null
-let _pendingCb           = null;   // callback to run after login
-let _confirmationResult  = null;   // result from signInWithPhoneNumber
-let _recaptchaVerifier   = null;   // RecaptchaVerifier instance
-let _authReady           = false;  // true once onAuthStateChanged has fired once
-let _pendingCustomerName = "";     // name collected before phone verification
-
-// ── Auth state listener ──────────────────────────────────────────────────────
-
-onAuthStateChanged(auth, (user) => {
-  _currentUser = user;
-  _authReady   = true;
-  _updateGreeting();
-
-  // A newly verified user must wait until their submitted name is applied
-  // before the pending order callback runs.
-  if (user && _pendingCb && !_pendingCustomerName) {
-    _runPendingCallback();
-  }
-});
+let _currentUser         = _loadSession();  // { name, phone } | null
+let _pendingCb           = null;            // callback to run after login
+let _pendingCustomerName = "";              // name entered in step 1
+let _expectedOTP         = null;           // 6-digit string generated on send
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** True once the first auth-state event has fired. */
-export function isAuthReady() { return _authReady; }
+/** Always true — no async Firebase check needed. */
+export function isAuthReady() { return true; }
 
-/** True when a Firebase user is signed in. */
+/** True when a verified session exists in localStorage. */
 export function isLoggedIn() { return !!_currentUser; }
 
 /**
  * Returns { name, phone, uid } for the current user, or null.
- * phone is the E.164 format string from Firebase (+91XXXXXXXXXX).
+ * uid is empty string (Fast2SMS has no Firebase UID concept).
  */
 export function getLoginInfo() {
-  if (!_currentUser) return null;
-  const phone = _currentUser.phoneNumber || "";
-  return {
-    name:  _currentUser.displayName || phone,
-    phone,
-    uid:   _currentUser.uid,
-  };
+  return _currentUser ? { ..._currentUser, uid: "" } : null;
 }
 
 /**
  * Ensures the user is logged in, then calls cb().
  * If already signed in, cb() fires immediately.
- * Otherwise the OTP modal is shown first, and cb() fires after verification.
+ * Otherwise the OTP modal is shown first.
  */
 export function requireLogin(cb) {
   if (_currentUser) { cb(); return; }
@@ -97,13 +70,12 @@ export function initAuth() {
   _updateGreeting();
 }
 
-/** Register a one-time listener called when auth state first resolves. */
+/**
+ * Calls cb immediately with the current user (or null).
+ * Synchronous because there is no async Firebase check.
+ */
 export function onAuthReady(cb) {
-  if (_authReady) { cb(_currentUser); return; }
-  const unsub = onAuthStateChanged(auth, (user) => {
-    unsub();
-    cb(user);
-  });
+  cb(_currentUser);
 }
 
 /** Refresh the customer chip in the header. */
@@ -138,10 +110,11 @@ function _showCodeStep(phone) {
   document.getElementById("otpCodeStep")?.classList.remove("hidden");
   const sub = document.getElementById("otpCodeSubtitle");
   if (sub) sub.textContent = `OTP sent to +91\u00a0${phone}`;
+  document.getElementById("otpCodeInput").value = "";
   document.getElementById("otpCodeInput")?.focus();
 }
 
-// ── Phone submission ──────────────────────────────────────────────────────────
+// ── Phone submission — generate OTP + call Fast2SMS ──────────────────────────
 
 async function _onPhoneSubmit(e) {
   e.preventDefault();
@@ -166,32 +139,24 @@ async function _onPhoneSubmit(e) {
   _pendingCustomerName = name;
   _setLoadingBtn("otpSendBtn", true, "Sending…");
 
+  // Generate a random 6-digit OTP
+  _expectedOTP = String(Math.floor(100000 + Math.random() * 900000));
+
   try {
-    // Reset old verifier if any
-    if (_recaptchaVerifier) {
-      try { _recaptchaVerifier.clear(); } catch (_) {}
-      _recaptchaVerifier = null;
+    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=VzIykBwZrPlaNCJ9n0sXgxo1QLfmuKvUtjqdORTecbY462WiME4FOC6baxz5AmKlq2o0IgvJkEyZVfst&variables_values=${_expectedOTP}&route=otp&numbers=${phone}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    if (!data.return) {
+      // Fast2SMS returns { return: true } on success
+      throw new Error(data.message || "Failed to send OTP. Please try again.");
     }
 
-    _recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
-      size: "invisible",
-      callback: () => {},
-      "expired-callback": () => {
-        _recaptchaVerifier = null;
-      },
-    });
-
-    _confirmationResult = await signInWithPhoneNumber(
-      auth, `+91${phone}`, _recaptchaVerifier
-    );
     _showCodeStep(phone);
   } catch (err) {
-    console.error("[auth] signInWithPhoneNumber:", err);
-    _setError("otpPhoneError", _friendly(err));
-    if (_recaptchaVerifier) {
-      try { _recaptchaVerifier.clear(); } catch (_) {}
-      _recaptchaVerifier = null;
-    }
+    console.error("[auth] Fast2SMS send:", err);
+    _expectedOTP = null;
+    _setError("otpPhoneError", err.message || "Could not send OTP. Check your number and try again.");
   } finally {
     _setLoadingBtn("otpSendBtn", false, "Send OTP");
   }
@@ -204,51 +169,61 @@ async function _onOTPSubmit(e) {
   _clearError("otpCodeError");
 
   const code = (document.getElementById("otpCodeInput")?.value || "").trim();
-  if (code.length < 4) {
-    _setError("otpCodeError", "Enter the OTP you received.");
+
+  if (code.length !== 6) {
+    _setError("otpCodeError", "Enter the 6-digit OTP you received.");
     return;
   }
-  if (!_confirmationResult) {
+
+  if (!_expectedOTP) {
     _setError("otpCodeError", "Session expired. Please go back and resend OTP.");
     return;
   }
 
   _setLoadingBtn("otpVerifyBtn", true, "Verifying…");
 
-  try {
-    const result = await _confirmationResult.confirm(code);
-    if (_pendingCustomerName && result.user) {
-      await updateProfile(result.user, { displayName: _pendingCustomerName });
-    }
-    _currentUser = result.user;
+  // Slight async tick so the button state renders before we compare
+  await new Promise((r) => setTimeout(r, 300));
+
+  if (code === _expectedOTP) {
+    // ✅ Correct OTP — persist session and proceed
+    _currentUser = { name: _pendingCustomerName, phone: document.getElementById("otpPhoneInput")?.value.replace(/\D/g, "").slice(-10) };
+    _saveSession(_currentUser);
+    _expectedOTP = null;
+
     _updateGreeting();
-    _runPendingCallback();
+    _dispatchAuthChange(_currentUser);
     _hideModal();
-  } catch (err) {
-    console.error("[auth] OTP confirm:", err);
-    _setError("otpCodeError", _friendly(err));
-  } finally {
+
+    alert("Login Successful");
+
+    const cb = _pendingCb;
+    _pendingCb           = null;
+    _pendingCustomerName = "";
+    if (cb) cb();
+  } else {
+    // ❌ Wrong OTP
+    _setError("otpCodeError", "Invalid OTP. Please try again.");
     _setLoadingBtn("otpVerifyBtn", false, "Verify OTP");
   }
 }
 
-function _runPendingCallback() {
-  if (!_pendingCb) return;
-  const cb = _pendingCb;
-  _pendingCb = null;
-  _pendingCustomerName = "";
-  cb();
-}
-
-// ── Logout ─────────────────────────────────────────────────────────────────
+// ── Logout ────────────────────────────────────────────────────────────────────
 
 async function _onLogout() {
   if (!confirm("Log out? You'll need to verify your phone again before placing the next order.")) return;
-  try { await signOut(auth); } catch (_) {}
-  // Clear history from storage so the next user starts fresh
+  _currentUser = null;
+  localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
+  _dispatchAuthChange(null);
   location.reload();
+}
+
+// ── Custom auth-state event (replaces onAuthStateChanged) ─────────────────────
+
+function _dispatchAuthChange(user) {
+  window.dispatchEvent(new CustomEvent("customAuthStateChanged", { detail: { user } }));
 }
 
 // ── Greeting chip ─────────────────────────────────────────────────────────────
@@ -257,10 +232,9 @@ function _updateGreeting() {
   const chip      = document.getElementById("customerChip");
   const logoutBtn = document.getElementById("headerLogoutBtn");
 
-  if (_currentUser?.phoneNumber) {
-    const last4 = _currentUser.phoneNumber.slice(-4);
+  if (_currentUser?.name) {
     if (chip) {
-      chip.textContent = `👤 ${_currentUser.displayName || `···${last4}`}`;
+      chip.textContent = `👤 ${_currentUser.name}`;
       chip.classList.remove("hidden");
     }
     logoutBtn?.classList.remove("hidden");
@@ -270,7 +244,24 @@ function _updateGreeting() {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Session helpers ───────────────────────────────────────────────────────────
+
+function _loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _saveSession(user) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  } catch (_) {}
+}
+
+// ── DOM helpers ───────────────────────────────────────────────────────────────
 
 function _setError(id, msg) {
   const el = document.getElementById(id);
@@ -287,20 +278,4 @@ function _setLoadingBtn(id, loading, text) {
   if (!btn) return;
   btn.disabled    = loading;
   btn.textContent = text;
-}
-
-function _friendly(err) {
-  const c = err?.code || "";
-  if (c.includes("unauthorized-domain"))      return "This website domain is not authorized in Firebase. Add the exact domain shown in your browser to Firebase → Authentication → Settings → Authorized domains.";
-  if (c.includes("operation-not-allowed"))   return "Firebase rejected Phone Auth for project billing-system-f8531. Confirm Phone is saved in this exact project, then enable the Identity Toolkit API in Google Cloud Console → APIs & Services → Library.";
-  if (c.includes("invalid-api-key"))         return "Firebase configuration is invalid. Check the web app configuration in Firebase.";
-  if (c.includes("app-not-authorized"))      return "This app is not authorized for Firebase Phone Auth. Check the Firebase web app and authorized domains.";
-  if (c.includes("invalid-phone-number"))       return "Invalid phone number. Check and try again.";
-  if (c.includes("too-many-requests"))           return "Too many attempts. Please wait a moment.";
-  if (c.includes("quota-exceeded"))             return "Service busy. Try again in a minute.";
-  if (c.includes("invalid-verification-code"))  return "Wrong OTP. Please try again.";
-  if (c.includes("code-expired"))               return "OTP expired. Go back and resend.";
-  if (c.includes("missing-phone-number"))       return "Please enter your phone number.";
-  if (c.includes("captcha-check-failed"))       return "Verification failed. Please refresh and retry.";
-  return err?.message || "Something went wrong. Please try again.";
 }

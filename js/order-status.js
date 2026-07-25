@@ -12,12 +12,12 @@
  * Firebase Auth is the source of truth for the current user's phone.
  */
 
-import { auth }                           from "./firebase-config.js";
 import { db }                             from "./firebase-config.js";
 import {
   collection, query, where, onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { saveOrderToHistory }             from "./history.js";
+import { getLoginInfo }                   from "./auth.js";
 
 const ORDERS_COL   = "pending_table_orders";
 const MOVED_KEY    = "qrmenu_moved_to_history";
@@ -34,11 +34,11 @@ let _activeOrders  = [];
 
 // ── Public ────────────────────────────────────────────────────
 
-/** Start listening for this customer's orders (keyed by Firebase Auth phone). */
+/** Start listening for this customer's orders (keyed by phone number). */
 export function initOrderStatus() {
-  const phone = auth.currentUser?.phoneNumber;
-  if (!phone) return;
-  _startListener(phone);
+  const user = getLoginInfo();
+  if (!user?.phone) return;
+  _startListener(user.phone);
 }
 
 /** Stop listener — call on logout. */
