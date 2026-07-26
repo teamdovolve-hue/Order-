@@ -10,31 +10,64 @@
  *
  * Sort: cheapest → most expensive (group min price across all categories).
  * Pizza sorted by Regular price; Half/Full sorted by Half price.
+ *
+ * Out-of-Stock behaviour:
+ *   • Items with inStock=false or available=false → shown with OOS badge,
+ *     ordering disabled.
+ *   • Pizza sizes disabled in settings/pizza_sizes → affected size-sides
+ *     shown with OOS badge, other sizes remain orderable.
+ *   • Items are NEVER hidden — they stay visible so customers can see the
+ *     full menu.
  */
 
 import { db } from "./firebase-config.js";
 import {
-  collection, onSnapshot, query,
+  collection, doc, onSnapshot, query,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { addItem, removeItem } from "./cart.js";
 
-const MENU_COLLECTION = "menu_items";
+const MENU_COLLECTION  = "menu_items";
+const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
 
 let allItems       = [];
 let activeCategory = "All";
 let activeSearch   = "";
 let _unsub         = null;
+let _unsubSizes    = null;
+
+/** Pizza-size availability — updated by the sizes listener. */
+let _pizzaSizes = { regular: true, medium: true, large: true };
 
 // ── Public ────────────────────────────────────────────────────
 
 export function initMenu() {
   showLoading(true);
-  if (_unsub) { _unsub(); _unsub = null; }
+  if (_unsub)      { _unsub();      _unsub      = null; }
+  if (_unsubSizes) { _unsubSizes(); _unsubSizes = null; }
 
+  // ── Listen to pizza-size availability (billing panel toggle) ──
+  _unsubSizes = onSnapshot(doc(db, "settings", "pizza_sizes"), (snap) => {
+    if (snap.exists()) {
+      const d = snap.data();
+      _pizzaSizes = {
+        regular: d.regular !== false,
+        medium:  d.medium  !== false,
+        large:   d.large   !== false,
+      };
+    } else {
+      _pizzaSizes = { regular: true, medium: true, large: true };
+    }
+    // Re-render immediately so size changes reflect without page refresh
+    applyFilter();
+  }, (err) => {
+    console.warn("[menu] pizza_sizes listener error:", err.message);
+  });
+
+  // ── Listen to menu items ──
   _unsub = onSnapshot(query(collection(db, MENU_COLLECTION)), (snap) => {
-    const raw = snap.docs
-      .map((doc) => ({ id: doc.id, ...doc.data() }))
-      .filter(_isAvailable);
+    // Keep ALL items — do NOT filter by availability here.
+    // OOS items are shown with a badge and ordering disabled.
+    const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     allItems = _sortItems(raw);
 
@@ -61,15 +94,32 @@ export function filterBySearch(term) {
   applyFilter();
 }
 
-// ── Availability ──────────────────────────────────────────────
+// ── Out-of-Stock helpers ──────────────────────────────────────
 
-function _isAvailable(item) {
-  if (item.inStock   === false) return false;
-  if (item.available === false) return false;
-  if (Array.isArray(item.sizes) && item.sizes.length > 0) {
-    return item.sizes.some(s => s.available !== false && s.inStock !== false);
+/**
+ * Returns true if this individual item is out of stock.
+ * Checks item-level flags AND pizza-size availability from the billing panel.
+ */
+function _isItemOos(item) {
+  if (item.inStock   === false) return true;
+  if (item.available === false) return true;
+  // Pizza size check — driven by settings/pizza_sizes in Firestore
+  if (_isPizzaVariant(item)) {
+    const size = _getPizzaSize(item);
+    if (size && !_pizzaSizes[size]) return true;
   }
-  return true;
+  return false;
+}
+
+function _isPizzaVariant(item) {
+  return /\(\s*(regular|medium|large)\s*\)/i.test(item.name || "");
+}
+
+function _getPizzaSize(item) {
+  if (/\(\s*regular\s*\)/i.test(item.name || "")) return "regular";
+  if (/\(\s*medium\s*\)/i.test(item.name  || "")) return "medium";
+  if (/\(\s*large\s*\)/i.test(item.name   || "")) return "large";
+  return null;
 }
 
 // ── Variant name helpers ──────────────────────────────────────
@@ -95,13 +145,21 @@ const _isVariant = n => _isHalf(n) || _isFull(n) || _isRegular(n) || _isMedium(n
 
 function _sortItems(items) {
   // Compute group min price keyed by "category::base" so groups stay within
-  // their own category (avoids cross-category price comparisons)
+  // their own category (avoids cross-category price comparisons).
+  // Use only in-stock items for pricing reference so OOS items don't distort sort.
   const groupMin = {};
   items.forEach(item => {
+    if (_isItemOos(item)) return;   // skip OOS for price reference
     const cat   = (item.category || 'Other').toLowerCase();
     const key   = `${cat}::${_vBase(item.name)}`;
     const price = Number(item.price) || 0;
     if (!(key in groupMin) || price < groupMin[key]) groupMin[key] = price;
+  });
+  // Fallback: OOS-only items still need a sort key
+  items.forEach(item => {
+    const cat  = (item.category || 'Other').toLowerCase();
+    const key  = `${cat}::${_vBase(item.name)}`;
+    if (!(key in groupMin)) groupMin[key] = Number(item.price) || 0;
   });
 
   // For pizza: use the Regular-variant price as the canonical sort key
@@ -270,8 +328,9 @@ function _createRegularCard(item, query) {
   const div   = document.createElement('div');
   const label = query ? highlight(item.name || "", query) : escHtml(item.name || "");
   const price = item.price || 0;
+  const oos   = _isItemOos(item);
 
-  div.className    = 'menu-card';
+  div.className    = `menu-card${oos ? ' oos' : ''}`;
   div.dataset.id   = item.id;
   div.dataset.name = item.name || "";
   div.dataset.price= price;
@@ -280,14 +339,18 @@ function _createRegularCard(item, query) {
     <div class="card-body">
       <div class="card-info">
         <h3 class="card-name">${label}</h3>
+        ${oos ? '<span class="oos-badge">Out of Stock</span>' : ''}
       </div>
       <div class="card-footer-inline">
         <span class="card-price">₹${price}</span>
         <div class="card-action">
-          <button class="btn-add"
-                  data-id="${escHtml(item.id)}"
-                  data-name="${escHtml(item.name || "")}"
-                  data-price="${price}">Add</button>
+          ${oos
+            ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
+            : `<button class="btn-add"
+                       data-id="${escHtml(item.id)}"
+                       data-name="${escHtml(item.name || "")}"
+                       data-price="${price}">Add</button>`
+          }
         </div>
       </div>
     </div>`;
@@ -295,19 +358,26 @@ function _createRegularCard(item, query) {
 }
 
 function _createHalfFullCard(halfItem, fullItem) {
-  const div = document.createElement('div');
+  const div  = document.createElement('div');
   div.className = 'half-full-card';
 
-  const side = (item, label) => `
-    <div class="half-full-side"
-         data-id="${item.id}"
-         data-name="${escHtml(item.name)}"
-         data-price="${item.price}">
-      <div class="hf-remove" data-id="${item.id}" title="Remove">✕</div>
-      <div class="half-full-label">${label}</div>
-      <div class="half-full-price">₹${item.price}</div>
-      <div class="hf-qty" data-id="${item.id}">0</div>
-    </div>`;
+  const side = (item, label) => {
+    const oos = _isItemOos(item);
+    return `
+      <div class="half-full-side${oos ? ' oos' : ''}"
+           data-id="${item.id}"
+           data-name="${escHtml(item.name)}"
+           data-price="${item.price}"
+           data-oos="${oos ? '1' : '0'}">
+        <div class="hf-remove" data-id="${item.id}" title="Remove">✕</div>
+        <div class="half-full-label">${label}</div>
+        <div class="half-full-price">₹${item.price}</div>
+        ${oos
+          ? '<div class="oos-badge oos-badge--side">Out of Stock</div>'
+          : `<div class="hf-qty" data-id="${item.id}">0</div>`
+        }
+      </div>`;
+  };
 
   div.innerHTML = `
     <div class="half-full-heading">${escHtml(_displayBase(halfItem.name))}</div>
@@ -323,16 +393,23 @@ function _createTripleCard(reg, med, lrg) {
   const div = document.createElement('div');
   div.className = 'triple-card';
 
-  const side = (item, label) => `
-    <div class="triple-side"
-         data-id="${item.id}"
-         data-name="${escHtml(item.name)}"
-         data-price="${item.price}">
-      <div class="triple-remove" data-id="${item.id}" title="Remove">✕</div>
-      <div class="triple-label">${label}</div>
-      <div class="triple-price">₹${item.price}</div>
-      <div class="triple-qty" data-id="${item.id}">0</div>
-    </div>`;
+  const side = (item, label) => {
+    const oos = _isItemOos(item);
+    return `
+      <div class="triple-side${oos ? ' oos' : ''}"
+           data-id="${item.id}"
+           data-name="${escHtml(item.name)}"
+           data-price="${item.price}"
+           data-oos="${oos ? '1' : '0'}">
+        <div class="triple-remove" data-id="${item.id}" title="Remove">✕</div>
+        <div class="triple-label">${label}</div>
+        <div class="triple-price">₹${item.price}</div>
+        ${oos
+          ? '<div class="oos-badge oos-badge--side">Out of Stock</div>'
+          : `<div class="triple-qty" data-id="${item.id}">0</div>`
+        }
+      </div>`;
+  };
 
   div.innerHTML = `
     <div class="triple-heading">${escHtml(_displayBase(reg.name))}</div>
@@ -355,7 +432,7 @@ function _wireCardEvents(grid) {
   fresh.addEventListener("click", (e) => {
     // ── Regular card ──
     const addBtn = e.target.closest(".btn-add");
-    if (addBtn) {
+    if (addBtn && !addBtn.disabled) {
       addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
       return;
     }
@@ -372,13 +449,19 @@ function _wireCardEvents(grid) {
     const hfRemove = e.target.closest(".hf-remove");
     if (hfRemove) { e.stopPropagation(); removeItem(hfRemove.dataset.id); return; }
     const hfSide = e.target.closest(".half-full-side");
-    if (hfSide) { addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price)); return; }
+    if (hfSide && hfSide.dataset.oos !== '1') {
+      addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price));
+      return;
+    }
 
     // ── Triple ──
     const trRemove = e.target.closest(".triple-remove");
     if (trRemove) { e.stopPropagation(); removeItem(trRemove.dataset.id); return; }
     const trSide = e.target.closest(".triple-side");
-    if (trSide) { addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price)); return; }
+    if (trSide && trSide.dataset.oos !== '1') {
+      addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price));
+      return;
+    }
   });
 }
 

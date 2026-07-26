@@ -1590,3 +1590,72 @@ mark.search-highlight {
 .triple-side.in-cart .triple-price {
   color: var(--accent);
 }
+
+/* ══════════════════════════════════════════════════════════════
+   OUT OF STOCK — shared styles
+══════════════════════════════════════════════════════════════ */
+
+/* OOS badge — inline below item name on regular cards */
+.oos-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* OOS badge centered inside triple/half-full sides */
+.oos-badge--side {
+  display: block;
+  margin: 2px auto 0;
+  text-align: center;
+}
+
+/* Dim entire regular card when OOS */
+.menu-card.oos {
+  opacity: 0.72;
+}
+.menu-card.oos .card-name {
+  color: var(--text-2);
+}
+.menu-card.oos .card-price {
+  color: var(--text-3);
+}
+
+/* Unavailable button on regular cards */
+.btn-oos {
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--text-3) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  cursor: not-allowed !important;
+  font-size: 11px !important;
+  padding: 6px 10px !important;
+  border-radius: 8px !important;
+  font-weight: 600;
+}
+
+/* Dim OOS side on half/full and triple cards — but don't block the whole card */
+.half-full-side.oos,
+.triple-side.oos {
+  opacity: 0.62;
+  cursor: not-allowed;
+  pointer-events: none;   /* prevents click, but remove/qty badges are inside */
+}
+/* Qty/remove badges must still be hidden on OOS sides */
+.half-full-side.oos .hf-qty,
+.half-full-side.oos .hf-remove,
+.triple-side.oos .triple-qty,
+.triple-side.oos .triple-remove {
+  display: none !important;
+}
+.half-full-side.oos .half-full-price,
+.triple-side.oos .triple-price {
+  color: var(--text-3);
+}
