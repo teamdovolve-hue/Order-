@@ -1,0 +1,4 @@
+# Netlify rewrite rules
+# Serve index.html for all /t/* paths so the Express-style routing
+# works on Netlify's static CDN. The URL stays as /t/:n in the browser.
+/t/*  /index.html  200

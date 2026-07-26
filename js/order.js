@@ -14,20 +14,38 @@ import { getCustomer }                 from "./customer.js";
 
 const ORDER_COLLECTION = "pending_table_orders";
 
-// ── Read validated table from server-injected window.__TABLE_ID__ ─────────────
+// ── Read table number from the URL ────────────────────────────────────────────
 //
-//   The server validates the table number at the /t/:n route and injects it
-//   as a plain integer before serving index.html.  The frontend NEVER reads
-//   from the URL — it only reads this server-set value.  A customer who edits
-//   the URL is simply served a new server-validated page for that URL; there
-//   is no client-side state they can tamper with to change their table.
+//   Two environments:
+//
+//   1. Replit / Node.js (dev + self-hosted):
+//      The server validates /t/:n and injects window.__TABLE_ID__ = <int>
+//      into the HTML before serving it.  We prefer that value.
+//
+//   2. Netlify (production CDN):
+//      Netlify rewrites /t/* → index.html (see _redirects).  No server
+//      injection happens, so we parse window.location.pathname instead.
+//
+//   In both cases the validation rule is the same: table must be 1–10.
+//   Returns "Table N" on success, null on invalid/missing table.
+
+const VALID_TABLES = 10;
 
 export function getTableId() {
-  const n = window.__TABLE_ID__;
-  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 10) {
-    return null;   // not reached via a valid /t/:n URL
+  // Prefer server-injected value (set by Express before serving index.html)
+  if (typeof window.__TABLE_ID__ === "number") {
+    const n = window.__TABLE_ID__;
+    return (Number.isInteger(n) && n >= 1 && n <= VALID_TABLES)
+      ? `Table ${n}`
+      : null;
   }
-  return `Table ${n}`;
+
+  // Fallback: parse /t/<n> from the browser URL (Netlify / static hosting)
+  const match = window.location.pathname.match(/^\/t\/(\d+)$/);
+  if (!match) return null;                        // not a /t/ URL at all
+
+  const n = parseInt(match[1], 10);
+  return (n >= 1 && n <= VALID_TABLES) ? `Table ${n}` : null;
 }
 
 // ── Submit order ──────────────────────────────────────────────

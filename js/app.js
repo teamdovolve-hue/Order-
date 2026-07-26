@@ -2,7 +2,8 @@
  * app.js — Entry point
  * ─────────────────────────────────────────────────────────────
  * Boot sequence:
- *   1. Set table badge from ?table= URL param
+ *   0. Validate table from URL (/t/:n) — show error page if invalid
+ *   1. Set table badge
  *   2. Init auth (wire OTP modal events)
  *   3. Init menu (real-time Firestore listener — no auth needed)
  *   4. Init search
@@ -22,31 +23,42 @@ import { initOrderStatus, stopOrderStatus } from "./order-status.js";
 
 document.addEventListener("DOMContentLoaded", () => {
 
-  // 1. Table badge — from server-injected window.__TABLE_ID__
-  const tableId = getTableId();          // null if not reached via /t/:n
-  const badge   = document.getElementById("tableBadge");
-  if (badge) badge.textContent = tableId ? tableId : "Table —";
+  // ── 0. Table gate ─────────────────────────────────────────────
+  //   Check this before anything else.  If the customer didn't arrive
+  //   via a valid /t/1…/t/10 QR URL, replace the page with the correct
+  //   error screen and stop.  Nothing else initialises.
 
-  // 2. Auth — wire OTP modal, logout button; update greeting chip
+  const tableId    = getTableId();
+  const isTableUrl = /^\/t\//.test(window.location.pathname);
+
+  if (!tableId) {
+    _showGatePage(isTableUrl ? "invalid" : "scan");
+    return;
+  }
+
+  // ── 1. Table badge ────────────────────────────────────────────
+  const badge = document.getElementById("tableBadge");
+  if (badge) badge.textContent = tableId;
+
+  // ── 2. Auth ───────────────────────────────────────────────────
   initAuth();
 
-  // 3. Menu loads immediately (customers can browse before logging in)
+  // ── 3. Menu ───────────────────────────────────────────────────
   initMenu();
 
-  // 4. Real-time search
+  // ── 4. Search ─────────────────────────────────────────────────
   initSearch(filterBySearch);
 
-  // 5. History drawer
+  // ── 5. History ────────────────────────────────────────────────
   initHistory();
 
-  // 6. Auth state watcher — start/stop order-status listener
-  //    Fires on login / logout via the custom event dispatched by auth.js
+  // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = (user) => {
     updateGreeting();
     if (user) {
-      initOrderStatus();   // subscribe to this customer's orders
+      initOrderStatus();
     } else {
-      stopOrderStatus();   // unsubscribe on logout
+      stopOrderStatus();
     }
   };
 
@@ -54,25 +66,22 @@ document.addEventListener("DOMContentLoaded", () => {
     _handleAuthChange(e.detail?.user ?? null);
   });
 
-  // Also handle the already-logged-in state on page load
-  if (isLoggedIn()) {
-    initOrderStatus();
-  }
+  if (isLoggedIn()) initOrderStatus();
 
-  // 7. Place Order — prompts login if needed, then submits
+  // ── 7. Place Order ────────────────────────────────────────────
   document.getElementById("placeOrderBtn")
     ?.addEventListener("click", () => {
       requireLogin(() => placeOrder());
     });
 
-  // 8. Retry on menu load error
+  // ── 8. Retry on menu load error ───────────────────────────────
   document.getElementById("retryBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorState")?.classList.add("hidden");
       initMenu();
     });
 
-  // 9. Success overlay close
+  // ── 9. Success overlay close ──────────────────────────────────
   document.getElementById("overlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("successOverlay")?.classList.add("hidden");
@@ -80,10 +89,55 @@ document.addEventListener("DOMContentLoaded", () => {
       if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
     });
 
-  // 10. Error overlay close
+  // ── 10. Error overlay close ───────────────────────────────────
   document.getElementById("errorOverlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorOverlay")?.classList.add("hidden");
     });
 
 });
+
+// ── Gate-page renderer ────────────────────────────────────────
+//   Replaces the entire <body> so no menu/auth code can run.
+
+function _showGatePage(type) {
+  const isScan = type === "scan";
+
+  const icon    = isScan ? "📷" : "🚫";
+  const heading = isScan ? "Scan Your Table QR" : "Invalid QR Code";
+  const body    = isScan
+    ? "Please scan the QR code printed on your table to view the menu and place an order."
+    : "This QR code is not recognised. Please scan the QR code printed on your table.";
+
+  document.body.innerHTML = `
+    <style>
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1A1E29;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .gate-card {
+        background: #242838;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 20px;
+        padding: 44px 32px;
+        max-width: 360px;
+        width: 100%;
+        text-align: center;
+      }
+      .gate-icon  { font-size: 56px; margin-bottom: 20px; }
+      .gate-title { font-size: 22px; font-weight: 800; color: #fff; margin: 0 0 12px; }
+      .gate-body  { font-size: 14px; color: rgba(255,255,255,0.5); line-height: 1.65; margin: 0; }
+    </style>
+    <div class="gate-card">
+      <div class="gate-icon">${icon}</div>
+      <h1 class="gate-title">${heading}</h1>
+      <p class="gate-body">${body}</p>
+    </div>`;
+}
