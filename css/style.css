@@ -1342,3 +1342,251 @@ mark.search-highlight {
   .history-list { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .otp-sheet   { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   REGULAR CARD — compact inline layout
+══════════════════════════════════════════════════════════════ */
+.card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-footer-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   HALF / FULL COMBINED CARD
+══════════════════════════════════════════════════════════════ */
+.half-full-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin-bottom: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.half-full-card:hover {
+  border-color: var(--surface-3);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+
+.half-full-heading {
+  text-align: center;
+  padding: 11px 14px 9px;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.2px;
+}
+
+.half-full-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 80px;
+}
+
+.half-full-side {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px 18px;
+  cursor: pointer;
+  gap: 5px;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.half-full-side:hover  { background: rgba(255,255,255,0.03); }
+.half-full-side:active { background: var(--accent-soft); }
+
+.half-full-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 8px 0;
+}
+
+.half-full-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.half-full-price {
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 22px;
+}
+
+/* Qty badge — top-right inside side */
+.hf-qty {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #000;
+  font-size: 11px;
+  font-weight: 800;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+/* Remove badge — top-left inside side */
+.hf-remove {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.hf-remove:hover { background: var(--red); color: #fff; border-color: var(--red); }
+
+.half-full-side.in-cart {
+  background: var(--accent-soft);
+}
+.half-full-side.in-cart .half-full-price {
+  color: var(--accent);
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   TRIPLE CARD (Regular / Medium / Large) — Pizza
+══════════════════════════════════════════════════════════════ */
+.triple-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin-bottom: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.triple-card:hover {
+  border-color: var(--surface-3);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+
+.triple-heading {
+  text-align: center;
+  padding: 11px 14px 9px;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.2px;
+}
+
+.triple-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 80px;
+}
+
+.triple-side {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 8px 18px;
+  cursor: pointer;
+  gap: 5px;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.triple-side:hover  { background: rgba(255,255,255,0.03); }
+.triple-side:active { background: var(--accent-soft); }
+
+.triple-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 8px 0;
+}
+
+.triple-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.triple-price {
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 20px;
+}
+
+/* Qty badge — top-right inside side */
+.triple-qty {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #000;
+  font-size: 11px;
+  font-weight: 800;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+/* Remove badge — top-left inside side */
+.triple-remove {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.triple-remove:hover { background: var(--red); color: #fff; border-color: var(--red); }
+
+.triple-side.in-cart {
+  background: var(--accent-soft);
+}
+.triple-side.in-cart .triple-price {
+  color: var(--accent);
+}

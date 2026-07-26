@@ -114,6 +114,10 @@ function _showCodeStep(phone) {
   document.getElementById("otpCodeInput")?.focus();
 }
 
+// ── DEV BYPASS ────────────────────────────────────────────────────────────────
+// TODO: Remove this once DLT ID is configured and Fast2SMS OTP is live.
+const _DEV_BYPASS_PHONE = "6393349498";
+
 // ── Phone submission — generate OTP + call Fast2SMS ──────────────────────────
 
 async function _onPhoneSubmit(e) {
@@ -137,6 +141,24 @@ async function _onPhoneSubmit(e) {
   }
 
   _pendingCustomerName = name;
+
+  // ── DEV BYPASS: skip OTP for test number ─────────────────────────────────
+  // TODO: Remove once DLT ID is configured and Fast2SMS OTP is live.
+  if (phone === _DEV_BYPASS_PHONE) {
+    _currentUser = { name, phone };
+    _saveSession(_currentUser);
+    _updateGreeting();
+    _dispatchAuthChange(_currentUser);
+    _hideModal();
+    alert("Login Successful");
+    const cb = _pendingCb;
+    _pendingCb           = null;
+    _pendingCustomerName = "";
+    if (cb) cb();
+    return;
+  }
+  // ── END DEV BYPASS ─────────────────────────────────────────────────────────
+
   _setLoadingBtn("otpSendBtn", true, "Sending…");
 
   // Generate a random 6-digit OTP
@@ -149,7 +171,6 @@ async function _onPhoneSubmit(e) {
     const data = await res.json();
 
     if (!data.return) {
-      // Fast2SMS returns { return: true } on success
       throw new Error(data.message || "Failed to send OTP. Please try again.");
     }
 

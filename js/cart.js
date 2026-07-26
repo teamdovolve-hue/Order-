@@ -3,6 +3,11 @@
  * ─────────────────────────────────────────────────────────────
  * In-memory cart state. Exports addItem, removeItem, clearCart,
  * and the cart Map for order.js to read.
+ *
+ * updateCardUI handles three card types:
+ *   • .menu-card       (regular items)
+ *   • .half-full-side  (Half / Full variant sides)
+ *   • .triple-side     (Regular / Medium / Large variant sides)
  */
 
 /** Map<itemId, { id, name, price, qty }> */
@@ -69,33 +74,52 @@ export function refreshCartUI() {
   if (btn) btn.disabled = !hasItems;
 }
 
-// ── Per-card UI (Add button ↔ qty control) ────────────────────
+// ── Per-card UI update ────────────────────────────────────────
 
 export function updateCardUI(itemId) {
-  // The menu grid may have been replaced via cloneNode; query fresh each time
+  const item = cart.get(itemId);
+  const qty  = item?.qty || 0;
+
+  // ── Regular .menu-card ──
   const card    = document.querySelector(`.menu-card[data-id="${itemId}"]`);
   const wrapper = card?.querySelector(".card-action");
-  if (!card || !wrapper) return;
+  if (card && wrapper) {
+    if (qty > 0) {
+      card.classList.add("in-cart");
+      wrapper.innerHTML = `
+        <div class="qty-control">
+          <button class="qty-btn qty-minus" data-id="${itemId}" aria-label="Remove one">−</button>
+          <span class="qty-display">${qty}</span>
+          <button class="qty-btn qty-plus"  data-id="${itemId}" aria-label="Add one">+</button>
+        </div>`;
+    } else {
+      card.classList.remove("in-cart");
+      wrapper.innerHTML = `
+        <button class="btn-add"
+                data-id="${itemId}"
+                data-name="${escHtml(card.dataset.name)}"
+                data-price="${card.dataset.price}">Add</button>`;
+    }
+  }
 
-  const item = cart.get(itemId);
+  // ── .half-full-side ──
+  const hfSide = document.querySelector(`.half-full-side[data-id="${itemId}"]`);
+  if (hfSide) {
+    hfSide.classList.toggle("in-cart", qty > 0);
+    const qtyEl = hfSide.querySelector(".hf-qty");
+    const remEl = hfSide.querySelector(".hf-remove");
+    if (qtyEl) { qtyEl.textContent = qty; qtyEl.style.display = qty > 0 ? "flex" : "none"; }
+    if (remEl)   remEl.style.display = qty > 0 ? "flex" : "none";
+  }
 
-  if (item && item.qty > 0) {
-    card.classList.add("in-cart");
-    wrapper.innerHTML = `
-      <div class="qty-control">
-        <button class="qty-btn qty-minus" data-id="${itemId}" aria-label="Remove one">−</button>
-        <span class="qty-display">${item.qty}</span>
-        <button class="qty-btn qty-plus"  data-id="${itemId}" aria-label="Add one">+</button>
-      </div>`;
-  } else {
-    card.classList.remove("in-cart");
-    wrapper.innerHTML = `
-      <button class="btn-add"
-              data-id="${itemId}"
-              data-name="${escHtml(card.dataset.name)}"
-              data-price="${card.dataset.price}">
-        Add
-      </button>`;
+  // ── .triple-side ──
+  const trSide = document.querySelector(`.triple-side[data-id="${itemId}"]`);
+  if (trSide) {
+    trSide.classList.toggle("in-cart", qty > 0);
+    const qtyEl = trSide.querySelector(".triple-qty");
+    const remEl = trSide.querySelector(".triple-remove");
+    if (qtyEl) { qtyEl.textContent = qty; qtyEl.style.display = qty > 0 ? "flex" : "none"; }
+    if (remEl)   remEl.style.display = qty > 0 ? "flex" : "none";
   }
 }
 
