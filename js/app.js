@@ -22,10 +22,10 @@ import { initOrderStatus, stopOrderStatus } from "./order-status.js";
 
 document.addEventListener("DOMContentLoaded", () => {
 
-  // 1. Table badge — from ?table=T4 in QR URL
-  const tableId = getTableId();
+  // 1. Table badge — from server-injected window.__TABLE_ID__
+  const tableId = getTableId();          // null if not reached via /t/:n
   const badge   = document.getElementById("tableBadge");
-  if (badge) badge.textContent = `Table ${tableId}`;
+  if (badge) badge.textContent = tableId ? tableId : "Table —";
 
   // 2. Auth — wire OTP modal, logout button; update greeting chip
   initAuth();

@@ -14,11 +14,20 @@ import { getCustomer }                 from "./customer.js";
 
 const ORDER_COLLECTION = "pending_table_orders";
 
-// ── Read ?table=XX from the URL ───────────────────────────────
+// ── Read validated table from server-injected window.__TABLE_ID__ ─────────────
+//
+//   The server validates the table number at the /t/:n route and injects it
+//   as a plain integer before serving index.html.  The frontend NEVER reads
+//   from the URL — it only reads this server-set value.  A customer who edits
+//   the URL is simply served a new server-validated page for that URL; there
+//   is no client-side state they can tamper with to change their table.
 
 export function getTableId() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("table") || "Unknown";
+  const n = window.__TABLE_ID__;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 10) {
+    return null;   // not reached via a valid /t/:n URL
+  }
+  return `Table ${n}`;
 }
 
 // ── Submit order ──────────────────────────────────────────────
@@ -26,10 +35,15 @@ export function getTableId() {
 export async function placeOrder() {
   if (cart.size === 0) return;
 
+  const tableId = getTableId();
+  if (!tableId) {
+    // Should never happen — server blocks non-/t/:n access — but guard anyway
+    _showError("Could not detect your table. Please rescan the QR code.");
+    return;
+  }
+
   const btn = document.getElementById("placeOrderBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Placing…"; }
-
-  const tableId  = getTableId();
   const customer = getCustomer();    // { name, phone, uid } from Firebase Auth
   const items    = [];
   let   totalItems = 0;
