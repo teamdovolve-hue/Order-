@@ -132,11 +132,10 @@ app.get("/t/:n", (req, res) => {
 
   try {
     const html = readIndex();
-    // 1. <base href="/"> must come first in <head> so all relative asset URLs
-    //    (css/style.css, js/app.js …) resolve from root, not from /t/.
-    // 2. window.__TABLE_ID__ is a safe integer literal — no XSS risk.
+    // Inject the validated table number before </head>.
+    // <base href="/"> is already in index.html so no duplicate needed here.
+    // window.__TABLE_ID__ is a safe integer literal — no XSS risk.
     const injected = html
-      .replace("<head>", `<head>\n  <base href="/">`)
       .replace("</head>", `  <script>window.__TABLE_ID__ = ${n};</script>\n</head>`);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(injected);
