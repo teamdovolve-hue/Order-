@@ -91,54 +91,60 @@ const _isMedium  = n => /\(\s*medium\s*\)/i.test(n);
 const _isLarge   = n => /\(\s*large\s*\)/i.test(n);
 const _isVariant = n => _isHalf(n) || _isFull(n) || _isRegular(n) || _isMedium(n) || _isLarge(n);
 
-// ── Sort: cheapest → most expensive by group min price ────────
+// ── Sort: categories A→Z, items cheapest→most expensive within each ───────
 
 function _sortItems(items) {
-  // Compute min price per variant group (for all non-pizza items)
+  // Compute group min price keyed by "category::base" so groups stay within
+  // their own category (avoids cross-category price comparisons)
   const groupMin = {};
   items.forEach(item => {
-    const base  = _vBase(item.name);
+    const cat   = (item.category || 'Other').toLowerCase();
+    const key   = `${cat}::${_vBase(item.name)}`;
     const price = Number(item.price) || 0;
-    if (!(base in groupMin) || price < groupMin[base]) groupMin[base] = price;
+    if (!(key in groupMin) || price < groupMin[key]) groupMin[key] = price;
   });
 
-  // For pizza: use Regular price as the sort key for the whole group
+  // For pizza: use the Regular-variant price as the canonical sort key
   const pizzaMin = {};
   items.forEach(item => {
     if ((item.category || '').toLowerCase() !== 'pizza') return;
-    const base  = _vBase(item.name);
+    const key   = `pizza::${_vBase(item.name)}`;
     const price = Number(item.price) || 0;
     if (_isRegular(item.name)) {
-      pizzaMin[base] = price; // Regular price = canonical group sort key
-    } else if (!(base in pizzaMin)) {
-      pizzaMin[base] = price; // fallback if no Regular variant
+      pizzaMin[key] = price;               // Regular = canonical
+    } else if (!(key in pizzaMin)) {
+      pizzaMin[key] = price;               // fallback if no Regular
     }
   });
 
   return [...items].sort((a, b) => {
-    const isPizzaA = (a.category || '').toLowerCase() === 'pizza';
-    const isPizzaB = (b.category || '').toLowerCase() === 'pizza';
-    const baseA    = _vBase(a.name);
-    const baseB    = _vBase(b.name);
+    const catA = (a.category || 'Other').toLowerCase();
+    const catB = (b.category || 'Other').toLowerCase();
 
-    if (isPizzaA && isPizzaB) {
-      const minA = pizzaMin[baseA] ?? groupMin[baseA] ?? 0;
-      const minB = pizzaMin[baseB] ?? groupMin[baseB] ?? 0;
-      if (minA !== minB) return minA - minB;
-      if (baseA !== baseB) return baseA.localeCompare(baseB);
-      return (Number(a.price) || 0) - (Number(b.price) || 0);
-    }
+    // 1. Sort categories alphabetically (A → Z)
+    const catCmp = catA.localeCompare(catB, undefined, { sensitivity: 'base' });
+    if (catCmp !== 0) return catCmp;
 
-    if (!isPizzaA && !isPizzaB) {
-      const minA = groupMin[baseA] ?? 0;
-      const minB = groupMin[baseB] ?? 0;
-      if (minA !== minB) return minA - minB;
-      if (baseA !== baseB) return baseA.localeCompare(baseB);
-      return (Number(a.price) || 0) - (Number(b.price) || 0);
-    }
+    // 2. Within the same category: sort by group min price (cheapest first)
+    const baseA = _vBase(a.name);
+    const baseB = _vBase(b.name);
+    const keyA  = `${catA}::${baseA}`;
+    const keyB  = `${catB}::${baseB}`;
 
-    // Mixed categories: sort by category name
-    return (a.category || '').toLowerCase().localeCompare((b.category || '').toLowerCase());
+    const minA = catA === 'pizza'
+      ? (pizzaMin[`pizza::${baseA}`] ?? groupMin[keyA] ?? 0)
+      : (groupMin[keyA] ?? 0);
+    const minB = catB === 'pizza'
+      ? (pizzaMin[`pizza::${baseB}`] ?? groupMin[keyB] ?? 0)
+      : (groupMin[keyB] ?? 0);
+
+    if (minA !== minB) return minA - minB;
+
+    // 3. Same group min → keep group together by base name
+    if (baseA !== baseB) return baseA.localeCompare(baseB);
+
+    // 4. Same base name → sort by individual price (Regular < Medium < Large)
+    return (Number(a.price) || 0) - (Number(b.price) || 0);
   });
 }
 
@@ -164,7 +170,10 @@ function applyFilter() {
 // ── Category tabs ─────────────────────────────────────────────
 
 function renderCategoryTabs(items) {
-  const categories = ["All", ...new Set(items.map(i => i.category || "Other"))];
+  const cats = [...new Set(items.map(i => i.category || "Other"))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" })
+  );
+  const categories = ["All", ...cats];
   const scroll     = document.querySelector(".category-scroll");
   if (!scroll) return;
 
