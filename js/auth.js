@@ -192,8 +192,7 @@ async function _onPhoneSubmit(e) {
     _showProfileStep();
   } catch (err) {
     console.error("[auth] Customer lookup failed:", err);
-    const code = err?.code || err?.message || "unknown";
-    _setError("otpPhoneError", `Could not check this number (${code}). Please try again.`);
+    _setError("otpPhoneError", "Could not check this number. Please try again.");
   } finally {
     _setLoadingBtn("otpSendBtn", false, "Continue");
   }
