@@ -9,6 +9,36 @@
   <base href="/" />
   <!-- Critical: keep hidden elements invisible even if the external CSS is slow or blocked -->
   <style>.hidden { display: none !important; }</style>
+
+  <!-- Diagnostic: surface JS errors visibly on screen (remove once stable) -->
+  <script>
+    (function () {
+      function _showDbg(msg) {
+        var el = document.getElementById('_dbg');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = '_dbg';
+          el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;font:12px/1.4 monospace;padding:8px;z-index:99999;white-space:pre-wrap;max-height:50vh;overflow:auto';
+          document.body ? document.body.appendChild(el) : document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(el); });
+        }
+        el.textContent += msg + '\n';
+      }
+      window.addEventListener('error', function (e) {
+        _showDbg('JS ERROR: ' + e.message + '\n  at ' + (e.filename || '?').replace(location.origin,'') + ':' + e.lineno);
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        _showDbg('PROMISE: ' + (e.reason && (e.reason.stack || e.reason.message) || String(e.reason)));
+      });
+      // Show a status message if the app hasn't loaded menu items after 6 seconds
+      setTimeout(function () {
+        var grid = document.getElementById('menuGrid');
+        var loaded = grid && !grid.classList.contains('hidden');
+        if (!loaded) {
+          _showDbg('⚠ Menu not loaded after 6s. URL: ' + location.href + '\nCheck errors above, or open DevTools → Console for details.');
+        }
+      }, 6000);
+    })();
+  </script>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" href="data:," />
 </head>
