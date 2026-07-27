@@ -29,24 +29,49 @@ import { waitForAuthReady }            from "./auth.js";
 //   Returns "Table N" on success, null on invalid/missing table.
 
 const VALID_TABLES = 10;
+const SESSION_KEY  = "qrmenu_locked_table";   // sessionStorage key
 let _activeTableId = null;
 
 export function getTableId() {
   if (_activeTableId) return _activeTableId;
-  // Prefer server-injected value (set by Express before serving index.html)
+
+  // ── Priority 1: server-injected value (Replit / Express) ──────────────────
+  //   The Express server validates /t/:n and writes window.__TABLE_ID__ before
+  //   serving the HTML.  This is the strongest signal — no URL parsing needed.
   if (typeof window.__TABLE_ID__ === "number") {
     const n = window.__TABLE_ID__;
-    return (Number.isInteger(n) && n >= 1 && n <= VALID_TABLES)
-      ? `Table ${n}`
-      : null;
+    if (Number.isInteger(n) && n >= 1 && n <= VALID_TABLES) {
+      const tableId = `Table ${n}`;
+      try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
+      return tableId;
+    }
+    return null;
   }
 
-  // Fallback: parse /t/<n> from the browser URL (Netlify / static hosting)
+  // ── Priority 2: sessionStorage lock (Vercel / static CDN) ─────────────────
+  //   On static hosting the URL is the only signal, but we lock it into
+  //   sessionStorage the first time so a customer cannot switch tables by
+  //   editing the address bar within the same browser session.
+  //
+  //   Exception: if the current URL carries a *valid* table number that differs
+  //   from the stored one, we ONLY accept it if the stored session is being
+  //   viewed from a brand-new tab (sessionStorage is per-tab, so a fresh scan
+  //   from a different QR will always land in its own empty session).
+  try {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (stored) return stored;                   // tab already locked — ignore URL
+  } catch (_) {}
+
+  // ── Priority 3: parse /t/<n> from the URL (first visit in this tab) ────────
   const match = window.location.pathname.match(/^\/t\/(\d+)$/);
-  if (!match) return null;                        // not a /t/ URL at all
+  if (!match) return null;
 
   const n = parseInt(match[1], 10);
-  return (n >= 1 && n <= VALID_TABLES) ? `Table ${n}` : null;
+  if (n < 1 || n > VALID_TABLES) return null;
+
+  const tableId = `Table ${n}`;
+  try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
+  return tableId;
 }
 
 export async function loadActiveTableAssignment() {

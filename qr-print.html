@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>QR Codes — All Tables</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      padding: 24px;
+      color: #111;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: #111;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 28px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 20px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: #fff;
+      border: 2px solid #111;
+      border-radius: 16px;
+      padding: 24px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .restaurant-name {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #f5a623;
+      text-transform: uppercase;
+    }
+
+    .table-label {
+      font-size: 28px;
+      font-weight: 900;
+      color: #111;
+      letter-spacing: -0.5px;
+    }
+
+    .qr-wrap {
+      background: #fff;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #eee;
+    }
+
+    .scan-text {
+      font-size: 12px;
+      color: #555;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .url-text {
+      font-size: 10px;
+      color: #aaa;
+      font-family: monospace;
+      word-break: break-all;
+      text-align: center;
+    }
+
+    .print-btn {
+      display: block;
+      margin: 0 auto 28px;
+      padding: 12px 32px;
+      background: #f5a623;
+      color: #111;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .print-btn:hover { opacity: 0.85; }
+
+    @media print {
+      body { background: #fff; padding: 10px; }
+      .print-btn { display: none; }
+      .grid { gap: 12px; }
+      h1, .subtitle { margin-bottom: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🍕 Table QR Codes</h1>
+  <p class="subtitle">Print and place one on each table &nbsp;•&nbsp; ordernow.newpizzahutnlivecake.in</p>
+
+  <button class="print-btn" onclick="window.print()">🖨️ Print All QR Codes</button>
+
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const BASE_URL = "https://ordernow.newpizzahutnlivecake.in/t/";
+    const TOTAL_TABLES = 10;
+    const grid = document.getElementById("grid");
+
+    for (let i = 1; i <= TOTAL_TABLES; i++) {
+      const url = BASE_URL + i;
+
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="restaurant-name">Pizza Hut 'n Live Cake</div>
+        <div class="table-label">Table ${i}</div>
+        <div class="qr-wrap" id="qr-${i}"></div>
+        <div class="scan-text">Scan to view menu &amp; order</div>
+        <div class="url-text">${url}</div>
+      `;
+      grid.appendChild(card);
+
+      new QRCode(document.getElementById(`qr-${i}`), {
+        text: url,
+        width: 180,
+        height: 180,
+        colorDark: "#111111",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H,
+      });
+    }
+  </script>
+
+</body>
+</html>
