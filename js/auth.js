@@ -5,12 +5,21 @@
  *
  * Flow:
  *   Customer browses freely → taps "Place Order" → if not logged in →
- *   OTP modal appears → enters name and phone → Fast2SMS sends OTP →
- *   customer enters 6-digit code → verified in JS → order placed.
+ *   OTP modal appears → enters phone → existing customers continue immediately;
+ *   new customers receive an OTP and provide their name after verification.
  *
  * Session is stored in localStorage so the customer stays logged in
- * across page reloads (until they explicitly log out).
+ * across page reloads (until they explicitly log out). Firestore stores
+ * the permanent customer profile separately from this browser session.
  */
+
+import { db } from "./firebase-config.js";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 // ── One-time cleanup: purge old localStorage-based login data ────────────────
 const _OLD_KEYS = ["qrmenu_login", "qrmenu_moved_to_history", "qrmenu_orders"];
@@ -23,11 +32,12 @@ _OLD_KEYS.forEach((k) => {
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "qrmenu_user"; // stores { name, phone }
+const CUSTOMER_COLLECTION = "customers";
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _currentUser         = _loadSession();  // { name, phone } | null
 let _pendingCb           = null;            // callback to run after login
-let _pendingCustomerName = "";              // name entered in step 1
+let _pendingPhone        = "";
 let _expectedOTP         = null;           // 6-digit string generated on send
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -63,6 +73,8 @@ export function initAuth() {
     ?.addEventListener("submit", _onPhoneSubmit);
   document.getElementById("otpCodeForm")
     ?.addEventListener("submit", _onOTPSubmit);
+  document.getElementById("otpProfileForm")
+    ?.addEventListener("submit", _onProfileSubmit);
   document.getElementById("otpChangePhone")
     ?.addEventListener("click", _showPhoneStep);
   document.getElementById("headerLogoutBtn")
@@ -99,65 +111,78 @@ function _hideModal() {
 function _showPhoneStep() {
   document.getElementById("otpPhoneStep")?.classList.remove("hidden");
   document.getElementById("otpCodeStep")?.classList.add("hidden");
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
   _clearError("otpNameError");
   _clearError("otpPhoneError");
   _clearError("otpCodeError");
-  document.getElementById("otpNameInput")?.focus();
+  const phoneInput = document.getElementById("otpPhoneInput");
+  phoneInput?.focus();
 }
 
 function _showCodeStep(phone) {
   document.getElementById("otpPhoneStep")?.classList.add("hidden");
   document.getElementById("otpCodeStep")?.classList.remove("hidden");
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
   const sub = document.getElementById("otpCodeSubtitle");
   if (sub) sub.textContent = `OTP sent to +91\u00a0${phone}`;
-  document.getElementById("otpCodeInput").value = "";
+  const codeInput = document.getElementById("otpCodeInput");
+  if (codeInput) codeInput.value = "";
   document.getElementById("otpCodeInput")?.focus();
 }
 
-// ── DEV BYPASS ────────────────────────────────────────────────────────────────
-// TODO: Remove this once DLT ID is configured and Fast2SMS OTP is live.
-const _DEV_BYPASS_PHONE = "6393349498";
+function _showProfileStep() {
+  document.getElementById("otpPhoneStep")?.classList.add("hidden");
+  document.getElementById("otpCodeStep")?.classList.add("hidden");
+  document.getElementById("otpProfileStep")?.classList.remove("hidden");
+  _clearError("otpNameError");
+  const nameInput = document.getElementById("otpNameInput");
+  if (nameInput) nameInput.value = "";
+  nameInput?.focus();
+}
 
-// ── Phone submission — generate OTP + call Fast2SMS ──────────────────────────
+// ── DEV BYPASS ────────────────────────────────────────────────────────────────
+// Remove these entries when SMS verification is fully configured.
+const _DEV_BYPASS_PHONES = new Set(["123456789", "987654321"]);
+
+// ── Phone submission — check profile, then generate OTP if needed ─────────────
 
 async function _onPhoneSubmit(e) {
   e.preventDefault();
-  _clearError("otpNameError");
   _clearError("otpPhoneError");
 
-  const name  = (document.getElementById("otpNameInput")?.value || "").trim();
   const raw   = document.getElementById("otpPhoneInput")?.value || "";
-  const phone = raw.replace(/\D/g, "").slice(-10);
+  const phone = raw.replace(/\D/g, "");
+  const isBypassPhone = _DEV_BYPASS_PHONES.has(phone);
 
-  if (name.length < 2) {
-    _setError("otpNameError", "Please enter your name.");
-    document.getElementById("otpNameInput")?.focus();
-    return;
-  }
-
-  if (phone.length !== 10) {
+  if (!isBypassPhone && phone.length !== 10) {
     _setError("otpPhoneError", "Enter a valid 10-digit mobile number.");
     return;
   }
 
-  _pendingCustomerName = name;
+  _pendingPhone = phone;
+  _setLoadingBtn("otpSendBtn", true, "Checking…");
 
-  // ── DEV BYPASS: skip OTP for test number ─────────────────────────────────
-  // TODO: Remove once DLT ID is configured and Fast2SMS OTP is live.
-  if (phone === _DEV_BYPASS_PHONE) {
-    _currentUser = { name, phone };
-    _saveSession(_currentUser);
-    _updateGreeting();
-    _dispatchAuthChange(_currentUser);
-    _hideModal();
-    alert("Login Successful");
-    const cb = _pendingCb;
-    _pendingCb           = null;
-    _pendingCustomerName = "";
-    if (cb) cb();
-    return;
+  try {
+    const profile = await _getCustomerProfile(phone);
+
+    // Returning customers do not need an OTP or a second name prompt.
+    if (profile?.name) {
+      await _completeLogin(profile.name, phone);
+      return;
+    }
+
+    // Development-only numbers skip OTP, but still collect a name for a new profile.
+    if (isBypassPhone) {
+      _showProfileStep();
+      return;
+    }
+
+  } catch (err) {
+    console.error("[auth] Customer lookup failed:", err);
+    _setError("otpPhoneError", "Could not check this number. Please try again.");
+  } finally {
+    _setLoadingBtn("otpSendBtn", false, "Continue");
   }
-  // ── END DEV BYPASS ─────────────────────────────────────────────────────────
 
   _setLoadingBtn("otpSendBtn", true, "Sending…");
 
@@ -180,7 +205,7 @@ async function _onPhoneSubmit(e) {
     _expectedOTP = null;
     _setError("otpPhoneError", err.message || "Could not send OTP. Check your number and try again.");
   } finally {
-    _setLoadingBtn("otpSendBtn", false, "Send OTP");
+    _setLoadingBtn("otpSendBtn", false, "Continue");
   }
 }
 
@@ -208,21 +233,8 @@ async function _onOTPSubmit(e) {
   await new Promise((r) => setTimeout(r, 300));
 
   if (code === _expectedOTP) {
-    // ✅ Correct OTP — persist session and proceed
-    _currentUser = { name: _pendingCustomerName, phone: document.getElementById("otpPhoneInput")?.value.replace(/\D/g, "").slice(-10) };
-    _saveSession(_currentUser);
     _expectedOTP = null;
-
-    _updateGreeting();
-    _dispatchAuthChange(_currentUser);
-    _hideModal();
-
-    alert("Login Successful");
-
-    const cb = _pendingCb;
-    _pendingCb           = null;
-    _pendingCustomerName = "";
-    if (cb) cb();
+    _showProfileStep();
   } else {
     // ❌ Wrong OTP
     _setError("otpCodeError", "Invalid OTP. Please try again.");
@@ -230,11 +242,69 @@ async function _onOTPSubmit(e) {
   }
 }
 
+// ── New customer profile ─────────────────────────────────────────────────────
+
+async function _onProfileSubmit(e) {
+  e.preventDefault();
+  _clearError("otpNameError");
+
+  const name = (document.getElementById("otpNameInput")?.value || "").trim();
+  if (name.length < 2) {
+    _setError("otpNameError", "Please enter your name.");
+    document.getElementById("otpNameInput")?.focus();
+    return;
+  }
+  if (!_pendingPhone) {
+    _setError("otpNameError", "Your login session expired. Please enter your phone again.");
+    return;
+  }
+
+  _setLoadingBtn("otpProfileBtn", true, "Saving…");
+  try {
+    await _saveCustomerProfile({ name, phone: _pendingPhone });
+    await _completeLogin(name, _pendingPhone, { saveProfile: false });
+  } catch (err) {
+    console.error("[auth] Customer profile save failed:", err);
+    _setError("otpNameError", "Could not save your profile. Please try again.");
+    _setLoadingBtn("otpProfileBtn", false, "Continue");
+  }
+}
+
+async function _getCustomerProfile(phone) {
+  const snap = await getDoc(doc(db, CUSTOMER_COLLECTION, phone));
+  return snap.exists() ? { phone, ...snap.data() } : null;
+}
+
+async function _saveCustomerProfile({ name, phone }) {
+  await setDoc(doc(db, CUSTOMER_COLLECTION, phone), {
+    name,
+    phone,
+    updatedAt: serverTimestamp(),
+    lastLoginAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+async function _completeLogin(name, phone, { saveProfile = true } = {}) {
+  if (saveProfile) await _saveCustomerProfile({ name, phone });
+
+  _currentUser = { name, phone };
+  _saveSession(_currentUser);
+  _updateGreeting();
+  _dispatchAuthChange(_currentUser);
+  _hideModal();
+
+  const cb = _pendingCb;
+  _pendingCb = null;
+  _pendingPhone = "";
+  if (cb) cb();
+}
+
 // ── Logout ────────────────────────────────────────────────────────────────────
 
 async function _onLogout() {
   if (!confirm("Log out? You'll need to verify your phone again before placing the next order.")) return;
   _currentUser = null;
+  _pendingPhone = "";
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");

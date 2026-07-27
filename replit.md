@@ -9,7 +9,7 @@ Mobile-first, dark-themed QR menu for restaurant tables. Customers scan a QR cod
 - Served with `npx serve`
 
 ## How to Run
-The app is served at port 5000 via the **Start application** workflow (`npx --yes serve . -p 5000 -s`).
+The app is served at port 5000 via the **Start application** workflow (`node server.js`).
 
 Open with a table param in the URL:
 ```
@@ -24,12 +24,25 @@ Customer opens website
   → Browse menu freely
   → Add items to cart
   → Tap "Place Order"
-  → If not logged in: OTP modal slides up
-  → Enter name and phone number (+91)
-  → Enter 6-digit OTP
+  → If not logged in: phone-only login modal slides up
+  → Existing phone number: saved profile is used immediately
+  → New phone number: enter 6-digit OTP, then enter name once
   → Order is placed automatically
-  → Permanently logged in (Firebase Auth persistence)
+  → Permanently logged in on this device (localStorage session)
 ```
+
+### Development login bypass
+
+Until SMS verification is configured, `123456789` and `987654321` skip OTP.
+They still create a normal customer profile when used for the first time. The
+bypass list is isolated in `js/auth.js` and can be removed without changing the
+rest of the login flow.
+
+Customer profiles are stored in the shared Firestore `customers` collection,
+using the normalized phone number as the document ID. The profile stores the
+customer name, phone number, and login timestamps. The customer app continues
+to write the existing `customer: { name, phone, uid }` order shape, so the
+Billing Panel's order listener and status updates do not need to change.
 
 ## File Structure
 ```
@@ -89,9 +102,24 @@ service cloud.firestore {
     match /pending_table_orders/{doc} {
       allow read, create, update: if true;
     }
+    match /customers/{phone} {
+      allow read, create, update: if true;
+    }
   }
 }
 ```
+
+The `customers` rule is required for the phone lookup and profile save. Tighten
+these client-side rules before production if the app moves to authenticated
+Firebase users or a server-side profile API.
+
+## Billing Panel review
+
+The linked Billing Panel repository does not have a customer-profile database,
+login API, or separate customer real-time listener. It reads customer details
+from each `pending_table_orders.customer` object and updates order status in
+that same collection. No Billing Panel repository change is required for this
+login flow.
 
 ## User Preferences
 - Dark theme (#0f0f0f background, #f5a623 amber accent), mobile-first

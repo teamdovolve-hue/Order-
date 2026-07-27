@@ -16,52 +16,41 @@
        OTP LOGIN MODAL — only shown when customer taps "Place Order"
        without being logged in. Slides up from bottom.
   ═══════════════════════════════════════════════════════════════ -->
-  <div class="otp-modal hidden" id="otpModal" role="dialog" aria-modal="true" aria-label="Verify phone">
+  <div class="otp-modal hidden" id="otpModal" role="dialog" aria-modal="true" aria-label="Sign in to place your order">
     <div class="otp-backdrop"></div>
     <div class="otp-sheet">
 
       <!-- Brand -->
       <div class="otp-brand">
         <span class="otp-brand-icon">🍽️</span>
-        <h2 class="otp-brand-name">Quick Verification</h2>
-        <p class="otp-brand-sub">Verify your phone to place the order</p>
+        <h2 class="otp-brand-name">Sign in to order</h2>
+        <p class="otp-brand-sub">Enter your phone number to continue</p>
       </div>
 
-      <!-- Step 1 — Customer details and phone number -->
+      <!-- Step 1 — Phone number only -->
       <div id="otpPhoneStep">
         <form id="otpPhoneForm" novalidate autocomplete="off">
-          <input
-            class="otp-field-input otp-name-input"
-            type="text"
-            id="otpNameInput"
-            placeholder="Your name"
-            maxlength="80"
-            autocomplete="name"
-            required
-          />
-          <p class="otp-error hidden" id="otpNameError"></p>
           <div class="otp-phone-row">
             <span class="otp-country-code">+91</span>
             <input
               class="otp-field-input"
               type="tel"
               id="otpPhoneInput"
-              placeholder="10-digit mobile number"
+              placeholder="Mobile number"
               maxlength="10"
               inputmode="numeric"
-              pattern="[0-9]{10}"
               autocomplete="tel-national"
             />
           </div>
           <p class="otp-error hidden" id="otpPhoneError"></p>
-          <button type="submit" class="otp-btn-primary" id="otpSendBtn">Send OTP</button>
+          <button type="submit" class="otp-btn-primary" id="otpSendBtn">Continue</button>
         </form>
-        <p class="otp-hint">We'll send a 6-digit code to verify your number.</p>
+        <p class="otp-hint">Returning customers can continue without entering their name again.</p>
       </div>
 
-      <!-- Step 2 — OTP code -->
+      <!-- Step 2 — OTP code for new customers -->
       <div id="otpCodeStep" class="hidden">
-        <p class="otp-code-subtitle" id="otpCodeSubtitle">OTP sent to your number</p>
+        <p class="otp-code-subtitle" id="otpCodeSubtitle">We'll send a 6-digit code to verify your number.</p>
         <form id="otpCodeForm" novalidate autocomplete="off">
           <input
             class="otp-field-input otp-code-input"
@@ -76,6 +65,23 @@
           <p class="otp-error hidden" id="otpCodeError"></p>
           <button type="submit" class="otp-btn-primary" id="otpVerifyBtn">Verify OTP</button>
           <button type="button" class="otp-btn-link" id="otpChangePhone">← Change number</button>
+        </form>
+      </div>
+
+      <!-- Step 3 — Name only for a newly registered customer -->
+      <div id="otpProfileStep" class="hidden">
+        <p class="otp-code-subtitle">One last step — tell us your name.</p>
+        <form id="otpProfileForm" novalidate autocomplete="off">
+          <input
+            class="otp-field-input otp-name-input"
+            type="text"
+            id="otpNameInput"
+            placeholder="Your name"
+            maxlength="80"
+            autocomplete="name"
+          />
+          <p class="otp-error hidden" id="otpNameError"></p>
+          <button type="submit" class="otp-btn-primary" id="otpProfileBtn">Continue</button>
         </form>
       </div>
 
