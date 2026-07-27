@@ -7,6 +7,8 @@
   <title>Menu — Order Panel</title>
   <!-- base href keeps css/ and js/ paths correct when served from /t/:n -->
   <base href="/" />
+  <!-- Critical: keep hidden elements invisible even if the external CSS is slow or blocked -->
+  <style>.hidden { display: none !important; }</style>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" href="data:," />
 </head>
