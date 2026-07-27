@@ -191,7 +191,9 @@ async function _onPhoneSubmit(e) {
     _pendingPhone = profile.phone || `+91${phone}`;
     _showProfileStep();
   } catch (err) {
-    console.error("[auth] Customer lookup failed:", err);
+    console.error("[auth] Customer lookup failed — code:", err?.code,
+      "| message:", err?.message,
+      "| details:", err?.details);
     _setError("otpPhoneError", _customerAuthErrorMessage(err, "check this number"));
   } finally {
     _setLoadingBtn("otpSendBtn", false, "Continue");
@@ -200,24 +202,48 @@ async function _onPhoneSubmit(e) {
 }
 
 /**
- * Firebase maps an unavailable or undeployed callable endpoint to the generic
- * `functions/internal` code. Keep that implementation detail out of the
- * customer-facing message and point the operator at the actual dependency:
- * the Billing Panel's customerAuth Cloud Function.
+ * Translates a Firebase callable error into a user-facing message.
+ *
+ * Error taxonomy:
+ *  functions/not-found      — function was never deployed to asia-south1
+ *  functions/unavailable    — transient network / cold-start timeout
+ *  functions/internal       — function IS deployed but threw internally;
+ *                             the server includes a diagnostic message —
+ *                             surface it instead of hiding it behind the
+ *                             generic "please deploy" prompt.
+ *  functions/invalid-argument — bad input (phone format, missing name)
+ *
+ * The exact server message (err.message) is always logged to the browser
+ * console one level up so the operator can copy it from DevTools.
  */
 function _customerAuthErrorMessage(err, action) {
-  const code = String(err?.code || "").toLowerCase();
-  const message = String(err?.message || "").toLowerCase();
+  const code    = String(err?.code    || "").toLowerCase();
+  const message = String(err?.message || "");
+  const msgLow  = message.toLowerCase();
 
+  // ── Function genuinely not reachable / not deployed ──────────────────────
   if (
     code === "functions/not-found" ||
     code === "functions/unavailable" ||
-    code === "functions/internal" ||
-    message.includes("404") ||
-    message.includes("not found") ||
-    message.includes("unavailable")
+    msgLow.includes("404") ||
+    (msgLow.includes("not found") && !message) ||
+    (msgLow.includes("unavailable") && !message)
   ) {
     return "The login service is unavailable. Please ask the restaurant operator to deploy the Billing Panel customerAuth function in asia-south1.";
+  }
+
+  // ── Function deployed but failing internally ──────────────────────────────
+  // The server explicitly sets a diagnostic message on HttpsError('internal').
+  // Surface it so the operator knows what to fix (IAM role, Firestore rules,
+  // etc.) rather than incorrectly assuming the function isn't deployed.
+  if (code === "functions/internal") {
+    if (message && message !== "INTERNAL" && message.length > 5) {
+      // Trim any trailing stack / URL clutter for readability
+      const trimmed = message.replace(/\n[\s\S]*/g, "").slice(0, 200);
+      return `Login service error: ${trimmed} — check the Firebase Functions log for details.`;
+    }
+    // No diagnostic message — genuinely opaque internal error
+    return "The login service encountered an internal error. Check the Firebase Functions log in the Firebase Console to see the full stack trace.";
   }
 
   if (code === "functions/invalid-argument") {
@@ -272,7 +298,9 @@ async function _onCreateAccount() {
       saveProfile: false,
     });
   } catch (err) {
-    console.error("[auth] Customer account creation failed:", err);
+    console.error("[auth] Customer account creation failed — code:", err?.code,
+      "| message:", err?.message,
+      "| details:", err?.details);
     _setError("otpNameError", _customerAuthErrorMessage(err, "create your account"));
     document.getElementById("otpConfirmStep")?.classList.add("hidden");
     document.getElementById("otpProfileStep")?.classList.remove("hidden");
