@@ -192,12 +192,39 @@ async function _onPhoneSubmit(e) {
     _showProfileStep();
   } catch (err) {
     console.error("[auth] Customer lookup failed:", err);
-    const code = err?.code || err?.message || "unknown";
-    _setError("otpPhoneError", `Could not check this number (${code}). Please try again.`);
+    _setError("otpPhoneError", _customerAuthErrorMessage(err, "check this number"));
   } finally {
     _setLoadingBtn("otpSendBtn", false, "Continue");
   }
 
+}
+
+/**
+ * Firebase maps an unavailable or undeployed callable endpoint to the generic
+ * `functions/internal` code. Keep that implementation detail out of the
+ * customer-facing message and point the operator at the actual dependency:
+ * the Billing Panel's customerAuth Cloud Function.
+ */
+function _customerAuthErrorMessage(err, action) {
+  const code = String(err?.code || "").toLowerCase();
+  const message = String(err?.message || "").toLowerCase();
+
+  if (
+    code === "functions/not-found" ||
+    code === "functions/unavailable" ||
+    code === "functions/internal" ||
+    message.includes("404") ||
+    message.includes("not found") ||
+    message.includes("unavailable")
+  ) {
+    return "The login service is unavailable. Please ask the restaurant operator to deploy the Billing Panel customerAuth function in asia-south1.";
+  }
+
+  if (code === "functions/invalid-argument") {
+    return "Please enter a valid 10-digit mobile number.";
+  }
+
+  return `Could not ${action}. Please try again.`;
 }
 
 // ── New customer profile ─────────────────────────────────────────────────────
@@ -246,7 +273,7 @@ async function _onCreateAccount() {
     });
   } catch (err) {
     console.error("[auth] Customer account creation failed:", err);
-    _setError("otpNameError", "Could not create your account. Please try again.");
+    _setError("otpNameError", _customerAuthErrorMessage(err, "create your account"));
     document.getElementById("otpConfirmStep")?.classList.add("hidden");
     document.getElementById("otpProfileStep")?.classList.remove("hidden");
   } finally {
