@@ -28,9 +28,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Firebase Auth restores the persisted customer identity asynchronously.
   // Resolve it before inspecting the URL so an edited /t/:n path can never
   // become the active table while a server-owned table session exists.
+  //
+  // Safety: race with a 4-second timeout so a slow/blocked Firebase response
+  // (e.g. domain not yet in Auth authorized list, CDN hiccup) never freezes
+  // the page — customers can still browse the menu; login is only required
+  // when they actually tap "Place Order".
   initAuth();
-  await waitForAuthReady();
-  if (isLoggedIn()) await loadActiveTableAssignment();
+  await Promise.race([
+    waitForAuthReady(),
+    new Promise((resolve) => setTimeout(resolve, 4000)),
+  ]);
+  if (isLoggedIn()) await loadActiveTableAssignment().catch(() => {});
 
   // ── 0. Table gate ─────────────────────────────────────────────
   //   Check this before anything else.  If the customer didn't arrive
