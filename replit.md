@@ -43,7 +43,7 @@ css/
   style.css               ← Full dark theme, OTP modal, menu, active orders
 js/
   firebase-config.js      ← Firebase init — exports db, auth + callables
-  auth.js                 ← Temporary phone bridge + dormant OTP flow
+  auth.js                 ← Temporary phone bridge; no OTP in current flow
   customer.js             ← Thin shim over auth.js (backward-compat API)
   app.js                  ← Entry point; wires everything via onAuthStateChanged
   menu.js                 ← Real-time menu via onSnapshot; out-of-stock propagation

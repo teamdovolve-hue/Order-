@@ -11,6 +11,7 @@ import { httpsCallable }              from "https://www.gstatic.com/firebasejs/1
 import { cart, clearCart }             from "./cart.js";
 import { getCustomer }                 from "./customer.js";
 import { auth }                       from "./firebase-config.js";
+import { waitForAuthReady }            from "./auth.js";
 
 // ── Read table number from the URL ────────────────────────────────────────────
 //
@@ -49,6 +50,7 @@ export function getTableId() {
 }
 
 export async function loadActiveTableAssignment() {
+  await waitForAuthReady();
   const uid = auth.currentUser?.uid;
   if (!uid) return null;
   try {
@@ -75,10 +77,13 @@ export function setActiveTableId(tableId) {
 export async function placeOrder() {
   if (cart.size === 0) return;
 
+  // Always refresh the server-owned session before reading the URL. This is
+  // deliberately repeated for every order: a changed /t/:n path is never
+  // allowed to replace an active table assignment.
+  await loadActiveTableAssignment();
   const tableId = getTableId();
   if (!tableId) {
-    // Should never happen — server blocks non-/t/:n access — but guard anyway
-    _showError("Could not detect your table. Please rescan the QR code.");
+    _showError("Could not detect your active table. Please rescan your table QR.");
     return;
   }
 

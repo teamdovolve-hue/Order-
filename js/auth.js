@@ -47,6 +47,11 @@ const _authReady         = new Promise((resolve) => { _authReadyResolve = resolv
 /** Kept for the existing app API; Firebase Auth is initialized on demand. */
 export function isAuthReady() { return true; }
 
+/** Resolve after Firebase has restored the persisted customer Auth state. */
+export function waitForAuthReady() {
+  return _authReady;
+}
+
 /** True when a verified session exists in localStorage. */
 export function isLoggedIn() { return !!_currentUser; }
 
@@ -86,8 +91,6 @@ export function initAuth() {
     ?.addEventListener("submit", _onPhoneSubmit);
   document.getElementById("otpProfileForm")
     ?.addEventListener("submit", _onProfileSubmit);
-  document.getElementById("otpChangePhone")
-    ?.addEventListener("click", _showPhoneStep);
   document.getElementById("otpChangeDetails")
     ?.addEventListener("click", _showProfileStep);
   document.getElementById("otpCreateAccountBtn")
@@ -135,30 +138,16 @@ function _hideModal() {
 
 function _showPhoneStep() {
   document.getElementById("otpPhoneStep")?.classList.remove("hidden");
-  document.getElementById("otpCodeStep")?.classList.add("hidden");
   document.getElementById("otpProfileStep")?.classList.add("hidden");
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");
   _clearError("otpPhoneError");
-  _clearError("otpCodeError");
   const phoneInput = document.getElementById("otpPhoneInput");
   phoneInput?.focus();
 }
 
-function _showCodeStep(phone) {
-  document.getElementById("otpPhoneStep")?.classList.add("hidden");
-  document.getElementById("otpCodeStep")?.classList.remove("hidden");
-  document.getElementById("otpProfileStep")?.classList.add("hidden");
-  const sub = document.getElementById("otpCodeSubtitle");
-  if (sub) sub.textContent = `OTP sent to +91\u00a0${phone}`;
-  const codeInput = document.getElementById("otpCodeInput");
-  if (codeInput) codeInput.value = "";
-  document.getElementById("otpCodeInput")?.focus();
-}
-
 function _showProfileStep() {
   document.getElementById("otpPhoneStep")?.classList.add("hidden");
-  document.getElementById("otpCodeStep")?.classList.add("hidden");
   document.getElementById("otpProfileStep")?.classList.remove("hidden");
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");

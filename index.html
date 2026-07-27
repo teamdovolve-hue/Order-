@@ -13,7 +13,7 @@
 <body>
 
   <!-- ═══════════════════════════════════════════════════════════
-       OTP LOGIN MODAL — only shown when customer taps "Place Order"
+       LOGIN MODAL — only shown when customer taps "Place Order"
        without being logged in. Slides up from bottom.
   ═══════════════════════════════════════════════════════════════ -->
   <div class="otp-modal hidden" id="otpModal" role="dialog" aria-modal="true" aria-label="Sign in to place your order">
@@ -46,20 +46,6 @@
           <button type="submit" class="otp-btn-primary" id="otpSendBtn">Continue</button>
         </form>
         <p class="otp-hint">Returning customers can continue without entering their name again.</p>
-      </div>
-
-      <!-- Dormant OTP step. The temporary bridge bypasses this step while
-           DLT approval is pending; it remains available for re-enabling OTP. -->
-      <div id="otpCodeStep" class="hidden">
-        <p class="otp-code-subtitle" id="otpCodeSubtitle">We'll send a 6-digit code to verify your number.</p>
-        <form id="otpCodeForm" novalidate autocomplete="off">
-          <input class="otp-field-input otp-code-input" type="tel"
-                 id="otpCodeInput" placeholder="Enter 6-digit OTP" maxlength="6"
-                 inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" />
-          <p class="otp-error hidden" id="otpCodeError"></p>
-          <button type="submit" class="otp-btn-primary" id="otpVerifyBtn">Verify OTP</button>
-          <button type="button" class="otp-btn-link" id="otpChangePhone">← Change number</button>
-        </form>
       </div>
 
       <!-- Temporary bridge: collect a new customer's name without creating

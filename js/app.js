@@ -4,7 +4,7 @@
  * Boot sequence:
  *   0. Validate table from URL (/t/:n) — show error page if invalid
  *   1. Set table badge
- *   2. Init auth (wire OTP modal events)
+ *   2. Init auth (wire temporary phone-login events)
  *   3. Init menu (real-time Firestore listener — no auth needed)
  *   4. Init search
  *   5. Init order history drawer
@@ -17,12 +17,20 @@ import { initMenu, filterBySearch }         from "./menu.js";
 import { placeOrder, getTableId,
          loadActiveTableAssignment }        from "./order.js";
 import { updateGreeting, initAuth,
-         requireLogin, isLoggedIn }         from "./auth.js";
+         requireLogin, isLoggedIn,
+         waitForAuthReady }                 from "./auth.js";
 import { initHistory }                      from "./history.js";
 import { initSearch }                       from "./search.js";
 import { initOrderStatus, stopOrderStatus } from "./order-status.js";
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+
+  // Firebase Auth restores the persisted customer identity asynchronously.
+  // Resolve it before inspecting the URL so an edited /t/:n path can never
+  // become the active table while a server-owned table session exists.
+  initAuth();
+  await waitForAuthReady();
+  if (isLoggedIn()) await loadActiveTableAssignment();
 
   // ── 0. Table gate ─────────────────────────────────────────────
   //   Check this before anything else.  If the customer didn't arrive
@@ -41,19 +49,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const badge = document.getElementById("tableBadge");
   if (badge) badge.textContent = tableId;
 
-  // ── 2. Auth ───────────────────────────────────────────────────
-  initAuth();
-
-  // ── 3. Menu ───────────────────────────────────────────────────
+  // ── 2. Menu ───────────────────────────────────────────────────
   initMenu();
 
-  // ── 4. Search ─────────────────────────────────────────────────
+  // ── 3. Search ─────────────────────────────────────────────────
   initSearch(filterBySearch);
 
-  // ── 5. History ────────────────────────────────────────────────
+  // ── 4. History ────────────────────────────────────────────────
   initHistory();
 
-  // ── 6. Auth state watcher ─────────────────────────────────────
+  // ── 5. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
     updateGreeting();
     if (user) {
@@ -68,22 +73,22 @@ document.addEventListener("DOMContentLoaded", () => {
     _handleAuthChange(e.detail?.user ?? null);
   });
 
-  if (isLoggedIn()) _handleAuthChange(true);
+  if (isLoggedIn()) initOrderStatus();
 
-  // ── 7. Place Order ────────────────────────────────────────────
+  // ── 6. Place Order ────────────────────────────────────────────
   document.getElementById("placeOrderBtn")
     ?.addEventListener("click", () => {
       requireLogin(() => placeOrder());
     });
 
-  // ── 8. Retry on menu load error ───────────────────────────────
+  // ── 7. Retry on menu load error ───────────────────────────────
   document.getElementById("retryBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorState")?.classList.add("hidden");
       initMenu();
     });
 
-  // ── 9. Success overlay close ──────────────────────────────────
+  // ── 8. Success overlay close ──────────────────────────────────
   document.getElementById("overlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("successOverlay")?.classList.add("hidden");
@@ -91,7 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
     });
 
-  // ── 10. Error overlay close ───────────────────────────────────
+  // ── 9. Error overlay close ───────────────────────────────────
   document.getElementById("errorOverlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorOverlay")?.classList.add("hidden");
