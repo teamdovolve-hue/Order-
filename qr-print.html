@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>QR Codes — All Tables</title>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -27,7 +28,37 @@
       text-align: center;
       font-size: 13px;
       color: #666;
+      margin-bottom: 24px;
+    }
+
+    .btn-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
       margin-bottom: 28px;
+    }
+
+    .btn {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-download {
+      background: #111;
+      color: #f5a623;
+    }
+
+    .btn-print {
+      background: #f5a623;
+      color: #111;
     }
 
     .grid {
@@ -88,24 +119,9 @@
       text-align: center;
     }
 
-    .print-btn {
-      display: block;
-      margin: 0 auto 28px;
-      padding: 12px 32px;
-      background: #f5a623;
-      color: #111;
-      border: none;
-      border-radius: 10px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: opacity 0.15s;
-    }
-    .print-btn:hover { opacity: 0.85; }
-
     @media print {
       body { background: #fff; padding: 10px; }
-      .print-btn { display: none; }
+      .btn-row { display: none; }
       .grid { gap: 12px; }
       h1, .subtitle { margin-bottom: 12px; }
     }
@@ -114,24 +130,28 @@
 <body>
 
   <h1>🍕 Table QR Codes</h1>
-  <p class="subtitle">Print and place one on each table &nbsp;•&nbsp; ordernow.newpizzahutnlivecake.in</p>
+  <p class="subtitle">ordernow.newpizzahutnlivecake.in &nbsp;•&nbsp; 10 Tables</p>
 
-  <button class="print-btn" onclick="window.print()">🖨️ Print All QR Codes</button>
+  <div class="btn-row">
+    <button class="btn btn-download" id="dlBtn" onclick="downloadPDF()">⬇️ Download PDF</button>
+    <button class="btn btn-print" onclick="window.print()">🖨️ Print</button>
+  </div>
 
   <div class="grid" id="grid"></div>
 
   <script>
-    const BASE_URL = "https://ordernow.newpizzahutnlivecake.in/t/";
-    const TOTAL_TABLES = 10;
-    const grid = document.getElementById("grid");
+    const BASE_URL    = "https://ordernow.newpizzahutnlivecake.in/t/";
+    const TOTAL       = 10;
+    const RESTAURANT  = "Pizza Hut 'N Live Cake";
+    const grid        = document.getElementById("grid");
 
-    for (let i = 1; i <= TOTAL_TABLES; i++) {
-      const url = BASE_URL + i;
-
+    // ── Build QR cards ────────────────────────────────────────────────────────
+    for (let i = 1; i <= TOTAL; i++) {
+      const url  = BASE_URL + i;
       const card = document.createElement("div");
       card.className = "card";
       card.innerHTML = `
-        <div class="restaurant-name">Pizza Hut 'n Live Cake</div>
+        <div class="restaurant-name">${RESTAURANT}</div>
         <div class="table-label">Table ${i}</div>
         <div class="qr-wrap" id="qr-${i}"></div>
         <div class="scan-text">Scan to view menu &amp; order</div>
@@ -147,6 +167,92 @@
         colorLight: "#ffffff",
         correctLevel: QRCode.CorrectLevel.H,
       });
+    }
+
+    // ── PDF download ──────────────────────────────────────────────────────────
+    async function downloadPDF() {
+      const btn = document.getElementById("dlBtn");
+      btn.disabled = true;
+      btn.textContent = "⏳ Generating…";
+
+      // Small delay so QR canvases are fully rendered
+      await new Promise(r => setTimeout(r, 300));
+
+      try {
+        const { jsPDF } = window.jspdf;
+        // A4 portrait, mm units
+        const doc   = new jsPDF("p", "mm", "a4");
+        const pageW = 210;
+        const pageH = 297;
+
+        // Two cards per page, stacked vertically
+        const margin  = 12;
+        const cardW   = pageW - margin * 2;           // 186 mm
+        const cardH   = (pageH - margin * 3) / 2;    // ≈ 136 mm each
+
+        for (let i = 1; i <= TOTAL; i++) {
+          const slotIndex = (i - 1) % 2;  // 0 = top, 1 = bottom
+
+          // New page for every first card of the pair
+          if (i > 1 && slotIndex === 0) doc.addPage();
+
+          const cardY = margin + slotIndex * (cardH + margin);
+          const midX  = pageW / 2;
+
+          // Card border
+          doc.setDrawColor(30, 30, 30);
+          doc.setLineWidth(0.6);
+          doc.roundedRect(margin, cardY, cardW, cardH, 6, 6, "S");
+
+          // Restaurant name (amber)
+          doc.setFontSize(9);
+          doc.setTextColor(245, 166, 35);
+          doc.setFont("helvetica", "bold");
+          doc.text(RESTAURANT.toUpperCase(), midX, cardY + 14, { align: "center" });
+
+          // Table label
+          doc.setFontSize(30);
+          doc.setTextColor(17, 17, 17);
+          doc.text(`Table ${i}`, midX, cardY + 30, { align: "center" });
+
+          // QR image from canvas
+          const canvas = document.querySelector(`#qr-${i} canvas`);
+          if (canvas) {
+            const qrData = canvas.toDataURL("image/png");
+            const qrSize = 72;
+            const qrX    = midX - qrSize / 2;
+            const qrY    = cardY + 35;
+            doc.addImage(qrData, "PNG", qrX, qrY, qrSize, qrSize);
+          }
+
+          // "Scan to order" text
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(80, 80, 80);
+          doc.text("Scan to view menu & order", midX, cardY + 115, { align: "center" });
+
+          // URL
+          doc.setFontSize(7.5);
+          doc.setTextColor(160, 160, 160);
+          doc.text(`${BASE_URL}${i}`, midX, cardY + 122, { align: "center" });
+
+          // Divider line between the two cards (skip on last card of page)
+          if (slotIndex === 0 && i < TOTAL) {
+            doc.setDrawColor(220, 220, 220);
+            doc.setLineWidth(0.3);
+            doc.line(margin + 10, cardY + cardH + margin / 2,
+                     pageW - margin - 10, cardY + cardH + margin / 2);
+          }
+        }
+
+        doc.save("table-qr-codes.pdf");
+      } catch (err) {
+        alert("PDF generation failed: " + err.message);
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "⬇️ Download PDF";
+      }
     }
   </script>
 
