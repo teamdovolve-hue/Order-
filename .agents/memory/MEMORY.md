@@ -1,1 +1,2 @@
 - [Live deployment split](deployment-domains.md) — the QR ordering app is served by Netlify; Replit preview changes do not reach the live domain automatically.
+- [Portable npm installs](portable-npm-installs.md) — never commit lockfiles containing Replit package-firewall URLs; external deploys need public npm resolution.
