@@ -1,5 +1,4 @@
 {
-  "outputDirectory": ".",
   "rewrites": [
     { "source": "/t/:n", "destination": "/index.html" }
   ]
