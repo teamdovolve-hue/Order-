@@ -5,14 +5,12 @@
  * History is written by order-status.js when billing panel marks "completed".
  */
 
-import { db }                          from "./firebase-config.js";
-import {
-  collection, addDoc, serverTimestamp,
-} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { db, functions }              from "./firebase-config.js";
+import { doc, getDoc }                from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { httpsCallable }              from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
 import { cart, clearCart }             from "./cart.js";
 import { getCustomer }                 from "./customer.js";
-
-const ORDER_COLLECTION = "pending_table_orders";
+import { auth }                       from "./firebase-config.js";
 
 // ── Read table number from the URL ────────────────────────────────────────────
 //
@@ -30,8 +28,10 @@ const ORDER_COLLECTION = "pending_table_orders";
 //   Returns "Table N" on success, null on invalid/missing table.
 
 const VALID_TABLES = 10;
+let _activeTableId = null;
 
 export function getTableId() {
+  if (_activeTableId) return _activeTableId;
   // Prefer server-injected value (set by Express before serving index.html)
   if (typeof window.__TABLE_ID__ === "number") {
     const n = window.__TABLE_ID__;
@@ -48,6 +48,28 @@ export function getTableId() {
   return (n >= 1 && n <= VALID_TABLES) ? `Table ${n}` : null;
 }
 
+export async function loadActiveTableAssignment() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, "customer_table_sessions", uid));
+    const data = snap.exists() ? snap.data() : null;
+    _activeTableId = data?.lockStatus === "active" && data.activeTableId
+      ? data.activeTableId
+      : null;
+    _updateTableBadge();
+    return _activeTableId;
+  } catch (err) {
+    console.warn("[table-lock] Could not load active table assignment:", err);
+    return null;
+  }
+}
+
+export function setActiveTableId(tableId) {
+  _activeTableId = tableId || null;
+  _updateTableBadge();
+}
+
 // ── Submit order ──────────────────────────────────────────────
 
 export async function placeOrder() {
@@ -62,7 +84,7 @@ export async function placeOrder() {
 
   const btn = document.getElementById("placeOrderBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Placing…"; }
-  const customer = getCustomer();    // { name, phone, uid } from Firebase Auth
+  const customer = getCustomer();    // UI convenience only; server derives identity
   const items    = [];
   let   totalItems = 0;
   let   totalPrice = 0;
@@ -79,28 +101,37 @@ export async function placeOrder() {
     totalPrice += item.price * item.qty;
   }
 
-  const payload = {
-    tableId,
-    customer: customer
-      ? { name: customer.name, phone: customer.phone, uid: customer.uid }
-      : { name: "Guest", phone: "", uid: "" },
-    items,
-    totalItems,
-    totalPrice:  +totalPrice.toFixed(2),
-    status:      "pending",
-    createdAt:   serverTimestamp(),
-  };
-
   try {
-    const ref = await addDoc(collection(db, ORDER_COLLECTION), payload);
-    console.log("[order] Order saved:", ref.id);
+    const createCustomerOrder = httpsCallable(functions, "createCustomerOrder");
+    const result = await createCustomerOrder({
+      requestedTableId: tableId,
+      items,
+    });
+    const assignedTable = result.data?.tableId || tableId;
+    setActiveTableId(assignedTable);
     clearCart();
-    _showSuccess(tableId, totalItems, totalPrice, customer);
+    _showSuccess(assignedTable, totalItems, totalPrice, customer);
   } catch (err) {
     console.error("[order] Submission failed:", err);
     _showError(err.message);
     if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
   }
+}
+
+function _updateTableBadge() {
+  const badge = document.getElementById("tableBadge");
+  if (badge) badge.textContent = _activeTableId || getTableIdFromUrl() || "—";
+}
+
+function getTableIdFromUrl() {
+  if (typeof window.__TABLE_ID__ === "number") {
+    const n = window.__TABLE_ID__;
+    return (Number.isInteger(n) && n >= 1 && n <= VALID_TABLES) ? `Table ${n}` : null;
+  }
+  const match = window.location.pathname.match(/^\/t\/(\d+)$/);
+  if (!match) return null;
+  const n = parseInt(match[1], 10);
+  return (n >= 1 && n <= VALID_TABLES) ? `Table ${n}` : null;
 }
 
 // ── Success overlay ───────────────────────────────────────────

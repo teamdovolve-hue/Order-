@@ -12,12 +12,11 @@
  * Firebase Auth is the source of truth for the current user's phone.
  */
 
-import { db }                             from "./firebase-config.js";
+import { db, auth }                       from "./firebase-config.js";
 import {
   collection, query, where, onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { saveOrderToHistory }             from "./history.js";
-import { getLoginInfo }                   from "./auth.js";
 
 const ORDERS_COL   = "pending_table_orders";
 const MOVED_KEY    = "qrmenu_moved_to_history";
@@ -36,9 +35,9 @@ let _activeOrders  = [];
 
 /** Start listening for this customer's orders (keyed by phone number). */
 export function initOrderStatus() {
-  const user = getLoginInfo();
-  if (!user?.phone) return;
-  _startListener(user.phone);
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  _startListener(uid);
 }
 
 /** Stop listener — call on logout. */
@@ -52,7 +51,7 @@ export function stopOrderStatus() {
 
 // ── Firestore listener ────────────────────────────────────────
 
-function _startListener(phone) {
+function _startListener(uid) {
   // Stop any existing listener first
   if (_unsub) { _unsub(); _unsub = null; }
 
@@ -61,7 +60,7 @@ function _startListener(phone) {
 
   const q = query(
     collection(db, ORDERS_COL),
-    where("customer.phone", "==", phone)
+    where("customer.uid", "==", uid)
   );
 
   _unsub = onSnapshot(q, (snap) => {

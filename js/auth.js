@@ -1,25 +1,26 @@
 /**
  * auth.js
  * ─────────────────────────────────────────────────────────────
- * Custom OTP verification via Fast2SMS (no Firebase Phone Auth).
+ * Customer authentication bridge backed by the Billing Panel's callable
+ * functions. OTP UI/handlers remain dormant until DLT approval.
  *
  * Flow:
  *   Customer browses freely → taps "Place Order" → if not logged in →
- *   OTP modal appears → enters phone → existing customers continue immediately;
- *   new customers receive an OTP and provide their name after verification.
+ *   Temporary bridge: phone lookup → existing customers sign in immediately;
+ *   new customers enter a name, confirm it, then create the account.
  *
  * Session is stored in localStorage so the customer stays logged in
  * across page reloads (until they explicitly log out). Firestore stores
  * the permanent customer profile separately from this browser session.
  */
 
-import { db } from "./firebase-config.js";
+import { auth, functions } from "./firebase-config.js";
 import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+  onAuthStateChanged,
+  signInWithCustomToken,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
 
 // ── One-time cleanup: purge old localStorage-based login data ────────────────
 const _OLD_KEYS = ["qrmenu_login", "qrmenu_moved_to_history", "qrmenu_orders"];
@@ -31,18 +32,19 @@ _OLD_KEYS.forEach((k) => {
 });
 
 // ── Session storage key ───────────────────────────────────────────────────────
-const SESSION_KEY = "qrmenu_user"; // stores { name, phone }
-const CUSTOMER_COLLECTION = "customers";
-
+const SESSION_KEY = "qrmenu_user"; // stores { name, phone, uid }
 // ── Module state ─────────────────────────────────────────────────────────────
-let _currentUser         = _loadSession();  // { name, phone } | null
+let _currentUser         = _loadSession();  // { name, phone, uid } | null
 let _pendingCb           = null;            // callback to run after login
 let _pendingPhone        = "";
-let _expectedOTP         = null;           // 6-digit string generated on send
+let _pendingName         = "";
+let _firebaseUser        = null;
+let _authReadyResolve;
+const _authReady         = new Promise((resolve) => { _authReadyResolve = resolve; });
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Always true — no async Firebase check needed. */
+/** Kept for the existing app API; Firebase Auth is initialized on demand. */
 export function isAuthReady() { return true; }
 
 /** True when a verified session exists in localStorage. */
@@ -50,19 +52,30 @@ export function isLoggedIn() { return !!_currentUser; }
 
 /**
  * Returns { name, phone, uid } for the current user, or null.
- * uid is empty string (Fast2SMS has no Firebase UID concept).
  */
 export function getLoginInfo() {
-  return _currentUser ? { ..._currentUser, uid: "" } : null;
+  if (!_currentUser) return null;
+  return {
+    ..._currentUser,
+    uid: _firebaseUser?.uid || _currentUser.uid || "",
+  };
 }
 
 /**
  * Ensures the user is logged in, then calls cb().
- * If already signed in, cb() fires immediately.
- * Otherwise the OTP modal is shown first.
+ * If already signed in, cb() fires after Firebase session restoration.
+ * Otherwise the phone modal is shown first.
  */
 export function requireLogin(cb) {
-  if (_currentUser) { cb(); return; }
+  if (_currentUser) {
+    _ensureFirebaseSession().then(() => cb()).catch((err) => {
+      console.error("[auth] Firebase session restore failed:", err);
+      _currentUser = null;
+      _saveSession(null);
+      _showModal();
+    });
+    return;
+  }
   _pendingCb = cb;
   _showModal();
 }
@@ -71,20 +84,32 @@ export function requireLogin(cb) {
 export function initAuth() {
   document.getElementById("otpPhoneForm")
     ?.addEventListener("submit", _onPhoneSubmit);
-  document.getElementById("otpCodeForm")
-    ?.addEventListener("submit", _onOTPSubmit);
   document.getElementById("otpProfileForm")
     ?.addEventListener("submit", _onProfileSubmit);
   document.getElementById("otpChangePhone")
     ?.addEventListener("click", _showPhoneStep);
+  document.getElementById("otpChangeDetails")
+    ?.addEventListener("click", _showProfileStep);
+  document.getElementById("otpCreateAccountBtn")
+    ?.addEventListener("click", _onCreateAccount);
   document.getElementById("headerLogoutBtn")
     ?.addEventListener("click", _onLogout);
+  onAuthStateChanged(auth, (user) => {
+    _firebaseUser = user;
+    _authReadyResolve(user);
+    if (!user && _currentUser) {
+      _currentUser = null;
+      _saveSession(null);
+      _dispatchAuthChange(null);
+    } else if (user && _currentUser) {
+      _dispatchAuthChange(_currentUser);
+    }
+  });
   _updateGreeting();
 }
 
 /**
- * Calls cb immediately with the current user (or null).
- * Synchronous because there is no async Firebase check.
+ * Calls cb with the locally remembered customer session.
  */
 export function onAuthReady(cb) {
   cb(_currentUser);
@@ -112,6 +137,7 @@ function _showPhoneStep() {
   document.getElementById("otpPhoneStep")?.classList.remove("hidden");
   document.getElementById("otpCodeStep")?.classList.add("hidden");
   document.getElementById("otpProfileStep")?.classList.add("hidden");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");
   _clearError("otpPhoneError");
   _clearError("otpCodeError");
@@ -134,17 +160,17 @@ function _showProfileStep() {
   document.getElementById("otpPhoneStep")?.classList.add("hidden");
   document.getElementById("otpCodeStep")?.classList.add("hidden");
   document.getElementById("otpProfileStep")?.classList.remove("hidden");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");
   const nameInput = document.getElementById("otpNameInput");
   if (nameInput) nameInput.value = "";
   nameInput?.focus();
 }
 
-// ── DEV BYPASS ────────────────────────────────────────────────────────────────
-// Remove these entries when SMS verification is fully configured.
-const _DEV_BYPASS_PHONES = new Set(["123456789", "987654321"]);
-
-// ── Phone submission — check profile, then generate OTP if needed ─────────────
+// ── Temporary phone bridge ────────────────────────────────────────────────────
+// OTP is intentionally not requested while DLT approval is pending. The
+// callable still performs the lookup server-side, so the browser never reads
+// or enumerates customer profiles directly.
 
 async function _onPhoneSubmit(e) {
   e.preventDefault();
@@ -152,9 +178,7 @@ async function _onPhoneSubmit(e) {
 
   const raw   = document.getElementById("otpPhoneInput")?.value || "";
   const phone = raw.replace(/\D/g, "");
-  const isBypassPhone = _DEV_BYPASS_PHONES.has(phone);
-
-  if (!isBypassPhone && phone.length !== 10) {
+  if (phone.length !== 10) {
     _setError("otpPhoneError", "Enter a valid 10-digit mobile number.");
     return;
   }
@@ -163,20 +187,20 @@ async function _onPhoneSubmit(e) {
   _setLoadingBtn("otpSendBtn", true, "Checking…");
 
   try {
-    const profile = await _getCustomerProfile(phone);
+    const customerAuth = httpsCallable(functions, "customerAuth");
+    const result = await customerAuth({ action: "lookup", phone: `+91${phone}` });
+    const profile = result.data || {};
 
     // Returning customers do not need an OTP or a second name prompt.
-    if (profile?.name) {
-      await _completeLogin(profile.name, phone);
+    if (profile.found) {
+      await signInWithCustomToken(auth, profile.token);
+      await _completeLogin(profile.name, profile.phone || `+91${phone}`, { saveProfile: false });
       return;
     }
 
-    // Development-only numbers skip OTP, but still collect a name for a new profile.
-    if (isBypassPhone) {
-      _showProfileStep();
-      return;
-    }
-
+    // New customers only move to the name step. No account is created yet.
+    _pendingPhone = profile.phone || `+91${phone}`;
+    _showProfileStep();
   } catch (err) {
     console.error("[auth] Customer lookup failed:", err);
     _setError("otpPhoneError", "Could not check this number. Please try again.");
@@ -184,62 +208,6 @@ async function _onPhoneSubmit(e) {
     _setLoadingBtn("otpSendBtn", false, "Continue");
   }
 
-  _setLoadingBtn("otpSendBtn", true, "Sending…");
-
-  // Generate a random 6-digit OTP
-  _expectedOTP = String(Math.floor(100000 + Math.random() * 900000));
-
-  try {
-    // Called from browser (user's IP) — Replit's server IP is blocked by Fast2SMS
-    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=x0v38I3oRTe1UpDhCMbpbeT86z5bNJPYmu0E4FQ9g1MirVJh6Gp9Hkm0uuW8&route=otp&variables_values=${_expectedOTP}&numbers=${phone}`;
-    const res  = await fetch(url);   // no custom headers — Fast2SMS CORS allows this
-    const data = await res.json();
-
-    if (!data.return) {
-      throw new Error(data.message || "Failed to send OTP. Please try again.");
-    }
-
-    _showCodeStep(phone);
-  } catch (err) {
-    console.error("[auth] Fast2SMS send:", err);
-    _expectedOTP = null;
-    _setError("otpPhoneError", err.message || "Could not send OTP. Check your number and try again.");
-  } finally {
-    _setLoadingBtn("otpSendBtn", false, "Continue");
-  }
-}
-
-// ── OTP verification ──────────────────────────────────────────────────────────
-
-async function _onOTPSubmit(e) {
-  e.preventDefault();
-  _clearError("otpCodeError");
-
-  const code = (document.getElementById("otpCodeInput")?.value || "").trim();
-
-  if (code.length !== 6) {
-    _setError("otpCodeError", "Enter the 6-digit OTP you received.");
-    return;
-  }
-
-  if (!_expectedOTP) {
-    _setError("otpCodeError", "Session expired. Please go back and resend OTP.");
-    return;
-  }
-
-  _setLoadingBtn("otpVerifyBtn", true, "Verifying…");
-
-  // Slight async tick so the button state renders before we compare
-  await new Promise((r) => setTimeout(r, 300));
-
-  if (code === _expectedOTP) {
-    _expectedOTP = null;
-    _showProfileStep();
-  } else {
-    // ❌ Wrong OTP
-    _setError("otpCodeError", "Invalid OTP. Please try again.");
-    _setLoadingBtn("otpVerifyBtn", false, "Verify OTP");
-  }
 }
 
 // ── New customer profile ─────────────────────────────────────────────────────
@@ -259,35 +227,49 @@ async function _onProfileSubmit(e) {
     return;
   }
 
-  _setLoadingBtn("otpProfileBtn", true, "Saving…");
+  _pendingName = name;
+  const confirmName = document.getElementById("otpConfirmName");
+  const confirmPhone = document.getElementById("otpConfirmPhone");
+  if (confirmName) confirmName.textContent = name;
+  if (confirmPhone) confirmPhone.textContent = _formatPhone(_pendingPhone);
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
+  document.getElementById("otpConfirmStep")?.classList.remove("hidden");
+}
+
+async function _onCreateAccount() {
+  _clearError("otpNameError");
+  if (!_pendingName || !_pendingPhone) {
+    _showPhoneStep();
+    return;
+  }
+  _setLoadingBtn("otpCreateAccountBtn", true, "Creating…");
   try {
-    await _saveCustomerProfile({ name, phone: _pendingPhone });
-    await _completeLogin(name, _pendingPhone, { saveProfile: false });
+    const customerAuth = httpsCallable(functions, "customerAuth");
+    const result = await customerAuth({
+      action: "create",
+      phone: _pendingPhone,
+      name: _pendingName,
+    });
+    await signInWithCustomToken(auth, result.data.token);
+    await _completeLogin(result.data.name || _pendingName, result.data.phone || _pendingPhone, {
+      saveProfile: false,
+    });
   } catch (err) {
-    console.error("[auth] Customer profile save failed:", err);
-    _setError("otpNameError", "Could not save your profile. Please try again.");
-    _setLoadingBtn("otpProfileBtn", false, "Continue");
+    console.error("[auth] Customer account creation failed:", err);
+    _setError("otpNameError", "Could not create your account. Please try again.");
+    document.getElementById("otpConfirmStep")?.classList.add("hidden");
+    document.getElementById("otpProfileStep")?.classList.remove("hidden");
+  } finally {
+    _setLoadingBtn("otpCreateAccountBtn", false, "Create Account");
   }
 }
 
-async function _getCustomerProfile(phone) {
-  const snap = await getDoc(doc(db, CUSTOMER_COLLECTION, phone));
-  return snap.exists() ? { phone, ...snap.data() } : null;
-}
-
-async function _saveCustomerProfile({ name, phone }) {
-  await setDoc(doc(db, CUSTOMER_COLLECTION, phone), {
-    name,
-    phone,
-    updatedAt: serverTimestamp(),
-    lastLoginAt: serverTimestamp(),
-  }, { merge: true });
-}
-
 async function _completeLogin(name, phone, { saveProfile = true } = {}) {
-  if (saveProfile) await _saveCustomerProfile({ name, phone });
-
-  _currentUser = { name, phone };
+  if (saveProfile) {
+    throw new Error("Direct customer profile writes are disabled; use customerAuth.");
+  }
+  await _authReady;
+  _currentUser = { name, phone, uid: auth.currentUser?.uid || "" };
   _saveSession(_currentUser);
   _updateGreeting();
   _dispatchAuthChange(_currentUser);
@@ -296,7 +278,21 @@ async function _completeLogin(name, phone, { saveProfile = true } = {}) {
   const cb = _pendingCb;
   _pendingCb = null;
   _pendingPhone = "";
+  _pendingName = "";
   if (cb) cb();
+}
+
+async function _ensureFirebaseSession() {
+  await _authReady;
+  if (auth.currentUser) return auth.currentUser;
+  if (!_currentUser?.phone) throw new Error("Customer session is not available.");
+  const customerAuth = httpsCallable(functions, "customerAuth");
+  const result = await customerAuth({ action: "lookup", phone: _currentUser.phone });
+  if (!result.data?.found || !result.data?.token) {
+    throw new Error("Customer account was not found.");
+  }
+  await signInWithCustomToken(auth, result.data.token);
+  return auth.currentUser;
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
@@ -305,9 +301,11 @@ async function _onLogout() {
   if (!confirm("Log out? You'll need to verify your phone again before placing the next order.")) return;
   _currentUser = null;
   _pendingPhone = "";
+  _pendingName = "";
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
+  await signOut(auth).catch(() => {});
   _dispatchAuthChange(null);
   location.reload();
 }
@@ -345,6 +343,11 @@ function _loadSession() {
   } catch (_) {
     return null;
   }
+}
+
+function _formatPhone(phone) {
+  const digits = String(phone || "").replace(/^\+91/, "");
+  return `+91 ${digits}`;
 }
 
 function _saveSession(user) {

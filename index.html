@@ -48,27 +48,22 @@
         <p class="otp-hint">Returning customers can continue without entering their name again.</p>
       </div>
 
-      <!-- Step 2 — OTP code for new customers -->
+      <!-- Dormant OTP step. The temporary bridge bypasses this step while
+           DLT approval is pending; it remains available for re-enabling OTP. -->
       <div id="otpCodeStep" class="hidden">
         <p class="otp-code-subtitle" id="otpCodeSubtitle">We'll send a 6-digit code to verify your number.</p>
         <form id="otpCodeForm" novalidate autocomplete="off">
-          <input
-            class="otp-field-input otp-code-input"
-            type="tel"
-            id="otpCodeInput"
-            placeholder="Enter 6-digit OTP"
-            maxlength="6"
-            inputmode="numeric"
-            pattern="[0-9]{6}"
-            autocomplete="one-time-code"
-          />
+          <input class="otp-field-input otp-code-input" type="tel"
+                 id="otpCodeInput" placeholder="Enter 6-digit OTP" maxlength="6"
+                 inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" />
           <p class="otp-error hidden" id="otpCodeError"></p>
           <button type="submit" class="otp-btn-primary" id="otpVerifyBtn">Verify OTP</button>
           <button type="button" class="otp-btn-link" id="otpChangePhone">← Change number</button>
         </form>
       </div>
 
-      <!-- Step 3 — Name only for a newly registered customer -->
+      <!-- Temporary bridge: collect a new customer's name without creating
+           the account until the details have been confirmed. -->
       <div id="otpProfileStep" class="hidden">
         <p class="otp-code-subtitle">One last step — tell us your name.</p>
         <form id="otpProfileForm" novalidate autocomplete="off">
@@ -81,8 +76,28 @@
             autocomplete="name"
           />
           <p class="otp-error hidden" id="otpNameError"></p>
-          <button type="submit" class="otp-btn-primary" id="otpProfileBtn">Continue</button>
+          <button type="submit" class="otp-btn-primary" id="otpProfileBtn">Review Details</button>
         </form>
+      </div>
+
+      <div id="otpConfirmStep" class="hidden">
+        <div class="otp-confirm-heading">
+          <span class="otp-confirm-icon">✓</span>
+          <div>
+            <h3>Confirm Your Details</h3>
+            <p>These details will be linked to your future orders.</p>
+          </div>
+        </div>
+        <div class="otp-warning" role="note">
+          <strong>Please check carefully</strong>
+          <p>Please check your name and phone number carefully before creating your account. These details will be linked to your future orders. If you enter the wrong phone number, you may not be able to access your account once phone verification becomes mandatory.</p>
+        </div>
+        <dl class="otp-confirm-details">
+          <div><dt>Name</dt><dd id="otpConfirmName">—</dd></div>
+          <div><dt>Phone</dt><dd id="otpConfirmPhone">—</dd></div>
+        </dl>
+        <button type="button" class="otp-btn-secondary" id="otpChangeDetails">Change Details</button>
+        <button type="button" class="otp-btn-primary" id="otpCreateAccountBtn">Create Account</button>
       </div>
 
     </div><!-- /otp-sheet -->

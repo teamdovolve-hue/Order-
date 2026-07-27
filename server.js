@@ -1,12 +1,10 @@
 const express        = require("express");
-const fetch          = require("node-fetch");
 const path           = require("path");
 const fs             = require("fs");
 
 const app         = express();
 const PORT        = 5000;
 const TOTAL_TABLES = 10;
-const FAST2SMS_KEY = "x0v38I3oRTe1UpDhCMbpbeT86z5bNJPYmu0E4FQ9g1MirVJh6Gp9Hkm0uuW8";
 
 // ── Cache index.html in memory (re-read on change in dev) ─────────────────────
 function readIndex() {
@@ -88,28 +86,6 @@ function scanQRPage() {
 </body>
 </html>`;
 }
-
-// ── Send OTP proxy endpoint ───────────────────────────────────────────────────
-app.get("/api/send-otp", async (req, res) => {
-  const { phone, otp } = req.query;
-
-  if (!phone || !/^\d{10}$/.test(phone)) {
-    return res.json({ return: false, message: "Invalid phone number." });
-  }
-  if (!otp || !/^\d{6}$/.test(otp)) {
-    return res.json({ return: false, message: "Invalid OTP." });
-  }
-
-  try {
-    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_KEY}&route=otp&variables_values=${otp}&numbers=${phone}`;
-    const response = await fetch(url, { method: "GET" });
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    console.error("[send-otp] Fast2SMS error:", err.message);
-    res.json({ return: false, message: "Could not reach SMS service. Try again." });
-  }
-});
 
 // ── /t/:n — QR table entry point (server-validated) ──────────────────────────
 //

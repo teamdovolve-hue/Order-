@@ -14,7 +14,8 @@
  */
 
 import { initMenu, filterBySearch }         from "./menu.js";
-import { placeOrder, getTableId }           from "./order.js";
+import { placeOrder, getTableId,
+         loadActiveTableAssignment }        from "./order.js";
 import { updateGreeting, initAuth,
          requireLogin, isLoggedIn }         from "./auth.js";
 import { initHistory }                      from "./history.js";
@@ -53,9 +54,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initHistory();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
-  const _handleAuthChange = (user) => {
+  const _handleAuthChange = async (user) => {
     updateGreeting();
     if (user) {
+      await loadActiveTableAssignment();
       initOrderStatus();
     } else {
       stopOrderStatus();
@@ -66,7 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
     _handleAuthChange(e.detail?.user ?? null);
   });
 
-  if (isLoggedIn()) initOrderStatus();
+  if (isLoggedIn()) _handleAuthChange(true);
 
   // ── 7. Place Order ────────────────────────────────────────────
   document.getElementById("placeOrderBtn")
