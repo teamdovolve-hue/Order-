@@ -37,9 +37,16 @@
  *   into #activeOrdersList / #activeOrdersSection and sync completed orders
  *   into localStorage via saveOrderToHistory (history.js).
  *
- * REQUIRED Firestore rules (in billing repo — must be deployed separately):
+ * REQUIRED Firestore rules (see firestore.rules in billing repo):
  *   • pending_table_orders read:  if isOrderOwner() || isOperator()
  *   • customer_order_history/{uid}/orders read: if isSameCustomer(uid)
+ *
+ * AI UPDATE — 2026-07-28 v2
+ * Added initOrderStatus / stopOrderStatus exports so app.js wiring works.
+ * These were missing from v1; app.js already imported them but they didn't exist,
+ * causing order tracking to silently never start.
+ * Also added: DOM render functions for active orders using .aos-* CSS classes,
+ * and Firestore→localStorage sync for order history via saveOrderToHistory.
  *
  * AI UPDATE — 2026-07-28 v3 — KOT Timer
  * Root cause: startOrderTracking never forwarded `kotAt` from Firestore into the
@@ -98,7 +105,7 @@ export function getStatusColor(status) {
 let _unsubActive  = null;
 let _unsubHistory = null;
 
-// ── Preparing-timer state ─────────────────────────────────────────────────────
+// ── Preparing-timer state ──────────────────────────────────────────────────────
 // A single 30-second interval that updates the elapsed-minutes label on any
 // .aos-card[data-kot-at] elements in the DOM.  Only runs while at least one
 // order is in "kot" (Preparing) status; automatically stopped otherwise.
@@ -184,7 +191,7 @@ export function stopOrderStatus() {
  * callbacks.onHistoryError(err)      — optional error handler.
  *
  * Each `orders` element shape:
- *   Active:  { id, tableId, status, statusLabel, statusColor, items[], total, createdAt, kotAt }
+ *   Active:  { id, tableId, status, statusLabel, statusColor, items[], total, createdAt }
  *   History: { id, orderId, tableId, items[], total, completedAt, orderedAt, completionReason }
  */
 export async function startOrderTracking(callbacks = {}) {
@@ -198,14 +205,13 @@ export async function startOrderTracking(callbacks = {}) {
     return;
   }
 
-  // ── Listener 1: Active orders ─────────────────────────────────────────────
-  // Query all docs where customer.uid matches, then filter in JS because
-  // Firestore array/map field queries on nested fields require a composite index.
-  // Result set is tiny (1-3 docs per customer at most) — client-side filtering is fine.
+  // ── Listener 1: Active orders ───────────────────────────────────────────────
+  // NOTE: No orderBy here — combining where("customer.uid") with orderBy("createdAt")
+  // requires a Firestore composite index that is not guaranteed to exist.
+  // Sorting is done client-side below instead; result set is tiny (1-3 docs max).
   const activeQuery = query(
     collection(db, "pending_table_orders"),
-    where("customer.uid", "==", uid),
-    orderBy("createdAt", "desc")
+    where("customer.uid", "==", uid)
   );
 
   _unsubActive = onSnapshot(
@@ -213,7 +219,13 @@ export async function startOrderTracking(callbacks = {}) {
     (snap) => {
       const active = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(o => !["completed", "dismissed"].includes((o.status || "").toLowerCase()));
+        .filter(o => !["completed", "dismissed"].includes((o.status || "").toLowerCase()))
+        // Sort newest-first client-side (avoids composite index on customer.uid + createdAt)
+        .sort((a, b) => {
+          const tA = a.createdAt?.seconds ?? 0;
+          const tB = b.createdAt?.seconds ?? 0;
+          return tB - tA;
+        });
 
       const mapped = active.map(o => ({
         id:          o.id,
@@ -239,7 +251,7 @@ export async function startOrderTracking(callbacks = {}) {
     }
   );
 
-  // ── Listener 2: Order history ─────────────────────────────────────────────
+  // ── Listener 2: Order history ───────────────────────────────────────────────
   // Written by billing panel (js/cart.js → syncCustomerOrderCompletion) whenever
   // Bill & Settle or Save & Exit is pressed for a Customer Panel order.
   const historyQuery = query(
@@ -329,15 +341,15 @@ function _renderActiveOrders(orders) {
   let hasPreparingOrder = false;
 
   list.innerHTML = orders.map(order => {
-    const status    = (order.status || "pending").toLowerCase();
-    const itemCount = (order.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+    const status      = (order.status || "pending").toLowerCase();
+    const itemCount   = (order.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
 
     // Status row modifier — .aos-preparing for kot, .aos-pending for all others
     const isPrepping = status === "kot";
     const statusMod  = isPrepping ? "aos-preparing" : "aos-pending";
     const dotMod     = isPrepping ? "aos-dot-prep"  : "aos-dot-pend";
 
-    // ── KOT elapsed-time label ──────────────────────────────────────────────
+    // ── KOT elapsed-time label ─────────────────────────────────────────────────
     // When status is 'kot', show "Preparing 🍕 • X min" using kotAt timestamp.
     // data-kot-at stores the epoch-ms so the live timer interval can patch the
     // label directly in the DOM without a full Firestore round-trip.
@@ -354,7 +366,7 @@ function _renderActiveOrders(orders) {
       displayLabel = order.statusLabel || getStatusLabel(status);
     }
 
-    // ── Items list ──────────────────────────────────────────────────────────
+    // ── Items list ─────────────────────────────────────────────────────────────
     const itemsHtml = (order.items || []).map(it => `
       <li>
         <span class="aos-item-name">${_esc(it.name || "")}</span>
@@ -387,7 +399,7 @@ function _renderActiveOrders(orders) {
       </div>`;
   }).join("");
 
-  // ── Start / stop preparing timer ──────────────────────────────────────────
+  // ── Start / stop preparing timer ───────────────────────────────────────────
   // Start a 30-second interval that patches elapsed-time labels in the DOM.
   // Stop it when there are no more preparing orders (saves CPU and avoids
   // querying stale DOM nodes after a full re-render clears the cards).
@@ -425,4 +437,4 @@ function _syncHistoryToLocalStorage(orders) {
       status:       "completed",
     });
   }
-}
+      }
