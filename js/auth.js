@@ -5,6 +5,13 @@
  * Cloud Function (customerAuth) is intentionally bypassed while
  * Firebase billing / Fast2SMS DLT approval is pending.
  *
+ * [AI UPDATE 2026-07-28] Fix: "Change Details" now returns the customer to
+ * the phone step with the phone number pre-filled, making both phone and name
+ * editable. Previously it only showed the name step (_showProfileStep) which
+ * left the phone number uneditable. Also updated _showProfileStep to pre-fill
+ * the name from _pendingName so values are preserved when navigating back.
+ * Files changed: js/auth.js only. No Billing Panel changes required.
+ *
  * Flow (unchanged UX):
  *   Phone → lookup customers/{+91…} in Firestore
  *     found  → signInAnonymously → session saved → login complete
@@ -98,7 +105,7 @@ export function initAuth() {
   document.getElementById("otpProfileForm")
     ?.addEventListener("submit", _onProfileSubmit);
   document.getElementById("otpChangeDetails")
-    ?.addEventListener("click", _showProfileStep);
+    ?.addEventListener("click", _onChangeDetails);
   document.getElementById("otpCreateAccountBtn")
     ?.addEventListener("click", _onCreateAccount);
   document.getElementById("headerLogoutBtn")
@@ -153,8 +160,32 @@ function _showProfileStep() {
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");
   const nameInput = document.getElementById("otpNameInput");
-  if (nameInput) nameInput.value = "";
+  // Pre-fill with any previously entered name so it is preserved when the
+  // customer navigates back from the confirm step via "Change Details".
+  if (nameInput) nameInput.value = _pendingName || "";
   nameInput?.focus();
+}
+
+// ── "Change Details" — return to phone step with phone pre-filled ─────────────
+// Both phone and name are now editable:
+//   1. Customer lands on phone step with their number already filled in.
+//   2. They can change the number or press Continue with the same one.
+//   3. If the phone is new, they land on the name step with the name pre-filled
+//      (because _showProfileStep now restores _pendingName).
+//   4. They return to the confirm step and can press Create Account normally.
+
+function _onChangeDetails() {
+  document.getElementById("otpPhoneStep")?.classList.remove("hidden");
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
+  _clearError("otpPhoneError");
+  _clearError("otpNameError");
+  const phoneInput = document.getElementById("otpPhoneInput");
+  if (phoneInput && _pendingPhone) {
+    // Strip the +91 prefix — the input expects the bare 10-digit number.
+    phoneInput.value = _pendingPhone.replace(/^\+91/, "");
+  }
+  phoneInput?.focus();
 }
 
 // ── Step 1: Phone lookup ──────────────────────────────────────────────────────

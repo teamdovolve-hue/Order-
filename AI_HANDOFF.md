@@ -189,6 +189,34 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-07-28] — "Change Details" Bug Fix
+
+### Files Modified
+- `js/auth.js` only
+
+### Root Cause
+The `otpChangeDetails` button was wired directly to `_showProfileStep()`, which only revealed the name input (`otpProfileStep`). The phone number was never made editable from the confirm screen. Additionally, `_showProfileStep()` always blanked the name input (`nameInput.value = ""`), so any previously entered name was lost when navigating back.
+
+### What Was Changed
+1. **New `_onChangeDetails()` function** — registered as the click handler for `otpChangeDetails`. Returns the customer to the phone step (`otpPhoneStep`) with their phone number pre-filled (10-digit, +91 stripped). The customer can change the phone or press Continue with the same one.
+2. **`_showProfileStep()` updated** — now pre-fills the name input with `_pendingName` (if set) instead of always clearing it. This means when the customer resubmits the same phone and lands on the name step, their previously entered name is already filled in.
+3. **`initAuth()` updated** — changed event listener on `otpChangeDetails` from `_showProfileStep` to `_onChangeDetails`.
+
+### Flow After Fix
+```
+Confirm screen → "Change Details"
+  ↓ Phone step (phone pre-filled)
+  ↓ Customer edits phone or keeps it → Continue
+  ↓ New phone lookup → not found → name step (name pre-filled)
+  ↓ Customer edits name or keeps it → Review Details
+  ↓ Confirm screen (updated values) → Create Account
+```
+
+### Billing Panel Changes Required
+**None.** This is a pure frontend change in the Customer Panel. No Firestore structure, callable interface, or order flow is affected.
+
+---
+
 ## Next AI Task
 
 1. **Unblock login:** Once Billing Panel agent fixes `customerAuth` `functions/internal` crash, verify end-to-end login works on the live site
