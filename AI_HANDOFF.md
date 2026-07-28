@@ -189,6 +189,76 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-07-28] — Persistent Order History (Firestore-backed)
+
+### Files Modified
+- `js/order-status.js`
+- `js/history.js`
+
+### Root Cause
+Order history was stored in `localStorage` only. `localStorage` is per-device and is lost on logout or page clear. The Firestore collection `customer_order_history/{uid}/orders` was already being read by Listener 2 in `order-status.js`, but **nothing was writing to it** — the Billing Panel implementation was marked as pending, and the Customer Panel had no write path either.
+
+### What Was Changed
+
+**`js/order-status.js`:**
+- Added `doc`, `setDoc`, `serverTimestamp` to Firestore imports
+- Added module-level `_trackedUid` and `_writtenToHistory` (Set) for tracking
+- `startOrderTracking`: sets `_trackedUid = uid` on start
+- `stopOrderTracking`: clears `_trackedUid` and `_writtenToHistory` on logout
+- In Listener 1 (`pending_table_orders` snapshot): added `snap.docChanges()` loop — when any doc's status transitions to `"completed"`, calls `_writeCompletedOrderToHistory(uid, docId, data)`. Uses `_writtenToHistory` Set to prevent duplicate writes within a session.
+- Added `_writeCompletedOrderToHistory(uid, docId, data)`: writes to `customer_order_history/{uid}/orders/{docId}` using `setDoc` with `merge: true` so Billing Panel writes are not overwritten.
+- `_syncHistoryToLocalStorage`: now also calls `updateFromFirestore(mapped)` (new `history.js` export) so the drawer renders live Firestore data rather than re-reading localStorage.
+- Imported `updateFromFirestore` from `history.js`.
+
+**`js/history.js`:**
+- Added `_firestoreOrders = null` and `_drawerOpen = false` module state.
+- Added `export function updateFromFirestore(orders)`: stores the Firestore snapshot in memory; immediately re-renders the drawer if it is open.
+- `openHistory()`: sets `_drawerOpen = true` before rendering.
+- `closeHistory()`: sets `_drawerOpen = false`.
+- `renderHistory()`: uses `_firestoreOrders` when not null; falls back to `localStorage` for initial render before the first Firestore snapshot arrives.
+
+### Persistence Flow (After Fix)
+```
+Order status → "completed" in pending_table_orders
+  ↓ Listener 1 docChanges() detects the transition
+  ↓ _writeCompletedOrderToHistory writes to customer_order_history/{uid}/orders/{orderId}
+  ↓ Listener 2 (already running) fires with updated snapshot
+  ↓ _syncHistoryToLocalStorage → updateFromFirestore (in-memory) + saveOrderToHistory (localStorage cache)
+  ↓ history drawer re-renders from Firestore data if open
+
+Customer logs out → logs back in with same phone
+  ↓ startOrderTracking called → Listener 2 fires immediately with all history docs
+  ↓ updateFromFirestore → history drawer has full history from Firestore
+```
+
+### Billing Panel Change Required
+**File:** `firestore.rules` in the Billing Panel repository  
+**Reason:** The Customer Panel now writes to `customer_order_history/{uid}/orders/{orderId}`. The current rules only have `allow read` for this path. Without a write rule, `_writeCompletedOrderToHistory` will fail with `permission-denied`.  
+**Required change — add to the `customer_order_history` match block:**
+```
+match /customer_order_history/{uid}/orders/{orderId} {
+  allow read:   if request.auth.uid == uid;
+  allow create: if request.auth.uid == uid;
+}
+```
+Use `allow create` (not `allow write`) to prevent customers from modifying or deleting past history entries. The Customer Panel uses `setDoc` with `merge: true`, which maps to a `create` or `update` — if you want to also allow updates (so Billing Panel data can be merged safely), use:
+```
+match /customer_order_history/{uid}/orders/{orderId} {
+  allow read, write: if request.auth.uid == uid;
+}
+```
+
+### What Was NOT Changed
+- Order placement (`order.js`)
+- Active Orders rendering logic
+- KOT / Preparing timer
+- Login flow
+- UI design / CSS
+- Firestore collection names or document structure
+- `saveOrderToHistory` localStorage logic (kept as offline cache)
+
+---
+
 ## [AI UPDATE 2026-07-28] — "Change Details" Bug Fix
 
 ### Files Modified

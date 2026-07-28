@@ -270,9 +270,9 @@ Relevant fields consumed by `menu.js`:
 
 #### `customer_order_history/{uid}/orders` — Completed order history (Firestore)
 
-**Written by:** Billing Panel when order status → `completed`.  
-**Read by:** `order-status.js` (via `onSnapshot` subcollection query).  
-**Note:** Customer Panel also saves to localStorage (`qrmenu_history`) as a local fallback. Cross-device sync via this Firestore subcollection is a pending feature — see `AI_HANDOFF.md`.
+**Written by:** Customer Panel (`order-status.js` → `_writeCompletedOrderToHistory`) when `pending_table_orders` status → `completed`; Billing Panel may also write (with richer fields such as `completionReason`) when their implementation is complete.  
+**Read by:** `order-status.js` (via `onSnapshot` subcollection query, Listener 2).  
+**Note:** `history.js` also caches to localStorage (`qrmenu_history`) as an offline fallback. The Firestore snapshot is the source of truth; localStorage is used only before the first snapshot arrives.
 
 ---
 

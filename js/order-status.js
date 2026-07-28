@@ -70,9 +70,10 @@ import { db, auth }             from "./firebase-config.js";
 import {
   collection, query, where,
   onSnapshot, orderBy,
+  doc, setDoc, serverTimestamp,
 }                               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { waitForAuthReady }     from "./auth.js";
-import { saveOrderToHistory }   from "./history.js";
+import { saveOrderToHistory, updateFromFirestore } from "./history.js";
 
 // ── Status display helpers ────────────────────────────────────────────────────
 
@@ -104,6 +105,13 @@ export function getStatusColor(status) {
 
 let _unsubActive  = null;
 let _unsubHistory = null;
+
+// ── History-write tracking ─────────────────────────────────────────────────────
+// Tracks the UID currently being tracked and the set of pending_table_orders
+// document IDs that have already been written to customer_order_history this
+// session. Prevents duplicate Firestore writes on repeated snapshot fires.
+let _trackedUid        = null;
+const _writtenToHistory = new Set();
 
 // ── Preparing-timer state ──────────────────────────────────────────────────────
 // A single 30-second interval that updates the elapsed-minutes label on any
@@ -205,6 +213,8 @@ export async function startOrderTracking(callbacks = {}) {
     return;
   }
 
+  _trackedUid = uid;
+
   // ── Listener 1: Active orders ───────────────────────────────────────────────
   // NOTE: No orderBy here — combining where("customer.uid") with orderBy("createdAt")
   // requires a Firestore composite index that is not guaranteed to exist.
@@ -217,6 +227,23 @@ export async function startOrderTracking(callbacks = {}) {
   _unsubActive = onSnapshot(
     activeQuery,
     (snap) => {
+      // ── Persist completed orders to Firestore history ─────────────────────
+      // [AI UPDATE 2026-07-28] Write any newly-completed orders to
+      // customer_order_history/{uid}/orders/{orderId} so history is permanent
+      // and cross-device. Uses docChanges() to detect status transitions;
+      // _writtenToHistory Set prevents duplicate writes within a session.
+      for (const change of snap.docChanges()) {
+        if (change.type !== "added" && change.type !== "modified") continue;
+        const data   = change.doc.data();
+        const status = (data.status || "").toLowerCase();
+        if (status === "completed" && !_writtenToHistory.has(change.doc.id)) {
+          _writtenToHistory.add(change.doc.id);
+          _writeCompletedOrderToHistory(uid, change.doc.id, data).catch((err) =>
+            console.warn("[order-status] Failed to write order to history:", err.code || err.message)
+          );
+        }
+      }
+
       const active = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(o => !["completed", "dismissed"].includes((o.status || "").toLowerCase()))
@@ -297,6 +324,48 @@ export function stopOrderTracking() {
   if (_unsubActive)  { _unsubActive();  _unsubActive  = null; }
   if (_unsubHistory) { _unsubHistory(); _unsubHistory = null; }
   _stopPreparingTimer();
+  _trackedUid = null;
+  _writtenToHistory.clear();
+}
+
+// ── Firestore history writer ───────────────────────────────────────────────────
+/**
+ * _writeCompletedOrderToHistory(uid, docId, data)
+ *
+ * Persists a completed order from pending_table_orders into the permanent
+ * Firestore history collection customer_order_history/{uid}/orders/{docId}.
+ *
+ * Uses setDoc with merge:true so:
+ *   - If the Billing Panel already wrote this doc (with completionReason etc.),
+ *     we do not overwrite their richer fields.
+ *   - If they haven't written yet (current state — Billing Panel implementation
+ *     pending), we create the doc with all fields we have.
+ *
+ * Field mapping from pending_table_orders → customer_order_history:
+ *   totalPrice  → total        (history listener reads .total)
+ *   createdAt   → orderedAt    (when the order was placed)
+ *   completedAt → serverTimestamp() (approximate; Billing Panel may refine)
+ *
+ * BILLING PANEL NOTE: Firestore rules must allow
+ *   allow create: if request.auth.uid == uid;
+ *   on customer_order_history/{uid}/orders/{orderId}
+ * See ARCHITECTURE_LOCK.md — Billing Panel Changes Required section.
+ */
+async function _writeCompletedOrderToHistory(uid, docId, data) {
+  await setDoc(
+    doc(db, "customer_order_history", uid, "orders", docId),
+    {
+      orderId:          docId,
+      tableId:          data.tableId          || "",
+      items:            data.items            || [],
+      total:            data.totalPrice       || 0,
+      completedAt:      serverTimestamp(),
+      orderedAt:        data.createdAt        || null,
+      completionReason: "",
+    },
+    { merge: true }
+  );
+  console.log("[order-status] Completed order written to Firestore history:", docId);
 }
 
 // ── DOM rendering (used by initOrderStatus) ───────────────────────────────────
@@ -413,9 +482,10 @@ function _renderActiveOrders(orders) {
 /**
  * _syncHistoryToLocalStorage(orders)
  *
- * Syncs completed orders from Firestore into localStorage so the history
- * drawer (history.js) shows them. saveOrderToHistory deduplicates by
- * firestoreId — calling it for all orders on every snapshot is safe.
+ * Syncs completed orders from Firestore (Listener 2) into:
+ *   1. localStorage — via saveOrderToHistory (deduplicated by firestoreId)
+ *   2. history.js in-memory state — via updateFromFirestore (for immediate
+ *      drawer re-render without relying on localStorage reads)
  *
  * Field mapping:
  *   Firestore (order-status)  → history.js saveOrderToHistory
@@ -424,17 +494,23 @@ function _renderActiveOrders(orders) {
  *   orderedAt                 → placedAt     (history.js uses .placedAt)
  */
 function _syncHistoryToLocalStorage(orders) {
-  for (const order of (orders || [])) {
-    saveOrderToHistory({
-      firestoreId:  order.id,
-      orderId:      order.orderId || order.id,
-      tableId:      order.tableId,
-      items:        order.items,
-      totalPrice:   order.total,        // history.js reads .totalPrice
-      placedAt:     order.orderedAt || null,
-      completedAt:  order.completedAt,
-      completionReason: order.completionReason || "",
-      status:       "completed",
-    });
+  const mapped = (orders || []).map(order => ({
+    firestoreId:      order.id,
+    orderId:          order.orderId || order.id,
+    tableId:          order.tableId,
+    items:            order.items,
+    totalPrice:       order.total,        // history.js reads .totalPrice
+    placedAt:         order.orderedAt || null,
+    completedAt:      order.completedAt,
+    completionReason: order.completionReason || "",
+    status:           "completed",
+  }));
+
+  // [AI UPDATE 2026-07-28] — also push live Firestore data into history.js
+  // memory so the drawer renders from Firestore, not just localStorage.
+  updateFromFirestore(mapped);
+
+  for (const order of mapped) {
+    saveOrderToHistory(order);
   }
-      }
+}
