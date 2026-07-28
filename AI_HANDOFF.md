@@ -189,6 +189,75 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-07-28 v5] — Order History Not Persistent Across Login Sessions
+
+### Files Modified
+- `js/auth.js` only
+
+### Root Cause
+`_onLogout()` called `signOut(auth)`, which **permanently destroys** the anonymous Firebase Auth session (deleted from IndexedDB — unrecoverable). On the next visit, `signInAnonymously(auth)` creates a brand-new anonymous user with a different UID. The history query in `order-status.js`:
+
+```javascript
+where("customer.uid", "==", uid)   // uid = NEW anonymous UID after re-login
+```
+
+found zero documents because every historical order was written under the **old** anonymous UID (set at order placement time in `order.js` → `customer.uid = auth.currentUser.uid`). The v4 architecture (reading completed orders from `pending_table_orders`) is correct; the break was entirely upstream in the auth layer.
+
+### Fix (two-part)
+
+#### Part 1 — Stable UID across logout/re-login
+Removed `await signOut(auth)` from `_onLogout()`. The local session (`SESSION_KEY` = `qrmenu_user`) is still cleared, so:
+- `isLoggedIn()` returns false ✅
+- The login modal appears when the customer tries to place an order ✅
+- `initOrderStatus()` is NOT called until after re-authentication ✅
+
+The anonymous Firebase session persists in IndexedDB. When the same customer re-enters their phone:
+- `_firebaseUser` is already set → `signInAnonymously` is **skipped**
+- `auth.currentUser.uid` is the **same UID** used when orders were originally placed
+- `startOrderTracking` queries `where("customer.uid", "==", uid)` → finds all history ✅
+
+#### Part 2 — Shared-device customer isolation
+A new localStorage key `DEVICE_PHONE_KEY` (`qrmenu_device_phone`) records which phone currently "owns" this device's anonymous UID. In `_onPhoneSubmit`, before the Firestore lookup:
+- If a **different** phone is logging in → call `signOut(auth)` + fresh `signInAnonymously` → isolated UID for the new customer → they cannot see the previous customer's orders
+- If the **same** phone is logging in → no rotation → stable UID → full history ✅
+
+`_completeLogin` writes the current phone to `DEVICE_PHONE_KEY` after every successful login so the binding stays current.
+
+### Complete Flow (after fix)
+
+**Same customer re-logs in:**
+```
+Customer logs out
+  ↓ SESSION_KEY cleared; DEVICE_PHONE_KEY = "+91XXXXXXXX" (retained)
+  ↓ Firebase anonymous session retained in IndexedDB
+  ↓ location.reload()
+Customer re-opens page
+  ↓ isLoggedIn() → false; _firebaseUser restored by onAuthStateChanged
+Customer taps "Place Order" → modal
+  ↓ Enters same phone → lastDevicePhone == normalised → NO rotation
+  ↓ _firebaseUser already set → signInAnonymously skipped
+  ↓ _completeLogin → same UID → initOrderStatus() → history query finds all orders ✅
+```
+
+**Different customer on same device:**
+```
+Customer B logs in after Customer A
+  ↓ lastDevicePhone (+91A) ≠ normalised (+91B)
+  ↓ signOut(auth) → destroys A's session; signInAnonymously → fresh UID for B
+  ↓ B's orders are placed under new UID; B's history is scoped to that UID ✅
+  ↓ DEVICE_PHONE_KEY updated to B's phone
+```
+
+### Billing Panel Changes Required
+**None.** No Firestore rules, collection structure, or callable interfaces are affected.
+
+### What Was NOT Changed
+- Login flow (UX unchanged), order placement, active orders, KOT timer, UI
+- `order-status.js`, `history.js`, `app.js`, `order.js`
+- Firestore collection names, document structure, or query fields
+
+---
+
 ## [AI UPDATE 2026-07-28 v4] — History Persistence, Duplicates, Invalid Date (three bugs)
 
 ### Files Modified

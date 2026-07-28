@@ -5,6 +5,29 @@
  * Cloud Function (customerAuth) is intentionally bypassed while
  * Firebase billing / Fast2SMS DLT approval is pending.
  *
+ * [AI UPDATE 2026-07-28 v5] Fix: Order History not persistent across sessions.
+ *
+ * Root cause: signOut(auth) in _onLogout permanently destroyed the anonymous
+ * Firebase session. The next signInAnonymously() on re-login created a NEW UID,
+ * so order-status.js queried pending_table_orders where customer.uid == NEW_UID
+ * and found nothing — all historical orders were written under the OLD UID.
+ *
+ * Fix (two-part):
+ *
+ * 1. _onLogout no longer calls signOut(auth). The local session (SESSION_KEY)
+ *    is still cleared so isLoggedIn() returns false and the login modal appears
+ *    on the next visit. The anonymous Firebase session is retained in IndexedDB.
+ *    On re-login, _firebaseUser is already set → signInAnonymously is skipped →
+ *    auth.currentUser.uid is the SAME stable UID → history query finds all orders.
+ *
+ * 2. Shared-device isolation: DEVICE_PHONE_KEY ("qrmenu_device_phone") records
+ *    which phone last owned this device's anonymous UID. In _onPhoneSubmit, if a
+ *    DIFFERENT phone logs in, signOut(auth) + signInAnonymously is called first
+ *    to give the new customer an isolated UID. Same phone → no rotation → stable
+ *    UID → full history.
+ *
+ * Files changed: js/auth.js only. No Billing Panel changes required.
+ *
  * [AI UPDATE 2026-07-28] Fix: "Change Details" now returns the customer to
  * the phone step with the phone number pre-filled, making both phone and name
  * editable. Previously it only showed the name step (_showProfileStep) which
@@ -53,8 +76,9 @@ _OLD_KEYS.forEach((k) => {
   }
 });
 
-// ── Session storage key ───────────────────────────────────────────────────────
-const SESSION_KEY = "qrmenu_user"; // stores { name, phone, uid }
+// ── Session storage keys ──────────────────────────────────────────────────────
+const SESSION_KEY     = "qrmenu_user";        // stores { name, phone, uid }
+const DEVICE_PHONE_KEY = "qrmenu_device_phone"; // phone of customer who owns this device's anon UID
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let _currentUser         = _loadSession();  // { name, phone, uid } | null
@@ -215,6 +239,23 @@ async function _onPhoneSubmit(e) {
   _setLoadingBtn("otpSendBtn", true, "Checking…");
 
   try {
+    // ── Shared-device isolation ───────────────────────────────────────────────
+    // DEVICE_PHONE_KEY stores the phone number that currently "owns" this
+    // device's anonymous Firebase UID. If a DIFFERENT phone is logging in, we
+    // must rotate to a fresh anonymous session so the new customer never
+    // inherits the previous customer's UID (and thus their order history).
+    //
+    // If the SAME phone is logging in, the existing anonymous session is kept.
+    // Its UID matches the UID stored on every order placed by that customer,
+    // so the Firestore query in order-status.js finds their full history.
+    const lastDevicePhone = localStorage.getItem(DEVICE_PHONE_KEY);
+    if (lastDevicePhone && lastDevicePhone !== normalised) {
+      // Different customer — destroy previous anonymous session and create a
+      // fresh one so this customer gets an isolated UID.
+      try { await signOut(auth); } catch (_) {}
+      _firebaseUser = null;
+    }
+
     // BRIDGE: ensure anonymous Firebase Auth UID before Firestore read
     if (!_firebaseUser) {
       await signInAnonymously(auth);
@@ -331,6 +372,13 @@ async function _completeLogin(name, phone) {
   }
   _currentUser = { name, phone, uid: auth.currentUser?.uid || "" };
   _saveSession(_currentUser);
+
+  // Bind this device's anonymous UID to the current customer's phone.
+  // On re-login, _onPhoneSubmit reads DEVICE_PHONE_KEY:
+  //   • same phone  → no session rotation → same UID → history query finds all orders
+  //   • diff phone  → session rotated before this point → isolated UID for new customer
+  try { localStorage.setItem(DEVICE_PHONE_KEY, phone); } catch (_) {}
+
   _updateGreeting();
   _dispatchAuthChange(_currentUser);
   _hideModal();
@@ -368,7 +416,27 @@ async function _onLogout() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
-  await signOut(auth).catch(() => {});
+
+  // NOTE: signOut(auth) is intentionally NOT called here.
+  //
+  // Root cause of history-persistence bug (fixed 2026-07-28):
+  //   Firebase anonymous auth sessions are destroyed permanently on signOut.
+  //   The next signInAnonymously() call creates a NEW UID, so the history
+  //   query in order-status.js (where customer.uid == uid) finds zero docs
+  //   — the old orders were written under the previous UID.
+  //
+  // Fix: keep the anonymous Firebase session alive across logout.
+  //   The customer's personal data (SESSION_KEY) is already cleared above,
+  //   so isLoggedIn() returns false and initOrderStatus() is never called
+  //   until the customer re-authenticates with their phone number.
+  //   When they do, _firebaseUser is already set → signInAnonymously is
+  //   skipped → auth.currentUser.uid is the SAME stable UID used when the
+  //   original orders were placed → history query returns full history.
+  //
+  // Security: anonymous UIDs carry no personal info. Retaining the session
+  //   only preserves the stable DB key; it does not expose any customer
+  //   data to anyone who picks up the device after logout.
+
   _dispatchAuthChange(null);
   location.reload();
 }
