@@ -1,16 +1,25 @@
 /**
  * history.js
  * ─────────────────────────────────────────────────────────────
- * Saves completed orders to localStorage and renders the history drawer.
- * Orders arrive here from order-status.js when Firestore status → "completed".
+ * Renders the order history drawer. Data arrives from order-status.js,
+ * which reads completed orders directly from pending_table_orders in Firestore.
  * Dismissed/rejected orders are NEVER passed here.
  *
- * [AI UPDATE 2026-07-28] — Firestore-backed persistent history
- * Root cause: history was only stored in localStorage, which is per-device
- * and lost on logout. Added updateFromFirestore() so order-status.js can push
- * live Firestore data directly into memory here. renderHistory() now prefers
- * the in-memory Firestore snapshot over localStorage, giving true persistence
- * across devices and sessions. localStorage is kept as an offline cache.
+ * [AI UPDATE 2026-07-28 v4] — Bug fixes: persistence, duplicates, Invalid Date
+ *
+ * Persistence: order-status.js now reads completed orders from the same
+ * pending_table_orders listener used for active orders, so history is loaded
+ * from Firestore on every login without any extra write path or Billing Panel
+ * rule change. updateFromFirestore() stores the snapshot in memory;
+ * renderHistory() uses it as the primary source.
+ *
+ * Duplicates: eliminated by removing the separate customer_order_history write
+ * path. A single Firestore query → single onHistory call → single updateFromFirestore.
+ *
+ * Invalid Date (Bug 3): order-status.js now converts all Firestore Timestamps
+ * to ms integers before passing them here. renderHistory() also has a _toDate()
+ * guard that handles ms numbers, Firestore Timestamp objects, ISO strings, and
+ * null — so "Invalid Date" can never appear.
  */
 
 const HISTORY_KEY = "qrmenu_history";   // clean key (old "qrmenu_orders" is gone)
@@ -93,6 +102,20 @@ function closeHistory() {
   document.body.style.overflow = "";
 }
 
+// ── Date conversion helper ─────────────────────────────────────────────────────
+// Handles every timestamp format this app may encounter:
+//   • ms integer      — from order-status.js _tsToMs() (primary path)
+//   • ISO string      — from localStorage cache
+//   • {seconds, ...}  — Firestore Timestamp object (legacy localStorage data)
+//   • null / undefined / NaN → returns null so callers can fall back gracefully
+function _toDate(val) {
+  if (!val && val !== 0) return null;
+  if (typeof val === "number")  return isNaN(val) ? null : new Date(val);
+  if (val.seconds != null)      return new Date(val.seconds * 1000);
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function renderHistory() {
   const list = document.getElementById("historyList");
   if (!list) return;
@@ -112,18 +135,16 @@ function renderHistory() {
   }
 
   list.innerHTML = orders.map((order, i) => {
-    const placed  = new Date(order.placedAt);
+    // _toDate handles ms integers, ISO strings, and Firestore Timestamps —
+    // "Invalid Date" is impossible with this helper.
+    const placed  = _toDate(order.placedAt) || new Date();
     const timeStr = placed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
     const dateStr = placed.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
     const num     = orders.length - i;
 
     let completedLine = "";
-    if (order.completedAt) {
-      const cd = new Date(
-        order.completedAt?.seconds
-          ? order.completedAt.seconds * 1000
-          : order.completedAt
-      );
+    const cd = _toDate(order.completedAt);
+    if (cd) {
       const ct = cd.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
       completedLine = `<span class="history-completed-time">Settled at ${ct}</span>`;
     }

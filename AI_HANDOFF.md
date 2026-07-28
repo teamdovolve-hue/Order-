@@ -189,6 +189,63 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-07-28 v4] — History Persistence, Duplicates, Invalid Date (three bugs)
+
+### Files Modified
+- `js/order-status.js`
+- `js/history.js`
+
+### Bug 1 Root Cause — History disappears after logout
+`_writeCompletedOrderToHistory` was writing to `customer_order_history/{uid}/orders`, but the Billing Panel's Firestore rules had not been updated to allow customer writes, so every write failed silently with `permission-denied`. Listener 2 then fired with 0 documents → `updateFromFirestore([])` → `_firestoreOrders = []` — which overrode localStorage data with an empty array. The drawer rendered empty even when localStorage had valid history.
+
+### Bug 2 Root Cause — Duplicate history entries
+Two parallel paths were feeding history simultaneously: (1) the `docChanges()` write path in Listener 1 triggered `_writeCompletedOrderToHistory` → triggered Listener 2 → fed history; (2) on page reload, the same completed order appeared as an "added" event again and went through the same path. The Set-based dedup was per-session and was cleared on logout, allowing re-writes.
+
+### Bug 3 Root Cause — Invalid Date
+`placedAt` was set from `data.createdAt` (a Firestore Timestamp `{seconds, nanoseconds}` object). `history.js` rendered it with `new Date(order.placedAt)` — `new Date()` does not unwrap Firestore Timestamp objects → `Invalid Date`. The `completedAt` already had a `?.seconds` guard but `placedAt` did not.
+
+### Fix — All Three Bugs
+
+**Core architectural change (`order-status.js`):**
+- Removed Listener 2 (`customer_order_history` onSnapshot) entirely.
+- Removed `_writeCompletedOrderToHistory` (the failing Firestore write).
+- Removed `_trackedUid`, `_writtenToHistory` Set, and `setDoc`/`serverTimestamp` imports — no longer needed.
+- Listener 1 (`pending_table_orders`) now handles BOTH active orders and history from a single snapshot:
+  - Active orders: filtered by status NOT in [completed, dismissed, rejected] → `onActiveOrders` callback (unchanged)
+  - History: filtered by `status === "completed"`, sorted newest-first → `onHistory` callback (new)
+  - All Firestore Timestamps converted to ms integers (`_tsToMs`) before passing to callbacks — no raw Timestamp objects reach `history.js`.
+- `_syncHistoryToLocalStorage` simplified: orders arrive pre-mapped, just calls `updateFromFirestore` + `saveOrderToHistory`.
+
+**Date rendering fix (`history.js`):**
+- Added `_toDate(val)` helper that safely handles ms integers, ISO strings, Firestore Timestamp objects `{seconds, nanoseconds}`, and null/undefined → never returns an invalid Date.
+- `renderHistory()` uses `_toDate(order.placedAt)` and `_toDate(order.completedAt)` — `Invalid Date` is impossible.
+- Updated file header comment.
+
+### Persistence flow (after fix)
+```
+Customer logs in (any device, any session)
+  ↓ initOrderStatus() → startOrderTracking()
+  ↓ Listener 1 fires immediately (Firestore snapshot of all customer orders)
+  ↓ Completed orders extracted and mapped (timestamps → ms integers)
+  ↓ onHistory(mappedHistory) → _syncHistoryToLocalStorage
+  ↓ updateFromFirestore(orders) → _firestoreOrders = [all completed orders]
+  ↓ saveOrderToHistory (localStorage cache, deduped by firestoreId)
+  ↓ Customer opens history drawer → renders from _firestoreOrders (Firestore data)
+```
+
+### Billing Panel Changes Required
+**None for this fix.** The previous approach required a Billing Panel `firestore.rules` change (allow create on `customer_order_history/{uid}/orders`) — that dependency is now eliminated entirely. The Customer Panel reads only from `pending_table_orders`, which it already has permission to read.
+
+### What Was NOT Changed
+- Order placement, active order rendering, KOT timer
+- Login flow, UI design, CSS
+- Firestore collection names or document structure
+- `saveOrderToHistory` localStorage logic (kept as offline cache)
+- `updateFromFirestore`, `_firestoreOrders`, `_drawerOpen`, `_toDate` remain as-is
+- `getHistory()`, `initHistory()`, `openHistory()` public API unchanged
+
+---
+
 ## [AI UPDATE 2026-07-28] — Persistent Order History (Firestore-backed)
 
 ### Files Modified
