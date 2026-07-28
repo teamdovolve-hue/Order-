@@ -1,26 +1,41 @@
 /**
- * auth.js
+ * auth.js  — BRIDGE BUILD (no Cloud Functions)
  * ─────────────────────────────────────────────────────────────
- * Customer authentication bridge backed by the Billing Panel's callable
- * functions. OTP UI/handlers remain dormant until DLT approval.
+ * Customer authentication via direct Firestore reads/writes.
+ * Cloud Function (customerAuth) is intentionally bypassed while
+ * Firebase billing / Fast2SMS DLT approval is pending.
  *
- * Flow:
- *   Customer browses freely → taps "Place Order" → if not logged in →
- *   Temporary bridge: phone lookup → existing customers sign in immediately;
- *   new customers enter a name, confirm it, then create the account.
+ * Flow (unchanged UX):
+ *   Phone → lookup customers/{+91…} in Firestore
+ *     found  → signInAnonymously → session saved → login complete
+ *     not found → name step → confirm step → setDoc → login complete
  *
- * Session is stored in localStorage so the customer stays logged in
- * across page reloads (until they explicitly log out). Firestore stores
- * the permanent customer profile separately from this browser session.
+ * All accounts are created with phoneVerified: false.
+ * When Fast2SMS DLT is approved and Cloud Functions are restored:
+ *   1. Restore customerAuth callable calls in _onPhoneSubmit and _onCreateAccount
+ *   2. Restore signInWithCustomToken calls
+ *   3. Remove direct Firestore read/write blocks marked "BRIDGE"
+ *   4. No DB migration needed — phoneVerified field is already present
+ *
+ * Public API (unchanged — app.js / customer.js / order.js see the same surface):
+ *   initAuth()         — wire DOM events, start onAuthStateChanged
+ *   requireLogin(cb)   — ensure session, then call cb()
+ *   isLoggedIn()       — true if session exists in localStorage
+ *   getLoginInfo()     — { name, phone, uid } | null
+ *   waitForAuthReady() — Promise resolving when Firebase Auth state is known
+ *   onAuthReady(cb)    — call cb with locally cached session
+ *   updateGreeting()   — refresh customer chip in header
  */
 
-import { auth, functions } from "./firebase-config.js";
+import { auth, db }      from "./firebase-config.js";
 import {
   onAuthStateChanged,
-  signInWithCustomToken,
+  signInAnonymously,
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
+import {
+  doc, getDoc, setDoc, serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 // ── One-time cleanup: purge old localStorage-based login data ────────────────
 const _OLD_KEYS = ["qrmenu_login", "qrmenu_moved_to_history", "qrmenu_orders"];
@@ -33,10 +48,11 @@ _OLD_KEYS.forEach((k) => {
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "qrmenu_user"; // stores { name, phone, uid }
-// ── Module state ─────────────────────────────────────────────────────────────
+
+// ── Module state ──────────────────────────────────────────────────────────────
 let _currentUser         = _loadSession();  // { name, phone, uid } | null
 let _pendingCb           = null;            // callback to run after login
-let _pendingPhone        = "";
+let _pendingPhone        = "";              // normalised +91… phone across steps
 let _pendingName         = "";
 let _firebaseUser        = null;
 let _authReadyResolve;
@@ -44,20 +60,14 @@ const _authReady         = new Promise((resolve) => { _authReadyResolve = resolv
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Kept for the existing app API; Firebase Auth is initialized on demand. */
 export function isAuthReady() { return true; }
 
-/** Resolve after Firebase has restored the persisted customer Auth state. */
 export function waitForAuthReady() {
   return _authReady;
 }
 
-/** True when a verified session exists in localStorage. */
 export function isLoggedIn() { return !!_currentUser; }
 
-/**
- * Returns { name, phone, uid } for the current user, or null.
- */
 export function getLoginInfo() {
   if (!_currentUser) return null;
   return {
@@ -66,26 +76,22 @@ export function getLoginInfo() {
   };
 }
 
-/**
- * Ensures the user is logged in, then calls cb().
- * If already signed in, cb() fires after Firebase session restoration.
- * Otherwise the phone modal is shown first.
- */
 export function requireLogin(cb) {
   if (_currentUser) {
-    _ensureFirebaseSession().then(() => cb()).catch((err) => {
-      console.error("[auth] Firebase session restore failed:", err);
-      _currentUser = null;
-      _saveSession(null);
-      _showModal();
-    });
+    _ensureFirebaseSession()
+      .then(() => cb())
+      .catch((err) => {
+        console.error("[auth] Firebase session restore failed:", err);
+        _currentUser = null;
+        _saveSession(null);
+        _showModal();
+      });
     return;
   }
   _pendingCb = cb;
   _showModal();
 }
 
-/** Wire DOM events. Call once from app.js after DOMContentLoaded. */
 export function initAuth() {
   document.getElementById("otpPhoneForm")
     ?.addEventListener("submit", _onPhoneSubmit);
@@ -97,13 +103,13 @@ export function initAuth() {
     ?.addEventListener("click", _onCreateAccount);
   document.getElementById("headerLogoutBtn")
     ?.addEventListener("click", _onLogout);
+
   onAuthStateChanged(auth, (user) => {
     _firebaseUser = user;
     _authReadyResolve(user);
     if (!user && _currentUser) {
-      _currentUser = null;
-      _saveSession(null);
-      _dispatchAuthChange(null);
+      // Firebase session expired but local session exists — re-auth silently
+      signInAnonymously(auth).catch(() => {});
     } else if (user && _currentUser) {
       _dispatchAuthChange(_currentUser);
     }
@@ -111,17 +117,13 @@ export function initAuth() {
   _updateGreeting();
 }
 
-/**
- * Calls cb with the locally remembered customer session.
- */
 export function onAuthReady(cb) {
   cb(_currentUser);
 }
 
-/** Refresh the customer chip in the header. */
 export function updateGreeting() { _updateGreeting(); }
 
-// ── OTP Modal lifecycle ───────────────────────────────────────────────────────
+// ── Modal lifecycle ───────────────────────────────────────────────────────────
 
 function _showModal() {
   const modal = document.getElementById("otpModal");
@@ -142,8 +144,7 @@ function _showPhoneStep() {
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   _clearError("otpNameError");
   _clearError("otpPhoneError");
-  const phoneInput = document.getElementById("otpPhoneInput");
-  phoneInput?.focus();
+  document.getElementById("otpPhoneInput")?.focus();
 }
 
 function _showProfileStep() {
@@ -156,10 +157,16 @@ function _showProfileStep() {
   nameInput?.focus();
 }
 
-// ── Temporary phone bridge ────────────────────────────────────────────────────
-// OTP is intentionally not requested while DLT approval is pending. The
-// callable still performs the lookup server-side, so the browser never reads
-// or enumerates customer profiles directly.
+// ── Step 1: Phone lookup ──────────────────────────────────────────────────────
+// BRIDGE: reads Firestore directly instead of calling customerAuth Cloud Fn.
+// When Cloud Functions are restored, replace the getDoc block with:
+//   const customerAuth = httpsCallable(functions, "customerAuth");
+//   const result = await customerAuth({ action: "lookup", phone: `+91${phone}` });
+//   const profile = result.data || {};
+//   if (profile.found) {
+//     await signInWithCustomToken(auth, profile.token);
+//     await _completeLogin(profile.name, profile.phone || `+91${phone}`);
+//   } else { _pendingPhone = profile.phone || `+91${phone}`; _showProfileStep(); }
 
 async function _onPhoneSubmit(e) {
   e.preventDefault();
@@ -172,34 +179,39 @@ async function _onPhoneSubmit(e) {
     return;
   }
 
-  _pendingPhone = phone;
+  const normalised = `+91${phone}`;
+  _pendingPhone = normalised;
   _setLoadingBtn("otpSendBtn", true, "Checking…");
 
   try {
-    const customerAuth = httpsCallable(functions, "customerAuth");
-    const result = await customerAuth({ action: "lookup", phone: `+91${phone}` });
-    const profile = result.data || {};
-
-    // Returning customers do not need an OTP or a second name prompt.
-    if (profile.found) {
-      await signInWithCustomToken(auth, profile.token);
-      await _completeLogin(profile.name, profile.phone || `+91${phone}`, { saveProfile: false });
-      return;
+    // BRIDGE: ensure anonymous Firebase Auth UID before Firestore read
+    if (!_firebaseUser) {
+      await signInAnonymously(auth);
     }
 
-    // New customers only move to the name step. No account is created yet.
-    _pendingPhone = profile.phone || `+91${phone}`;
-    _showProfileStep();
+    // BRIDGE: direct Firestore lookup
+    const snap = await getDoc(doc(db, "customers", normalised));
+
+    if (snap.exists()) {
+      const profile = snap.data();
+      await _completeLogin(profile.name || "Customer", profile.phone || normalised);
+    } else {
+      _showProfileStep();
+    }
   } catch (err) {
-    console.error("[auth] Customer lookup failed:", err);
-    _setError("otpPhoneError", "Could not check this number. Please try again.");
+    console.error("[auth] Phone lookup failed:", err);
+    _setError(
+      "otpPhoneError",
+      err.code === "permission-denied"
+        ? "Permission denied. Please ask restaurant staff for help."
+        : "Could not check your number. Please check your connection and try again."
+    );
   } finally {
     _setLoadingBtn("otpSendBtn", false, "Continue");
   }
-
 }
 
-// ── New customer profile ─────────────────────────────────────────────────────
+// ── Step 2: Collect name ──────────────────────────────────────────────────────
 
 async function _onProfileSubmit(e) {
   e.preventDefault();
@@ -212,18 +224,27 @@ async function _onProfileSubmit(e) {
     return;
   }
   if (!_pendingPhone) {
-    _setError("otpNameError", "Your login session expired. Please enter your phone again.");
+    _setError("otpNameError", "Session expired. Please enter your phone again.");
+    _showPhoneStep();
     return;
   }
 
   _pendingName = name;
-  const confirmName = document.getElementById("otpConfirmName");
+  const confirmName  = document.getElementById("otpConfirmName");
   const confirmPhone = document.getElementById("otpConfirmPhone");
-  if (confirmName) confirmName.textContent = name;
+  if (confirmName)  confirmName.textContent  = name;
   if (confirmPhone) confirmPhone.textContent = _formatPhone(_pendingPhone);
   document.getElementById("otpProfileStep")?.classList.add("hidden");
   document.getElementById("otpConfirmStep")?.classList.remove("hidden");
 }
+
+// ── Step 3: Create account ────────────────────────────────────────────────────
+// BRIDGE: writes Firestore directly instead of calling customerAuth Cloud Fn.
+// When Cloud Functions are restored, replace the setDoc block with:
+//   const customerAuth = httpsCallable(functions, "customerAuth");
+//   const result = await customerAuth({ action: "create", phone: _pendingPhone, name: _pendingName });
+//   await signInWithCustomToken(auth, result.data.token);
+//   await _completeLogin(result.data.name || _pendingName, result.data.phone || _pendingPhone);
 
 async function _onCreateAccount() {
   _clearError("otpNameError");
@@ -232,20 +253,37 @@ async function _onCreateAccount() {
     return;
   }
   _setLoadingBtn("otpCreateAccountBtn", true, "Creating…");
+
   try {
-    const customerAuth = httpsCallable(functions, "customerAuth");
-    const result = await customerAuth({
-      action: "create",
-      phone: _pendingPhone,
-      name: _pendingName,
+    if (!_firebaseUser) {
+      await signInAnonymously(auth);
+    }
+
+    const uid = auth.currentUser?.uid || "";
+    const now = serverTimestamp();
+
+    // BRIDGE: write customer profile directly to Firestore.
+    // phoneVerified: false — ready for OTP gate when Fast2SMS DLT is approved.
+    // DO NOT change to true here; only OTP verification should set this.
+    await setDoc(doc(db, "customers", _pendingPhone), {
+      phone:         _pendingPhone,
+      name:          _pendingName,
+      authUid:       uid,
+      phoneVerified: false,
+      createdAt:     now,
+      updatedAt:     now,
+      lastLoginAt:   now,
     });
-    await signInWithCustomToken(auth, result.data.token);
-    await _completeLogin(result.data.name || _pendingName, result.data.phone || _pendingPhone, {
-      saveProfile: false,
-    });
+
+    await _completeLogin(_pendingName, _pendingPhone);
   } catch (err) {
-    console.error("[auth] Customer account creation failed:", err);
-    _setError("otpNameError", "Could not create your account. Please try again.");
+    console.error("[auth] Account creation failed:", err);
+    _setError(
+      "otpNameError",
+      err.code === "permission-denied"
+        ? "Permission denied. Please ask restaurant staff for help."
+        : "Account creation failed. Please check your connection and try again."
+    );
     document.getElementById("otpConfirmStep")?.classList.add("hidden");
     document.getElementById("otpProfileStep")?.classList.remove("hidden");
   } finally {
@@ -253,44 +291,49 @@ async function _onCreateAccount() {
   }
 }
 
-async function _completeLogin(name, phone, { saveProfile = true } = {}) {
-  if (saveProfile) {
-    throw new Error("Direct customer profile writes are disabled; use customerAuth.");
+// ── Complete login (shared by all sign-in paths) ──────────────────────────────
+
+async function _completeLogin(name, phone) {
+  // Ensure Firebase anonymous session exists
+  if (!_firebaseUser) {
+    await signInAnonymously(auth);
   }
-  await _authReady;
   _currentUser = { name, phone, uid: auth.currentUser?.uid || "" };
   _saveSession(_currentUser);
   _updateGreeting();
   _dispatchAuthChange(_currentUser);
   _hideModal();
 
+  // Update lastLoginAt non-critically
+  if (phone) {
+    setDoc(doc(db, "customers", phone), { lastLoginAt: serverTimestamp() }, { merge: true })
+      .catch(() => {});
+  }
+
   const cb = _pendingCb;
-  _pendingCb = null;
+  _pendingCb    = null;
   _pendingPhone = "";
-  _pendingName = "";
+  _pendingName  = "";
   if (cb) cb();
 }
+
+// ── Ensure Firebase session on page reload ────────────────────────────────────
+// BRIDGE: uses signInAnonymously instead of calling customerAuth to get a token.
 
 async function _ensureFirebaseSession() {
   await _authReady;
   if (auth.currentUser) return auth.currentUser;
-  if (!_currentUser?.phone) throw new Error("Customer session is not available.");
-  const customerAuth = httpsCallable(functions, "customerAuth");
-  const result = await customerAuth({ action: "lookup", phone: _currentUser.phone });
-  if (!result.data?.found || !result.data?.token) {
-    throw new Error("Customer account was not found.");
-  }
-  await signInWithCustomToken(auth, result.data.token);
+  await signInAnonymously(auth);
   return auth.currentUser;
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 
 async function _onLogout() {
-  if (!confirm("Log out? You'll need to verify your phone again before placing the next order.")) return;
-  _currentUser = null;
+  if (!confirm("Log out? You'll need to enter your phone number again before placing the next order.")) return;
+  _currentUser  = null;
   _pendingPhone = "";
-  _pendingName = "";
+  _pendingName  = "";
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
@@ -299,7 +342,7 @@ async function _onLogout() {
   location.reload();
 }
 
-// ── Custom auth-state event (replaces onAuthStateChanged) ─────────────────────
+// ── Custom auth-state event ───────────────────────────────────────────────────
 
 function _dispatchAuthChange(user) {
   window.dispatchEvent(new CustomEvent("customAuthStateChanged", { detail: { user } }));
@@ -310,12 +353,8 @@ function _dispatchAuthChange(user) {
 function _updateGreeting() {
   const chip      = document.getElementById("customerChip");
   const logoutBtn = document.getElementById("headerLogoutBtn");
-
   if (_currentUser?.name) {
-    if (chip) {
-      chip.textContent = `👤 ${_currentUser.name}`;
-      chip.classList.remove("hidden");
-    }
+    if (chip) { chip.textContent = `👤 ${_currentUser.name}`; chip.classList.remove("hidden"); }
     logoutBtn?.classList.remove("hidden");
   } else {
     chip?.classList.add("hidden");
@@ -326,23 +365,14 @@ function _updateGreeting() {
 // ── Session helpers ───────────────────────────────────────────────────────────
 
 function _loadSession() {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { return null; }
 }
-
+function _saveSession(user) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch (_) {}
+}
 function _formatPhone(phone) {
   const digits = String(phone || "").replace(/^\+91/, "");
   return `+91 ${digits}`;
-}
-
-function _saveSession(user) {
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  } catch (_) {}
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -351,15 +381,13 @@ function _setError(id, msg) {
   const el = document.getElementById(id);
   if (el) { el.textContent = msg; el.classList.remove("hidden"); }
 }
-
 function _clearError(id) {
   const el = document.getElementById(id);
   if (el) { el.textContent = ""; el.classList.add("hidden"); }
 }
-
 function _setLoadingBtn(id, loading, text) {
   const btn = document.getElementById(id);
   if (!btn) return;
   btn.disabled    = loading;
   btn.textContent = text;
-}
+    }

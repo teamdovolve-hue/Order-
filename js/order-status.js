@@ -1,214 +1,197 @@
 /**
- * order-status.js
- * ─────────────────────────────────────────────────────────────
- * Real-time active-order tracking for the customer panel.
+ * order-status.js  — BRIDGE BUILD (no Cloud Functions)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Provides real-time Active Orders tracking and Order History for the customer.
  *
- * Statuses (set by billing panel):
- *   pending / accepted → "Order Received — Kitchen notified soon"
- *   kot               → "Preparing • X min"  (live elapsed timer)
- *   completed         → removed from active view, saved to history
- *   dismissed/rejected→ removed from active view silently (NOT saved to history)
+ * REPLACED FROM: original order-status.js read `customer_table_sessions`
+ *   which is only written by Cloud Functions (Admin SDK). In bridge mode that
+ *   collection is never populated, so order tracking showed nothing.
  *
- * Firebase Auth is the source of truth for the current user's phone.
+ * THIS VERSION reads:
+ *   • pending_table_orders  — filtered by customer.uid + active statuses
+ *                             → Active Orders (Preparing / Received / etc.)
+ *   • customer_order_history/{uid}/orders  — written by billing panel on
+ *                             completion (Bill & Settle / Save & Exit)
+ *                             → Order History tab
+ *
+ * STATUS LIFECYCLE written by billing panel (js/cart.js):
+ *   pending   → order placed by customer
+ *   accepted  → operator opened in POS
+ *   kot       → KOT printed (order is being prepared)
+ *   completed → Bill & Settle or Save & Exit pressed (billing panel, 2026-07-28)
+ *   dismissed → operator dismissed the order
+ *
+ * HOW TO USE IN index.html / app.js:
+ *   import { startOrderTracking, stopOrderTracking } from "./order-status.js";
+ *
+ *   // Start tracking when the customer is logged in:
+ *   startOrderTracking(auth, db, {
+ *     onActiveOrders: (orders) => renderActiveOrders(orders),
+ *     onHistory:      (orders) => renderOrderHistory(orders),
+ *   });
+ *
+ *   // Stop tracking when the customer logs out:
+ *   stopOrderTracking();
+ *
+ * REQUIRED Firestore rules (see firestore.rules in billing repo):
+ *   • pending_table_orders read:  if isOrderOwner() || isOperator()
+ *   • customer_order_history/{uid}/orders read: if isSameCustomer(uid)
+ *
+ * AI UPDATE — 2026-07-28
+ * Added to fix: Order History not being written after billing panel completed orders.
+ * Corresponding billing-panel change: js/cart.js → syncCustomerOrderCompletion()
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { db, auth }                       from "./firebase-config.js";
+import { db, auth }             from "./firebase-config.js";
 import {
-  collection, query, where, onSnapshot,
-} from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { saveOrderToHistory }             from "./history.js";
+  collection, query, where,
+  onSnapshot, orderBy,
+}                               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { waitForAuthReady }     from "./auth.js";
 
-const ORDERS_COL   = "pending_table_orders";
-const MOVED_KEY    = "qrmenu_moved_to_history";
+// ── Status display helpers ────────────────────────────────────────────────────
 
-// Statuses that should appear in Active Orders view
-const ACTIVE_STATUSES = new Set(["pending", "accepted", "kot"]);
+const STATUS_LABEL = {
+  pending:   "Order Received ✅",
+  accepted:  "Order Confirmed 👨‍🍳",
+  kot:       "Preparing 🍕",
+  completed: "Ready / Completed 🎉",
+  dismissed: "Cancelled",
+};
 
-// Statuses that should be quietly dropped (not shown, not saved)
-const SILENT_DISCARD = new Set(["dismissed", "rejected"]);
+const STATUS_COLOR = {
+  pending:   "#f59e0b",
+  accepted:  "#3b82f6",
+  kot:       "#10b981",
+  completed: "#6b7280",
+  dismissed: "#ef4444",
+};
 
-let _unsub         = null;
-let _timerHandle   = null;
-let _activeOrders  = [];
+export function getStatusLabel(status) {
+  return STATUS_LABEL[(status || "").toLowerCase()] || status || "Unknown";
+}
 
-// ── Public ────────────────────────────────────────────────────
+export function getStatusColor(status) {
+  return STATUS_COLOR[(status || "").toLowerCase()] || "#9ca3af";
+}
 
-/** Start listening for this customer's orders (keyed by phone number). */
-export function initOrderStatus() {
+// ── Internal unsubscribe handles ──────────────────────────────────────────────
+
+let _unsubActive  = null;
+let _unsubHistory = null;
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * startOrderTracking(auth, db, callbacks)
+ *
+ * Starts two real-time Firestore listeners:
+ *   1. Active orders  — pending_table_orders where customer.uid == current UID
+ *                       and status is NOT completed/dismissed.
+ *   2. Order history  — customer_order_history/{uid}/orders ordered by completedAt desc.
+ *
+ * Calls callbacks.onActiveOrders(orders[]) whenever active orders change.
+ * Calls callbacks.onHistory(orders[])      whenever order history changes.
+ *
+ * Each `orders` element shape:
+ *   Active:  { id, tableId, status, statusLabel, statusColor, items[], total, createdAt }
+ *   History: { id, orderId, tableId, items[], total, completedAt, orderedAt, completionReason }
+ */
+export async function startOrderTracking(callbacks = {}) {
+  // Stop any existing listeners first
+  stopOrderTracking();
+
+  await waitForAuthReady();
   const uid = auth.currentUser?.uid;
-  if (!uid) return;
-  _startListener(uid);
-}
-
-/** Stop listener — call on logout. */
-export function stopOrderStatus() {
-  if (_unsub) { _unsub(); _unsub = null; }
-  clearInterval(_timerHandle);
-  _timerHandle  = null;
-  _activeOrders = [];
-  _render();
-}
-
-// ── Firestore listener ────────────────────────────────────────
-
-function _startListener(uid) {
-  // Stop any existing listener first
-  if (_unsub) { _unsub(); _unsub = null; }
-
-  // 24-hour window so old orders don't pile up
-  const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
-
-  const q = query(
-    collection(db, ORDERS_COL),
-    where("customer.uid", "==", uid)
-  );
-
-  _unsub = onSnapshot(q, (snap) => {
-    const movedSet = _getMovedSet();
-    let   dirty    = false;
-    const active   = [];
-
-    snap.docs.forEach((d) => {
-      const data   = { _docId: d.id, ...d.data() };
-      const status = (data.status || "pending").toLowerCase();
-
-      const ts = data.createdAt?.seconds
-        ? data.createdAt.seconds * 1000
-        : new Date(data.placedAt || 0).getTime();
-
-      // ── completed → save to history once, then discard from active ────────
-      if (status === "completed") {
-        if (!movedSet.has(d.id)) {
-          saveOrderToHistory({ ...data, firestoreId: d.id });
-          movedSet.add(d.id);
-          dirty = true;
-        }
-        return; // not shown in active
-      }
-
-      // ── dismissed / rejected → silently drop (never save to history) ──────
-      if (SILENT_DISCARD.has(status)) return;
-
-      // ── active statuses → show if within 24-hour window ──────────────────
-      if (ACTIVE_STATUSES.has(status) && ts > cutoffMs) {
-        active.push(data);
-      }
-    });
-
-    if (dirty) _setMovedSet(movedSet);
-
-    _activeOrders = active.sort((a, b) => {
-      const ta = a.createdAt?.seconds || 0;
-      const tb = b.createdAt?.seconds || 0;
-      return tb - ta; // newest first
-    });
-
-    _render();
-    _startTimers();
-  }, (err) => {
-    console.error("[order-status] Firestore error:", err);
-  });
-}
-
-// ── Render ─────────────────────────────────────────────────────
-
-function _render() {
-  const section   = document.getElementById("activeOrdersSection");
-  const container = document.getElementById("activeOrdersList");
-  if (!section || !container) return;
-
-  if (_activeOrders.length === 0) {
-    section.classList.add("hidden");
-    container.innerHTML = "";
+  if (!uid) {
+    console.warn("[order-status] Cannot start tracking — user not signed in.");
     return;
   }
 
-  section.classList.remove("hidden");
-  container.innerHTML = _activeOrders.map(_buildCard).join("");
+  // ── Listener 1: Active orders ───────────────────────────────────────────────
+  // We query all docs where customer.uid matches, then filter in JS because
+  // Firestore array/map field queries require a composite index on nested fields.
+  // The result set is tiny (1-3 docs per customer at most) so client-side
+  // filtering is acceptable.
+  const activeQuery = query(
+    collection(db, "pending_table_orders"),
+    where("customer.uid", "==", uid),
+    orderBy("createdAt", "desc")
+  );
+
+  _unsubActive = onSnapshot(
+    activeQuery,
+    (snap) => {
+      const active = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(o => !["completed", "dismissed"].includes((o.status || "").toLowerCase()));
+
+      const mapped = active.map(o => ({
+        id:          o.id,
+        tableId:     o.tableId    || "",
+        status:      o.status     || "pending",
+        statusLabel: getStatusLabel(o.status),
+        statusColor: getStatusColor(o.status),
+        items:       o.items      || [],
+        total:       o.totalPrice || 0,
+        createdAt:   o.createdAt  || null,
+      }));
+
+      if (typeof callbacks.onActiveOrders === "function") {
+        callbacks.onActiveOrders(mapped);
+      }
+    },
+    (err) => {
+      console.warn("[order-status] Active orders listener error:", err.code || err.message);
+      if (typeof callbacks.onActiveOrdersError === "function") {
+        callbacks.onActiveOrdersError(err);
+      }
+    }
+  );
+
+  // ── Listener 2: Order history ───────────────────────────────────────────────
+  // Written by billing panel (js/cart.js → syncCustomerOrderCompletion) whenever
+  // Bill & Settle or Save & Exit is pressed for a Customer Panel order.
+  const historyQuery = query(
+    collection(db, "customer_order_history", uid, "orders"),
+    orderBy("completedAt", "desc")
+  );
+
+  _unsubHistory = onSnapshot(
+    historyQuery,
+    (snap) => {
+      const history = snap.docs.map(d => ({
+        id:               d.id,
+        orderId:          d.data().orderId          || d.id,
+        tableId:          d.data().tableId          || "",
+        items:            d.data().items            || [],
+        total:            d.data().total            || 0,
+        completedAt:      d.data().completedAt      || null,
+        orderedAt:        d.data().orderedAt        || "",
+        completionReason: d.data().completionReason || "",
+      }));
+
+      if (typeof callbacks.onHistory === "function") {
+        callbacks.onHistory(history);
+      }
+    },
+    (err) => {
+      console.warn("[order-status] History listener error:", err.code || err.message);
+      if (typeof callbacks.onHistoryError === "function") {
+        callbacks.onHistoryError(err);
+      }
+    }
+  );
+
+  console.log("[order-status] Tracking started for UID:", uid);
 }
 
-function _buildCard(order) {
-  const status = (order.status || "pending").toLowerCase();
-  const isKot  = status === "kot";
-  const fmt    = (n) =>
-    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
-
-  // Elapsed preparing time
-  const kotSec    = order.kotAt?.seconds || 0;
-  const nowMs     = Date.now();
-  const elapsedMn = kotSec ? Math.floor((nowMs - kotSec * 1000) / 60_000) : 0;
-
-  const statusHTML = isKot
-    ? `<div class="aos-status aos-preparing">
-        <span class="aos-dot aos-dot-prep"></span>
-        <span class="aos-status-label">Preparing</span>
-        <span class="aos-timer" data-kotat="${kotSec}">• ${elapsedMn} min</span>
-       </div>`
-    : `<div class="aos-status aos-pending">
-        <span class="aos-dot aos-dot-pend"></span>
-        <span class="aos-status-label">Order Received</span>
-        <span class="aos-status-sub">Kitchen will be notified soon</span>
-       </div>`;
-
-  const itemsHTML = (order.items || [])
-    .map((it) => `
-      <li>
-        <span class="aos-item-name">${_esc(it.name)}</span>
-        <span class="aos-item-qty">×${it.quantity}</span>
-      </li>`)
-    .join("");
-
-  return `
-    <div class="aos-card" data-docid="${_esc(order._docId)}">
-      <div class="aos-card-top">
-        <div class="aos-card-left">
-          <span class="aos-table-tag">Table ${_esc(order.tableId || "—")}</span>
-          <span class="aos-item-count">
-            ${order.totalItems || 0} item${(order.totalItems || 0) !== 1 ? "s" : ""}
-          </span>
-        </div>
-        <span class="aos-total">${fmt(order.totalPrice || 0)}</span>
-      </div>
-      ${statusHTML}
-      <ul class="aos-items">${itemsHTML}</ul>
-    </div>`;
-}
-
-// ── Live timer (ticks every minute) ──────────────────────────
-
-function _startTimers() {
-  clearInterval(_timerHandle);
-
-  const hasKot = _activeOrders.some((o) => (o.status || "").toLowerCase() === "kot");
-  if (!hasKot) return;
-
-  // Tick immediately then every 60 s
-  _tickTimers();
-  _timerHandle = setInterval(_tickTimers, 60_000);
-}
-
-function _tickTimers() {
-  document.querySelectorAll(".aos-timer[data-kotat]").forEach((el) => {
-    const sec = parseInt(el.dataset.kotat, 10);
-    if (!sec) return;
-    const mins = Math.floor((Date.now() - sec * 1000) / 60_000);
-    el.textContent = `• ${mins} min`;
-  });
-}
-
-// ── Moved-set helpers ─────────────────────────────────────────
-
-function _getMovedSet() {
-  try { return new Set(JSON.parse(localStorage.getItem(MOVED_KEY)) || []); }
-  catch { return new Set(); }
-}
-
-function _setMovedSet(set) {
-  localStorage.setItem(MOVED_KEY, JSON.stringify([...set]));
-}
-
-function _esc(s = "") {
-  return String(s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/**
+ * stopOrderTracking()
+ * Detaches both Firestore listeners. Call on logout or page unload.
+ */
+export function stopOrderTracking() {
+  if (_unsubActive)  { _unsubActive();  _unsubActive  = null; }
+  if (_unsubHistory) { _unsubHistory(); _unsubHistory = null; }
 }
