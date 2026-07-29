@@ -495,6 +495,99 @@ The Billing Panel was upgraded to session 21 (password + username authentication
 
 ## Next AI Task
 
-1. **Deploy Firestore rules**: Add `usernames` collection rules to Billing Panel `firestore.rules` so username availability checks work in production
+1. **Deploy Firestore rules**: Add `usernames` collection rules to Billing Panel `firestore.rules` so username availability checks work in production (rules required for both `read` and `create` — see Required Billing Panel Changes below)
 2. **Verify password login end-to-end**: Existing customers without `passwordHash` will be sent to registration flow (migration path) — confirm they can re-register cleanly
 3. **Order history sync**: Confirm Billing Panel's `syncCustomerOrderCompletion()` is writing to `customer_order_history/{uid}/orders` with the correct `uid` (the stored profile uid, not the anonymous auth uid)
+
+---
+
+## [AI UPDATE 2026-07-29 v2] — 11-Task Bug Fix Session
+
+### Files Modified
+- `js/auth.js`
+- `js/order-status.js`
+- `index.html`
+
+### What Was Fixed
+
+#### Task 1 — Username Availability (js/auth.js)
+**Root cause:** `_scheduleUsernameCheck` had a bare `catch (_)` that silenced all errors, including `permission-denied` from Firestore (the `usernames` collection rules are not yet deployed on the Billing Panel). Every check failed silently and showed the generic "Could not check availability" message.
+
+**Fix:** Replaced `catch (_)` with `catch (err)`. Now logs the real error to console. On `permission-denied`: shows "@username — availability check unavailable. You may still continue." and sets `_usernameAvailable = true` so the user can proceed to account creation (the final `getDoc` in `_onCreateAccount` will catch any permission issue with a clear error). On other errors: shows "Could not check — please retry in a moment".
+
+**Billing Panel action required:** Deploy Firestore rules for the `usernames` collection (see Required Billing Panel Changes). Once deployed, the availability check will show `✓ @username is available` or `✗ @username is already taken` correctly.
+
+#### Task 2 — order-status.js (js/order-status.js)
+Verified the current two-listener architecture (Listener 1: `pending_table_orders`, Listener 2: `customer_order_history/{uid}/orders`) is correct and matches the documented session-21 compatible version. No replacement needed — this IS the latest implementation.
+
+#### Task 3 — Menu availability (js/menu.js)
+Already fixed in the previous session. `_isItemOos()` checks both `inStock === false` AND `available === false`. No code changes needed — verified correct.
+
+#### Task 4 — Password auth DOM elements (index.html)
+Already complete from previous session. All required elements exist: `#otpLoginStep`, `#otpLoginPasswordInput`, `#otpLoginToggleBtn`, `#otpLoginBtn`, `#otpLoginName`, `#otpLoginPhone`, `#otpLoginError`, `#otpUsernameInput`, `#otpUsernameStatus`, `#otpPasswordInput2`, `#otpPasswordConfirm`, `#otpConfirmUsername`. No changes needed.
+
+#### Task 5 — Enter key in login password field (js/auth.js)
+**Root cause:** `#otpLoginForm` uses `onsubmit="return false;"` and the Login button is `type="button"`, so pressing Enter in the password field did nothing.
+
+**Fix:** Added `keydown` listener on `#otpLoginPasswordInput` in `initAuth()` — `Enter` key calls `_onLoginSubmit()` directly.
+
+#### Task 6 — History synchronization (js/order-status.js)
+**Root cause:** `_syncHistoryToLocalStorage` called `saveOrderToHistory` (localStorage write) but never called `updateFromFirestore` (in-memory update). So `history.js` kept serving stale localStorage data; the drawer only refreshed on the next open after a manual trigger.
+
+**Fix:** Added `updateFromFirestore` to the import from `history.js`. `_syncHistoryToLocalStorage` now maps orders to the history.js shape once, calls `updateFromFirestore(mapped)` first (triggers immediate re-render if drawer is open), then calls `saveOrderToHistory` for each order as the localStorage cache.
+
+#### Task 7 — Change Details restores fields (js/auth.js)
+**Root cause:** `otpChangeDetails` was wired to `_showProfileStep` which always cleared all fields (name, username, password, status element).
+
+**Fix:** Added `_onChangeDetails()` function. It captures the current name (from DOM or `_pendingName`) and username before transitioning back to the profile step, then restores them. Password fields are intentionally left empty (security requirement). Immediately calls `_scheduleUsernameCheck(currentUsername)` if the username is valid so the availability indicator re-appears.
+
+#### Task 8 — Username status reset on form clear (js/auth.js)
+**Root cause:** `_showProfileStep()` set `statusEl.textContent = ""` but left the element's CSS class unchanged (e.g. `"username-status available"`). An empty element with a non-hidden class still occupied space.
+
+**Fix:** `_showProfileStep()` now sets `statusEl.className = "username-status hidden"` — the `hidden` class (defined inline in `<head>`) ensures `display: none !important`.
+
+#### Task 9 — Remove debug overlay (index.html)
+**Root cause:** A development diagnostic script added a fixed red banner for every JS error. Harmless in dev but inappropriate for production customers.
+
+**Fix:** Removed the entire `<script>` diagnostic block (28 lines). Errors remain visible in DevTools → Console.
+
+#### Task 10 & 11 — Identity verification and end-to-end review
+Verified the complete customer identity flow:
+- **Registration**: `auth.currentUser.uid` (anonymous) written to `customers/{phone}.uid` → session stores `{ name, phone, uid, username }`
+- **Re-login**: reads `p.uid || p.authUid` from Firestore profile → same stable uid restored
+- **Orders**: `order.js` uses `getLoginInfo().uid` → `customer.uid` in `pending_table_orders` matches history query
+- **History**: `order-status.js` uses `getLoginInfo().uid` → queries `customer_order_history/{uid}/orders` under the correct path
+- **Logout/re-login with same phone**: stable uid preserved via Firestore profile read, NOT from `auth.currentUser`
+- **Different customer on same device**: `signOut` + fresh `signInAnonymously` → new anonymous uid → new profile uid written at registration → isolated history
+
+### Billing Panel Changes Required
+
+**1. Firestore rules — `usernames` collection (BLOCKING for Task 1)**
+Without these rules, username availability checks return `permission-denied` (gracefully handled — users can proceed, but the visual check never shows ✓ or ✗).
+```
+match /usernames/{username} {
+  allow read:   if request.auth != null;
+  allow create: if request.auth != null;
+}
+```
+
+**2. Firestore rules — `customer_order_history/{uid}/orders` (BLOCKING for history)**
+Required for Listener 2 in `order-status.js` to read completed orders.
+```
+match /customer_order_history/{uid}/orders/{orderId} {
+  allow read: if request.auth.uid == uid;
+}
+```
+Note: `customer.uid` in orders equals the stored profile uid, NOT `auth.currentUser.uid`. If Billing Panel rules use `request.auth.uid == uid`, the uid paths must match. Confirm with Billing Panel team.
+
+**3. `syncCustomerOrderCompletion()` uid field**
+Billing Panel's Bill & Settle / Save & Exit writes to `customer_order_history/{uid}/orders`. Confirm the `uid` used as the path key matches `pending_table_orders[order].customer.uid` — this is the stored profile uid set by `order.js`.
+
+### What Was NOT Changed
+- Firestore collection names, document IDs, or status values
+- Order placement logic (`order.js`)
+- Active Orders rendering, KOT timer, cart
+- Login/registration UX flow and styling
+- `history.js` public API
+- Firebase configuration (`firebase-config.js`)
+- ARCHITECTURE_LOCK.md (no architectural changes — bug fixes only)

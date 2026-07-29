@@ -86,7 +86,9 @@ import {
   onSnapshot, orderBy,
 }                               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { waitForAuthReady, getLoginInfo } from "./auth.js";
-import { saveOrderToHistory }            from "./history.js";
+// [AI UPDATE 2026-07-29 v2] Task 6 — import updateFromFirestore so history drawer
+// refreshes immediately when Firestore snapshot fires, without requiring a re-open.
+import { saveOrderToHistory, updateFromFirestore } from "./history.js";
 
 // ── Status display helpers ────────────────────────────────────────────────────
 
@@ -448,19 +450,33 @@ function _renderActiveOrders(orders) {
  *   id                        → firestoreId  (deduplication key)
  *   total                     → totalPrice   (history.js uses .totalPrice)
  *   orderedAt                 → placedAt     (history.js uses .placedAt)
+ *
+ * [AI UPDATE 2026-07-29 v2] Task 6 — also calls updateFromFirestore() so the
+ * history drawer re-renders immediately when a Firestore snapshot fires,
+ * without requiring the user to close and re-open the drawer.
+ * updateFromFirestore() stores the full mapped snapshot in memory and calls
+ * renderHistory() immediately if the drawer is currently open.
  */
 function _syncHistoryToLocalStorage(orders) {
-  for (const order of (orders || [])) {
-    saveOrderToHistory({
-      firestoreId:      order.id,
-      orderId:          order.orderId || order.id,
-      tableId:          order.tableId,
-      items:            order.items,
-      totalPrice:       order.total,        // history.js reads .totalPrice
-      placedAt:         order.orderedAt || null,
-      completedAt:      order.completedAt,
-      completionReason: order.completionReason || "",
-      status:           "completed",
-    });
+  // Map to the shape expected by history.js (totalPrice, placedAt)
+  const mapped = (orders || []).map(order => ({
+    firestoreId:      order.id,
+    orderId:          order.orderId || order.id,
+    tableId:          order.tableId,
+    items:            order.items,
+    totalPrice:       order.total,        // history.js reads .totalPrice
+    placedAt:         order.orderedAt || null,
+    completedAt:      order.completedAt,
+    completionReason: order.completionReason || "",
+    status:           "completed",
+  }));
+
+  // Update in-memory Firestore snapshot — history drawer re-renders immediately
+  // if open, and uses this data on next open (no localStorage round-trip needed).
+  updateFromFirestore(mapped);
+
+  // Also persist to localStorage as offline cache / fallback before first snapshot.
+  for (const order of mapped) {
+    saveOrderToHistory(order);
   }
 }

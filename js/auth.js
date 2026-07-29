@@ -47,6 +47,20 @@
  * Files modified: js/auth.js (this file), index.html (new DOM elements added),
  * js/order-status.js (uses getLoginInfo), js/order.js (uses getLoginInfo).
  * ─────────────────────────────────────────────────────────────
+ * [AI UPDATE 2026-07-29 v2] Bug fixes (Tasks 1, 5, 7, 8):
+ *   Task 1: _scheduleUsernameCheck catch now logs the real error and handles
+ *           permission-denied separately — shows specific message, allows
+ *           proceeding so the creation-step final check can gate the user.
+ *           "Could not check availability" no longer appears on permission errors.
+ *   Task 5: Enter key inside #otpLoginPasswordInput now fires _onLoginSubmit.
+ *   Task 7: otpChangeDetails now calls new _onChangeDetails() which restores
+ *           Name + @username and immediately re-runs the availability check.
+ *           Password fields are kept empty for security. Old behaviour (wired
+ *           directly to _showProfileStep, wiping all fields) is replaced.
+ *   Task 8: _showProfileStep() now sets statusEl className to
+ *           "username-status hidden" (not just empty text) so no blank gap
+ *           is left when the registration form is shown fresh.
+ * ─────────────────────────────────────────────────────────────
  */
 
 import { auth, db }      from "./firebase-config.js";
@@ -125,8 +139,10 @@ export function initAuth() {
   document.getElementById("otpProfileForm")
     ?.addEventListener("submit", _onProfileSubmit);
 
+  // [AI UPDATE 2026-07-29 v2] Task 7 — wire to _onChangeDetails (new) instead of
+  // _showProfileStep so name + username are restored, not cleared.
   document.getElementById("otpChangeDetails")
-    ?.addEventListener("click", _showProfileStep);
+    ?.addEventListener("click", _onChangeDetails);
 
   document.getElementById("otpCreateAccountBtn")
     ?.addEventListener("click", _onCreateAccount);
@@ -155,6 +171,14 @@ export function initAuth() {
       inp.type = isHidden ? "text" : "password";
       const btn = document.getElementById("otpLoginToggleBtn");
       if (btn) btn.textContent = isHidden ? "Hide" : "Show";
+    });
+
+  // [AI UPDATE 2026-07-29 v2] Task 5 — Enter key in login password field fires login.
+  // The login form uses onsubmit="return false;" and the Login button is type="button",
+  // so without this listener pressing Enter does nothing while focused on the password.
+  document.getElementById("otpLoginPasswordInput")
+    ?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); _onLoginSubmit(); }
     });
 
   onAuthStateChanged(auth, (user) => {
@@ -233,9 +257,64 @@ function _showProfileStep() {
   if (passInput) passInput.value = "";
   const confirmInput = document.getElementById("otpPasswordConfirm");
   if (confirmInput) confirmInput.value = "";
+  // [AI UPDATE 2026-07-29 v2] Task 8 — properly hide the status element (not just
+  // clear its text) so no blank gap is left when the registration form appears fresh.
   const statusEl = document.getElementById("otpUsernameStatus");
-  if (statusEl) statusEl.textContent = "";
+  if (statusEl) {
+    statusEl.textContent = "";
+    statusEl.className   = "username-status hidden";
+  }
   _usernameAvailable = false;
+
+  nameInput?.focus();
+}
+
+// ── Change Details (from confirm screen) ─────────────────────────────────────
+// [AI UPDATE 2026-07-29 v2] Task 7 — restores Name + @username, keeps passwords
+// empty for security, and immediately re-runs the availability check.
+// Old behaviour (wired directly to _showProfileStep) always cleared all fields.
+
+function _onChangeDetails() {
+  // Capture current values before transitioning back to the profile step.
+  // _pendingName is set when _onProfileSubmit runs so it tracks the last-submitted
+  // name.  The live DOM value is the canonical source if the user edited it.
+  const currentName     = document.getElementById("otpNameInput")?.value.trim()
+                          || _pendingName
+                          || "";
+  const currentUsername = document.getElementById("otpUsernameInput")?.value.trim() || "";
+
+  // Show the profile step
+  document.getElementById("otpPhoneStep")?.classList.add("hidden");
+  document.getElementById("otpProfileStep")?.classList.remove("hidden");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
+  document.getElementById("otpLoginStep")?.classList.add("hidden");
+  _clearError("otpNameError");
+
+  // Restore Name and @username (do NOT restore passwords — security requirement)
+  const nameInput = document.getElementById("otpNameInput");
+  if (nameInput) nameInput.value = currentName;
+
+  const usernameInput = document.getElementById("otpUsernameInput");
+  if (usernameInput) usernameInput.value = currentUsername;
+
+  // Keep password fields empty
+  const passInput = document.getElementById("otpPasswordInput2");
+  if (passInput) passInput.value = "";
+  const confirmInput = document.getElementById("otpPasswordConfirm");
+  if (confirmInput) confirmInput.value = "";
+
+  // Immediately re-run availability check if the username is present and valid
+  if (currentUsername && _isValidUsername(currentUsername)) {
+    _scheduleUsernameCheck(currentUsername);
+  } else {
+    // No valid username yet — hide the status element cleanly
+    const statusEl = document.getElementById("otpUsernameStatus");
+    if (statusEl) {
+      statusEl.textContent = "";
+      statusEl.className   = "username-status hidden";
+    }
+    _usernameAvailable = false;
+  }
 
   nameInput?.focus();
 }
@@ -382,6 +461,14 @@ function _scheduleUsernameCheck(username) {
       }
       return;
     }
+    // [AI UPDATE 2026-07-29 v2] Task 1 — log the real error; handle
+    // permission-denied separately so the generic "Could not check
+    // availability" message never appears for a normal auth/rules issue.
+    // If rules aren't yet deployed for the usernames collection, the read
+    // will fail with permission-denied. We allow the user to proceed —
+    // _onCreateAccount runs its own final getDoc that will also fail and
+    // show a clear "Permission denied" error rather than silently blocking
+    // registration. Any other error (network, etc.) shows a retry message.
     try {
       const snap = await getDoc(doc(db, "usernames", username));
       if (!snap.exists()) {
@@ -397,10 +484,24 @@ function _scheduleUsernameCheck(username) {
         }
         _usernameAvailable = false;
       }
-    } catch (_) {
-      if (statusEl) {
-        statusEl.textContent = "Could not check availability";
-        statusEl.className   = "username-status checking";
+    } catch (err) {
+      console.error("[auth] Username availability check failed:", err.code || err.message, err);
+      if (err.code === "permission-denied") {
+        // Firestore rules for `usernames` collection not yet deployed.
+        // Let the user continue — account creation will gate them properly.
+        if (statusEl) {
+          statusEl.textContent = `@${username} — availability check unavailable. You may still continue.`;
+          statusEl.className   = "username-status checking";
+        }
+        // Optimistically allow proceeding; _onCreateAccount final check will fail
+        // with a clear error if the username write is also denied.
+        _usernameAvailable = true;
+      } else {
+        if (statusEl) {
+          statusEl.textContent = "Could not check — please retry in a moment";
+          statusEl.className   = "username-status checking";
+        }
+        _usernameAvailable = false;
       }
     }
   }, 500);
