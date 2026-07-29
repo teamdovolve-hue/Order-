@@ -18,6 +18,13 @@
  *     shown with OOS badge, other sizes remain orderable.
  *   • Items are NEVER hidden — they stay visible so customers can see the
  *     full menu.
+ *
+ * [AI UPDATE 2026-07-29] Compatibility with Billing Panel menu availability field.
+ * The Billing Panel manages availability using the `inStock` field (set via Menu
+ * Management toggle in the Billing Panel). _isItemOos() already checks both
+ * `inStock === false` and `available === false` for full backward compatibility.
+ * No filter that hides items is used — OOS items remain visible with a badge
+ * and ordering disabled, so customers always see the complete menu.
  */
 
 import { db } from "./firebase-config.js";

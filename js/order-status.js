@@ -20,6 +20,7 @@
  *   kot       → KOT printed (order is being prepared)
  *   completed → Bill & Settle or Save & Exit pressed (billing panel)
  *   dismissed → operator dismissed the order
+ *   rejected  → operator rejected the order (silently removed, not saved)
  *
  * PUBLIC API (used by app.js):
  *   initOrderStatus()   — start tracking + wire DOM rendering (called after login)
@@ -63,16 +64,29 @@
  *      data-kot-at timestamps — no Firestore round-trips, no full re-render.
  *      The interval starts when the first preparing order appears and is
  *      stopped when there are no more preparing orders or on logout.
+ *
+ * AI UPDATE — 2026-07-28 v4 — History persistence, duplicates, Invalid Date
+ * Switched to two-listener architecture where Listener 1 handles active orders
+ * and Listener 2 reads customer_order_history/{uid}/orders (written by Billing Panel).
+ *
+ * AI UPDATE — 2026-07-29 — Compatibility sync with Billing Panel session 21
+ * Uses getLoginInfo().uid (stable stored profile uid) instead of auth.currentUser.uid.
+ * auth.currentUser.uid is a new anonymous uid after every logout+re-login (signOut
+ * clears the auth session), causing history queries to target an empty path.
+ * getLoginInfo().uid is the uid stored in customers/{phone}.uid at account creation —
+ * the permanent key for customer_order_history/{uid}/orders and pending_table_orders
+ * customer.uid field. Also restored Listener 2 (customer_order_history) now that
+ * Billing Panel writes to it on Bill & Settle / Save & Exit.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { db, auth }             from "./firebase-config.js";
 import {
   collection, query, where,
-  onSnapshot,
+  onSnapshot, orderBy,
 }                               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { waitForAuthReady }     from "./auth.js";
-import { saveOrderToHistory, updateFromFirestore } from "./history.js";
+import { waitForAuthReady, getLoginInfo } from "./auth.js";
+import { saveOrderToHistory }            from "./history.js";
 
 // ── Status display helpers ────────────────────────────────────────────────────
 
@@ -182,8 +196,9 @@ export function stopOrderStatus() {
  *
  * Starts two real-time Firestore listeners:
  *   1. Active orders  — pending_table_orders where customer.uid == current UID
- *                       and status is NOT completed/dismissed.
+ *                       and status is NOT completed/dismissed/rejected.
  *   2. Order history  — customer_order_history/{uid}/orders ordered by completedAt desc.
+ *                       Written by Billing Panel on Bill & Settle / Save & Exit.
  *
  * callbacks.onActiveOrders(orders[]) — fired whenever active orders change.
  * callbacks.onHistory(orders[])      — fired whenever order history changes.
@@ -191,7 +206,7 @@ export function stopOrderStatus() {
  * callbacks.onHistoryError(err)      — optional error handler.
  *
  * Each `orders` element shape:
- *   Active:  { id, tableId, status, statusLabel, statusColor, items[], total, createdAt }
+ *   Active:  { id, tableId, status, statusLabel, statusColor, items[], total, createdAt, kotAt }
  *   History: { id, orderId, tableId, items[], total, completedAt, orderedAt, completionReason }
  */
 export async function startOrderTracking(callbacks = {}) {
@@ -199,30 +214,24 @@ export async function startOrderTracking(callbacks = {}) {
   stopOrderTracking();
 
   await waitForAuthReady();
-  const uid = auth.currentUser?.uid;
+
+  // [AI UPDATE 2026-07-29] Use the stable stored profile uid from getLoginInfo()
+  // instead of auth.currentUser?.uid.  auth.currentUser.uid is a new anonymous uid
+  // after every logout+re-login (signOut clears the auth session), causing history
+  // queries to target an empty Firestore path.
+  // getLoginInfo().uid is the uid stored in customers/{phone}.uid at account
+  // creation — the permanent key for customer_order_history/{uid}/orders.
+  const loginInfo = getLoginInfo();
+  const uid = loginInfo?.uid || auth.currentUser?.uid;
   if (!uid) {
     console.warn("[order-status] Cannot start tracking — user not signed in.");
     return;
   }
 
-  // ── Listener 1: All customer orders (active + completed) ───────────────────
-  // Single query — no server-side status filter — so the snapshot contains
-  // EVERY order ever placed by this customer. Active orders are filtered
-  // client-side for display; completed orders are extracted for history.
-  //
-  // This approach gives true cross-device, cross-session persistence:
-  // pending_table_orders is the single source of truth. No separate write to
-  // customer_order_history is needed, and no Billing Panel rule change is
-  // required. Sorting is done client-side to avoid composite index requirements.
-  //
-  // [AI UPDATE 2026-07-28 v4] — Bug fixes: history persistence, duplicates,
-  // Invalid Date.
-  // Root cause of all three: prior approach wrote to customer_order_history
-  // which required a Billing Panel Firestore rules change that was never made,
-  // causing silent permission-denied failures. Listener 2 then returned 0 docs,
-  // overriding localStorage with an empty array. Fixed by reading completed
-  // orders directly from this listener's snapshot — no extra write path,
-  // no Listener 2, no permission dependency.
+  // ── Listener 1: Active orders ───────────────────────────────────────────────
+  // NOTE: No orderBy here — combining where("customer.uid") with orderBy("createdAt")
+  // requires a Firestore composite index that is not guaranteed to exist.
+  // Sorting is done client-side below instead; result set is tiny (1-3 docs max).
   const activeQuery = query(
     collection(db, "pending_table_orders"),
     where("customer.uid", "==", uid)
@@ -231,16 +240,20 @@ export async function startOrderTracking(callbacks = {}) {
   _unsubActive = onSnapshot(
     activeQuery,
     (snap) => {
-      const allOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // ── Active orders (pending / accepted / kot) ──────────────────────────
-      const active = allOrders
+      const active = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        // Preserve "rejected" in filter — silently removed, not saved to history
         .filter(o => !["completed", "dismissed", "rejected"].includes(
           (o.status || "").toLowerCase()
         ))
-        .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+        // Sort newest-first client-side (avoids composite index on customer.uid + createdAt)
+        .sort((a, b) => {
+          const tA = a.createdAt?.seconds ?? 0;
+          const tB = b.createdAt?.seconds ?? 0;
+          return tB - tA;
+        });
 
-      const mappedActive = active.map(o => ({
+      const mapped = active.map(o => ({
         id:          o.id,
         tableId:     o.tableId    || "",
         status:      o.status     || "pending",
@@ -249,40 +262,51 @@ export async function startOrderTracking(callbacks = {}) {
         items:       o.items      || [],
         total:       o.totalPrice || 0,
         createdAt:   o.createdAt  || null,
-        kotAt:       o.kotAt      || null,
+        kotAt:       o.kotAt      || null,   // forwarded so the UI can show elapsed time
       }));
 
       if (typeof callbacks.onActiveOrders === "function") {
-        callbacks.onActiveOrders(mappedActive);
-      }
-
-      // ── Completed orders → history ────────────────────────────────────────
-      // Extract all completed orders from the same snapshot, sorted newest-first.
-      // Timestamps are converted to millisecond integers here so history.js
-      // never receives raw Firestore Timestamp objects (which cause Invalid Date).
-      const completed = allOrders
-        .filter(o => (o.status || "").toLowerCase() === "completed")
-        .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-
-      const mappedHistory = completed.map(o => ({
-        firestoreId: o.id,
-        orderId:     o.id,
-        tableId:     o.tableId    || "",
-        items:       o.items      || [],
-        totalPrice:  o.totalPrice || 0,
-        placedAt:    _tsToMs(o.createdAt),    // ms integer — safe for new Date()
-        completedAt: _tsToMs(o.completedAt) || null,
-        status:      "completed",
-      }));
-
-      if (typeof callbacks.onHistory === "function") {
-        callbacks.onHistory(mappedHistory);
+        callbacks.onActiveOrders(mapped);
       }
     },
     (err) => {
       console.warn("[order-status] Active orders listener error:", err.code || err.message);
       if (typeof callbacks.onActiveOrdersError === "function") {
         callbacks.onActiveOrdersError(err);
+      }
+    }
+  );
+
+  // ── Listener 2: Order history ───────────────────────────────────────────────
+  // Written by billing panel (js/cart.js → syncCustomerOrderCompletion) whenever
+  // Bill & Settle or Save & Exit is pressed for a Customer Panel order.
+  const historyQuery = query(
+    collection(db, "customer_order_history", uid, "orders"),
+    orderBy("completedAt", "desc")
+  );
+
+  _unsubHistory = onSnapshot(
+    historyQuery,
+    (snap) => {
+      const history = snap.docs.map(d => ({
+        id:               d.id,
+        orderId:          d.data().orderId          || d.id,
+        tableId:          d.data().tableId          || "",
+        items:            d.data().items            || [],
+        total:            d.data().total            || 0,
+        completedAt:      d.data().completedAt      || null,
+        orderedAt:        d.data().orderedAt        || "",
+        completionReason: d.data().completionReason || "",
+      }));
+
+      if (typeof callbacks.onHistory === "function") {
+        callbacks.onHistory(history);
+      }
+    },
+    (err) => {
+      console.warn("[order-status] History listener error:", err.code || err.message);
+      if (typeof callbacks.onHistoryError === "function") {
+        callbacks.onHistoryError(err);
       }
     }
   );
@@ -415,19 +439,28 @@ function _renderActiveOrders(orders) {
 /**
  * _syncHistoryToLocalStorage(orders)
  *
- * Receives the already-mapped completed-orders array from Listener 1 and:
- *   1. Pushes it into history.js in-memory state (updateFromFirestore) so the
- *      drawer renders live Firestore data immediately.
- *   2. Caches each order in localStorage (saveOrderToHistory, deduped by
- *      firestoreId) as a fallback for the brief moment before the first
- *      Firestore snapshot arrives on a new page load.
+ * Syncs completed orders from Firestore (customer_order_history) into localStorage
+ * so the history drawer (history.js) shows them. saveOrderToHistory deduplicates
+ * by firestoreId — calling it for all orders on every snapshot is safe.
  *
- * Orders arrive here already mapped with ms-integer timestamps (no raw
- * Firestore Timestamp objects), so no further conversion is needed here.
+ * Field mapping:
+ *   Firestore (order-status)  → history.js saveOrderToHistory
+ *   id                        → firestoreId  (deduplication key)
+ *   total                     → totalPrice   (history.js uses .totalPrice)
+ *   orderedAt                 → placedAt     (history.js uses .placedAt)
  */
 function _syncHistoryToLocalStorage(orders) {
-  updateFromFirestore(orders || []);
   for (const order of (orders || [])) {
-    saveOrderToHistory(order);
+    saveOrderToHistory({
+      firestoreId:      order.id,
+      orderId:          order.orderId || order.id,
+      tableId:          order.tableId,
+      items:            order.items,
+      totalPrice:       order.total,        // history.js reads .totalPrice
+      placedAt:         order.orderedAt || null,
+      completedAt:      order.completedAt,
+      completionReason: order.completionReason || "",
+      status:           "completed",
+    });
   }
 }

@@ -77,21 +77,74 @@
           <p class="otp-error hidden" id="otpPhoneError"></p>
           <button type="submit" class="otp-btn-primary" id="otpSendBtn">Continue</button>
         </form>
-        <p class="otp-hint">Returning customers can continue without entering their name again.</p>
+        <p class="otp-hint">Returning customers sign in with their password.</p>
       </div>
 
-      <!-- Temporary bridge: collect a new customer's name without creating
-           the account until the details have been confirmed. -->
+      <!-- [AI UPDATE 2026-07-29] Step 1b — Password login for returning customers.
+           Required by the upgraded auth.js (session 21 password-based auth).
+           Shown when phone lookup finds an existing account with a passwordHash. -->
+      <div id="otpLoginStep" class="hidden">
+        <p class="otp-login-welcome" id="otpLoginName"></p>
+        <p class="otp-login-phone" id="otpLoginPhone"></p>
+        <p class="otp-error hidden" id="otpLoginError"></p>
+        <form id="otpLoginForm" novalidate autocomplete="off" onsubmit="return false;">
+          <!-- Hidden username for password-manager autocomplete accessibility -->
+          <input type="text" id="otpLoginUsernameHidden" autocomplete="username" style="display:none;" aria-hidden="true" tabindex="-1" />
+          <div class="otp-password-row">
+            <input
+              class="otp-field-input otp-password-input"
+              type="password"
+              id="otpLoginPasswordInput"
+              placeholder="Your password"
+              autocomplete="current-password"
+            />
+            <button type="button" class="otp-btn-toggle" id="otpLoginToggleBtn" aria-label="Show/hide password">Show</button>
+          </div>
+          <button type="button" class="otp-btn-primary" id="otpLoginBtn">Login</button>
+        </form>
+      </div>
+
+      <!-- Registration: collect name, username, and password for new customers.
+           [AI UPDATE 2026-07-29] Added username + password fields required by auth.js session 21. -->
       <div id="otpProfileStep" class="hidden">
-        <p class="otp-code-subtitle">One last step — tell us your name.</p>
+        <p class="otp-code-subtitle">Create your account</p>
         <form id="otpProfileForm" novalidate autocomplete="off">
           <input
             class="otp-field-input otp-name-input"
             type="text"
             id="otpNameInput"
-            placeholder="Your name"
+            placeholder="Your full name"
             maxlength="80"
             autocomplete="name"
+          />
+          <!-- Username — auto-generated from name, editable by customer -->
+          <div class="username-row">
+            <span class="username-at">@</span>
+            <input
+              class="otp-field-input username-input"
+              type="text"
+              id="otpUsernameInput"
+              maxlength="20"
+              placeholder="username"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <p class="username-status hidden" id="otpUsernameStatus"></p>
+          <!-- Password fields -->
+          <input
+            class="otp-field-input"
+            type="password"
+            id="otpPasswordInput2"
+            placeholder="Create a password (min 6 chars)"
+            autocomplete="new-password"
+          />
+          <input
+            class="otp-field-input"
+            type="password"
+            id="otpPasswordConfirm"
+            placeholder="Confirm password"
+            autocomplete="new-password"
           />
           <p class="otp-error hidden" id="otpNameError"></p>
           <button type="submit" class="otp-btn-primary" id="otpProfileBtn">Review Details</button>
@@ -110,8 +163,11 @@
           <strong>Please check carefully</strong>
           <p>Please check your name and phone number carefully before creating your account. These details will be linked to your future orders. If you enter the wrong phone number, you may not be able to access your account once phone verification becomes mandatory.</p>
         </div>
+        <!-- [AI UPDATE 2026-07-29] Added otpConfirmUsername — required by auth.js session 21
+             to display the chosen @username on the confirmation screen. -->
         <dl class="otp-confirm-details">
           <div><dt>Name</dt><dd id="otpConfirmName">—</dd></div>
+          <div><dt>Username</dt><dd id="otpConfirmUsername">—</dd></div>
           <div><dt>Phone</dt><dd id="otpConfirmPhone">—</dd></div>
         </dl>
         <button type="button" class="otp-btn-secondary" id="otpChangeDetails">Change Details</button>

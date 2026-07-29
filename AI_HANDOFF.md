@@ -413,7 +413,88 @@ Confirm screen → "Change Details"
 
 ---
 
+---
+
+## [AI UPDATE 2026-07-29] — Billing Panel Compatibility Sync (Session 21)
+
+### Files Modified
+- `js/auth.js` — Replaced bridge phone-only flow with password + username system
+- `js/order-status.js` — Restored two-listener architecture; uses stable profile uid
+- `js/order.js` — Uses stable profile uid from `getLoginInfo()` when writing orders
+- `js/menu.js` — Added AI update comment confirming `inStock` compatibility
+- `index.html` — Added all missing DOM elements required by the upgraded auth.js
+- `css/style.css` — Added styles for login step, username row, availability indicator, password toggle
+
+### Root Cause
+The Billing Panel was upgraded to session 21 (password + username authentication) and the `order-panel-updates/` directory in the Billing Panel repo contained updated versions of `auth.js`, `order-status.js`, and `order.js` for the Customer Panel. The Customer Panel was missing these updates, causing:
+- Login failures (password/username DOM elements null)
+- Registration failures (no password/username collection)
+- Order history misalignment (wrong uid used after re-login)
+- History not loading from Firestore (Listener 2 removed in previous version; Billing Panel now writes `customer_order_history`)
+
+### What Changed
+
+#### `js/auth.js`
+- Added password-based login step (`_showLoginStep`, `_onLoginSubmit`)
+- Added username generation and availability checking (`_generateUsername`, `_scheduleUsernameCheck`)
+- Registration now collects: Full Name, @username (auto-generated, editable), Password (×2)
+- Password stored as `SHA-256(password + ":" + phone)` — client-side hash, accepted tradeoff
+- `getLoginInfo()` now returns stable stored profile uid (not `auth.currentUser.uid`)
+- `_onPhoneSubmit`: branches to login step (existing account with `passwordHash`) vs registration (new or legacy)
+- Session key `qrmenu_user` now stores `{ name, phone, uid, username }`
+- New Firestore write: `usernames/{username} → { phone }` for uniqueness enforcement
+- Logout now calls `signOut(auth)` (cleaned up — stable uid is now the stored profile uid, not the anonymous uid)
+- Removed DEVICE_PHONE_KEY shared-device isolation (replaced by password-based isolation)
+
+#### `js/order-status.js`
+- Uses `getLoginInfo().uid` (stable stored profile uid) instead of `auth.currentUser?.uid`
+- Restored two-listener architecture: Listener 1 (active orders from `pending_table_orders`), Listener 2 (history from `customer_order_history/{uid}/orders`)
+- Added `orderBy` import for Listener 2 query
+- Preserved `"rejected"` status in active-orders filter (silently removed, not saved to history)
+- `_syncHistoryToLocalStorage` updated to match new Listener 2 field shape
+
+#### `js/order.js`
+- Uses `getLoginInfo().uid` (stable stored profile uid) when writing `customer.uid` to new orders
+- This ensures `pending_table_orders.customer.uid` matches the uid used for `customer_order_history` lookups
+
+#### `js/menu.js`
+- No logic changes — `_isItemOos()` already checks both `inStock` and `available` fields
+- Added AI update comment confirming the `inStock` field is already the primary availability check
+
+#### `index.html` — New DOM elements added
+- `#otpLoginStep`: welcome-back message, phone display, password input, show/hide toggle, login button, error display
+- Inside `#otpProfileStep`: username row (`#otpUsernameInput`), availability status (`#otpUsernameStatus`), password input (`#otpPasswordInput2`), confirm password (`#otpPasswordConfirm`)
+- Inside `#otpConfirmStep`: username confirmation row (`#otpConfirmUsername`)
+
+#### `css/style.css` — New styles added
+- `.otp-login-welcome`, `.otp-login-phone` — Login step greeting
+- `.otp-password-row`, `.otp-btn-toggle` — Password input with show/hide
+- `.username-row`, `.username-at`, `.username-input` — @username field
+- `.username-status` with variants `.available`, `.taken`, `.checking`, `.invalid`
+
+### Billing Panel Changes Required
+- **Firestore rules**: The `usernames` collection must be readable and writable by authenticated customers. Add to `firestore.rules`:
+  ```
+  match /usernames/{username} {
+    allow read: if request.auth != null;
+    allow create: if request.auth != null;
+  }
+  ```
+- **`customer_order_history` rules**: Must allow authenticated customers to read their own history sub-collection (Listener 2 reads it). This was documented in previous handoff and may already be deployed.
+
+### What Was NOT Changed
+- QR flow (server.js, app.js, table detection)
+- Order placement core logic (order.js — only uid source updated)
+- Active Orders rendering, KOT timer
+- History drawer rendering (history.js)
+- CSS dark theme, layout, animations
+- Firestore collection names, document IDs, or status values
+- Firebase project configuration (firebase-config.js)
+
+---
+
 ## Next AI Task
 
-1. **Unblock login:** Once Billing Panel agent fixes `customerAuth` `functions/internal` crash, verify end-to-end login works on the live site
-2. **Order history sync across devices:** Persist completed orders to Firestore (`customers/{uid}/order_history`) instead of only localStorage — coordinate document structure with Billing Panel agent first
+1. **Deploy Firestore rules**: Add `usernames` collection rules to Billing Panel `firestore.rules` so username availability checks work in production
+2. **Verify password login end-to-end**: Existing customers without `passwordHash` will be sent to registration flow (migration path) — confirm they can re-register cleanly
+3. **Order history sync**: Confirm Billing Panel's `syncCustomerOrderCompletion()` is writing to `customer_order_history/{uid}/orders` with the correct `uid` (the stored profile uid, not the anonymous auth uid)
