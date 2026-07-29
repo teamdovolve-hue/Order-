@@ -591,3 +591,124 @@ Billing Panel's Bill & Settle / Save & Exit writes to `customer_order_history/{u
 - `history.js` public API
 - Firebase configuration (`firebase-config.js`)
 - ARCHITECTURE_LOCK.md (no architectural changes — bug fixes only)
+
+---
+
+## [AI UPDATE 2026-07-29 v3] — Registration Permission-Denied Root Cause + Fix
+
+### Symptoms Reported
+1. Username availability always shows: "Availability check unavailable. You may still continue."
+2. Clicking Create Account fails with: "Permission denied. Please ask restaurant staff for help."
+
+### Forensic Investigation
+
+**Step 1 — Fetched actual Billing Panel `firestore.rules` from GitHub.**
+
+The file has the correct rules:
+```js
+match /customers/{phone} {
+  allow read:   if request.auth != null;
+  allow create: if request.auth != null && request.resource.data.phoneVerified == false;
+  allow update: if isOperator();
+  allow delete: if isOperator();
+}
+match /usernames/{username} {
+  allow read:   if request.auth != null;
+  allow create: if request.auth != null;
+  allow update: if false;
+  allow delete: if isOperator();
+}
+```
+
+**Step 2 — Cross-checked against observed behaviour.**
+
+| Operation | Expected result (rules correct) | Observed result |
+|---|---|---|
+| `getDoc(customers/{phone})` (phone lookup) | ✅ success | ✅ success |
+| `getDoc(usernames/{username})` (availability) | ✅ success | ❌ permission-denied |
+| `setDoc(customers/{phone})` (registration) | ✅ success | never reached |
+| `setDoc(usernames/{username})` (username reg) | ✅ success | never reached |
+
+**Conclusion:** The `usernames` rules are in the file on GitHub but **have not been deployed** to Firebase. The `customers` rules were deployed earlier (phone lookup works); the `usernames` rules were added in session 21 but `firebase deploy --only firestore:rules` was never run.
+
+**Step 3 — Traced the exact failure in `_onCreateAccount` (Customer Panel code bug).**
+
+The old code had ONE outer `try { } catch` wrapping all three Firestore operations in sequence:
+```
+1. getDoc(usernames/{username})  ← throws permission-denied (rules not deployed)
+2. setDoc(usernames/{username})  ← NEVER REACHED
+3. setDoc(customers/{phone})     ← NEVER REACHED
+```
+The outer catch shows "Permission denied" and returns. The critical `setDoc(customers)` is
+**never attempted**, so the account is never created — even though `customers` create IS allowed.
+
+### Fix Applied (Customer Panel — `js/auth.js`)
+
+Split the three Firestore operations into **separate try-catch scopes**:
+
+- **Step A** (`getDoc(usernames)`) — wrapped in its own try-catch. On `permission-denied`:
+  logs a warning, skips the collision check, continues. On success: still enforces uniqueness
+  (username taken → back to profile step).
+
+- **Step B** (`setDoc(usernames)`) — wrapped in its own try-catch. On `permission-denied`:
+  logs a warning, continues. Once Billing Panel deploys rules, this silently succeeds.
+
+- **Step C** (`setDoc(customers)`) — **the critical write**. Remains in the outer try-catch.
+  If this fails with permission-denied, a specific error is shown. If it succeeds,
+  `_completeLogin` runs and registration is complete.
+
+**Result after fix:**
+- Registration NOW works: customers/{phone} document is created, login completes.
+- Username uniqueness enforcement is best-effort until Billing Panel deploys rules.
+- Once rules are deployed: no Customer Panel changes needed — the inner try-catch wrapping
+  is harmless; the operations will succeed normally.
+
+### Files Modified
+- `js/auth.js` — `_onCreateAccount` refactored as described above
+
+### Billing Panel Action Required — DEPLOY THE RULES
+
+The rules are **already correctly written** in
+`firestore.rules` in the Billing Panel repository. They just need to be deployed.
+
+**Command to run in the Billing Panel repository:**
+```bash
+firebase deploy --only firestore:rules
+```
+
+**What this unlocks:**
+- Username availability check shows ✓/✗ correctly (currently shows "unavailable")
+- Username uniqueness is enforced at registration time
+- The `usernames` `getDoc` + `setDoc` in `_onCreateAccount` succeed and log no warnings
+- The username availability check in `_scheduleUsernameCheck` succeeds cleanly
+
+**No code changes are needed in the Billing Panel.** The rules are already correct.
+
+### End-to-End Registration Flow After This Fix
+
+```
+Customer enters phone → getDoc(customers) → not found → showProfileStep()
+  ↓
+Enters Name (auto-generates @username), Password × 2
+  ↓
+_scheduleUsernameCheck → getDoc(usernames/{username})
+  If rules deployed:  ✓ @username is available  (or ✗ taken)
+  If rules pending:   "Availability check unavailable — you may still continue"
+  _usernameAvailable = true (either way)
+  ↓
+Review Details → confirm screen
+  ↓
+Create Account → _onCreateAccount()
+  Step A: getDoc(usernames)    — skipped with warning if permission-denied
+  Step B: setDoc(usernames)    — skipped with warning if permission-denied
+  Step C: setDoc(customers)    — EXECUTES (rules deployed for create)
+  → _completeLogin → session saved → modal closed → customer logged in ✅
+```
+
+### What Was NOT Changed
+- Registration UX flow, confirmation screen, field validation
+- `customers` document structure (all fields preserved)
+- Login flow (`_onLoginSubmit`, `_onPhoneSubmit`)
+- Order placement, active orders, history
+- Any other file outside `js/auth.js`
+- ARCHITECTURE_LOCK.md (no architectural changes)

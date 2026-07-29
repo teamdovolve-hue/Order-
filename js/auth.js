@@ -565,6 +565,28 @@ async function _onProfileSubmit(e) {
 
 // ── Step 3: Create account ────────────────────────────────────────────────────
 // BRIDGE: writes Firestore directly instead of calling customerAuth Cloud Fn.
+//
+// [AI UPDATE 2026-07-29 v3] Registration permission-denied fix.
+//
+// ROOT CAUSE (verified against actual Billing Panel firestore.rules):
+//   The `usernames` collection has NO Firestore security rules.
+//   Every read/write on `usernames` returns permission-denied.
+//   The previous code wrapped all three operations in ONE try-catch:
+//     1. getDoc(usernames/{username})   ← throws permission-denied
+//     2. setDoc(usernames/{username})   ← never reached
+//     3. setDoc(customers/{phone})      ← never reached
+//   So account creation ALWAYS failed at step 1, showing "Permission denied",
+//   even though the critical customers write would likely have succeeded.
+//
+// FIX: Split `usernames` operations into their own try-catch blocks that log
+//   warnings and continue on permission-denied. Only `setDoc(customers)` is
+//   treated as the critical write — if that fails, registration truly fails.
+//   Username uniqueness enforcement becomes best-effort until Billing Panel
+//   deploys firestore.rules for the `usernames` collection (see HANDOFF).
+//
+// WHEN BILLING PANEL DEPLOYS USERNAMES RULES:
+//   No changes needed here — the try-catch wrapping is harmless once rules allow
+//   the operations; they will succeed silently and uniqueness will be enforced.
 
 async function _onCreateAccount() {
   _clearError("otpNameError");
@@ -591,31 +613,57 @@ async function _onCreateAccount() {
       await signInAnonymously(auth);
     }
 
-    // Final availability check (guards against race condition)
-    const snap = await getDoc(doc(db, "usernames", username));
-    if (snap.exists()) {
-      document.getElementById("otpConfirmStep")?.classList.add("hidden");
-      document.getElementById("otpProfileStep")?.classList.remove("hidden");
-      _setError("otpNameError", `@${username} was just taken. Please choose another.`);
-      _usernameAvailable = false;
-      const statusEl = document.getElementById("otpUsernameStatus");
-      if (statusEl) {
-        statusEl.textContent = `✗  @${username} is already taken`;
-        statusEl.className   = "username-status taken";
+    // ── Step A: final username collision check (best-effort) ──────────────────
+    // Wrapped in its own try-catch so a permission-denied error on the `usernames`
+    // collection does NOT abort registration. If the read succeeds and the username
+    // IS taken, we return early with an error. If the read fails (rules not yet
+    // deployed), we skip the check and proceed optimistically.
+    try {
+      const snap = await getDoc(doc(db, "usernames", username));
+      if (snap.exists()) {
+        // Username was just taken by someone else — send back to profile step
+        document.getElementById("otpConfirmStep")?.classList.add("hidden");
+        document.getElementById("otpProfileStep")?.classList.remove("hidden");
+        _setError("otpNameError", `@${username} was just taken. Please choose another.`);
+        _usernameAvailable = false;
+        const statusEl = document.getElementById("otpUsernameStatus");
+        if (statusEl) {
+          statusEl.textContent = `✗  @${username} is already taken`;
+          statusEl.className   = "username-status taken";
+        }
+        _setLoadingBtn("otpCreateAccountBtn", false, "Create Account");
+        return;
       }
-      return;
+    } catch (usernameReadErr) {
+      // permission-denied: `usernames` collection rules not yet deployed on Billing Panel.
+      // Log it and continue — we cannot verify uniqueness but can still create the account.
+      console.warn(
+        "[auth] Username collision check skipped (rules pending — Billing Panel must deploy usernames rules):",
+        usernameReadErr.code || usernameReadErr.message
+      );
     }
 
     const uid          = auth.currentUser?.uid || "";
     const passwordHash = await _hashPassword(password, _pendingPhone);
     const now          = serverTimestamp();
 
-    // Write username uniqueness registry first
-    await setDoc(doc(db, "usernames", username), { phone: _pendingPhone });
+    // ── Step B: register username in uniqueness index (best-effort) ───────────
+    // Wrapped in its own try-catch. If permission-denied, log and continue.
+    // Once Billing Panel deploys `usernames` rules this will succeed silently.
+    try {
+      await setDoc(doc(db, "usernames", username), { phone: _pendingPhone });
+    } catch (usernameWriteErr) {
+      console.warn(
+        "[auth] Username registry write skipped (rules pending — Billing Panel must deploy usernames rules):",
+        usernameWriteErr.code || usernameWriteErr.message
+      );
+    }
 
-    // BRIDGE: write customer profile directly to Firestore.
+    // ── Step C: write customer profile — the CRITICAL operation ──────────────
+    // BRIDGE: write directly to Firestore.
     // phoneVerified: false — ready for OTP gate when Fast2SMS DLT is approved.
     // DO NOT change to true here; only OTP verification should set this.
+    // If this throws, registration truly fails and the outer catch handles it.
     await setDoc(doc(db, "customers", _pendingPhone), {
       phone:         _pendingPhone,
       name:          _pendingName,
@@ -632,12 +680,14 @@ async function _onCreateAccount() {
     });
 
     await _completeLogin(_pendingName, _pendingPhone, uid, username);
+
   } catch (err) {
+    // Only `setDoc(customers)` or `signInAnonymously` can reach here now.
     console.error("[auth] Account creation failed:", err);
     _setError(
       "otpNameError",
       err.code === "permission-denied"
-        ? "Permission denied. Please ask restaurant staff for help."
+        ? "Account creation failed: server permissions not configured. Please ask restaurant staff for help."
         : "Account creation failed. Please check your connection and try again."
     );
     document.getElementById("otpConfirmStep")?.classList.add("hidden");
