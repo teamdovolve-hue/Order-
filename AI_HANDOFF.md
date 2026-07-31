@@ -189,6 +189,49 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-07-31] — Per-Item Timers and Per-Item Served Status
+
+### Files Modified
+- `js/order-status.js`
+- `css/style.css`
+
+### Root Cause
+The Billing Panel's `printKOT()` in `js/cart.js` wrote `{ status: 'kot', kotAt: serverTimestamp() }` to **every** active `pending_table_orders` document for the current table on every KOT press — including documents already in `kot` status. This reset all existing timers to zero whenever a second order triggered a new KOT.
+
+Additionally, the old rendering showed one status row and one timer for the entire order document. There was no per-item granularity.
+
+### Fix (Customer Panel side)
+
+**`js/order-status.js`:**
+- Listener 1 mapping now forwards `itemMeta: o.itemMeta || null` alongside the existing fields. `itemMeta` is a map written by the Billing Panel (`js/cart.js`, `js/incoming-orders.js`) containing per-item `kotAt`, `servedAt`, and `itemStatus` keyed by stable item ID.
+- `_renderActiveOrders` rewritten: each item in `order.items` now renders as its own `.aos-item-row` with its own status class and elapsed timer. The single order-level `.aos-status` / `.aos-dot` row is removed.
+- `_startPreparingTimer` interval updated: now targets `.aos-item-row[data-kot-at]` (per-item) instead of `.aos-card[data-kot-at]` (per-order). Patches `.aos-item-status-label` within each matched row.
+- Backward compatibility: orders without `itemMeta` (placed before the Billing Panel deploys its fix) fall back to order-level `status` + `kotAt` — existing behaviour fully preserved.
+
+**`css/style.css`:**
+- Added `.aos-item-row` — per-item row container (flex, border-left, padding).
+- Added `.aos-item-row-name` — flex column for item name + qty.
+- Added `.aos-item-status-label` — small bold timer/status label per item.
+- Added `.aos-item-preparing` — green tint (#10b981), shows "Preparing 🍕 • X min".
+- Added `.aos-item-pending` — amber tint, shows "Order Received — Kitchen notified soon".
+- Added `.aos-item-served` — muted, shows "Order Received ✓", name opacity reduced.
+- Existing `.aos-status`, `.aos-dot`, `.aos-dot-pend`, `.aos-dot-prep` CSS kept in place.
+
+### Billing Panel Changes Required
+The Customer Panel is now ready to consume `itemMeta`. The Billing Panel must deploy matching changes to `js/incoming-orders.js`, `js/cart.js`, and `firestore.rules` as described in the architecture audit. Until those are deployed, the Customer Panel falls back to order-level status/timer (backward compat).
+
+### What Was NOT Changed
+- `startOrderTracking`, `stopOrderTracking`, `initOrderStatus`, `stopOrderStatus` public API
+- Listener 2 (`customer_order_history`) — untouched
+- `_syncHistoryToLocalStorage` — untouched
+- `getStatusLabel`, `getStatusColor`, `_tsToMs`, `_elapsedMin` helpers — untouched
+- Firestore query predicate (customer.uid filter, status exclusion list) — untouched
+- Auth flow, order placement, menu, cart, search, history, QR detection — untouched
+- Dark theme, login modal styles, all non-`.aos-item-*` CSS — untouched
+- ARCHITECTURE_LOCK.md — no architectural changes (additive field read, rendering enhancement)
+
+---
+
 ## [AI UPDATE 2026-07-28 v5] — Order History Not Persistent Across Login Sessions
 
 ### Files Modified

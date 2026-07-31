@@ -77,6 +77,23 @@
  * the permanent key for customer_order_history/{uid}/orders and pending_table_orders
  * customer.uid field. Also restored Listener 2 (customer_order_history) now that
  * Billing Panel writes to it on Bill & Settle / Save & Exit.
+ *
+ * AI UPDATE — 2026-07-31 — Per-item timers and per-item served status
+ * Root cause of timer-reset bug: Billing Panel printKOT was writing a fresh
+ * kotAt to EVERY active order doc for the table on every KOT press, resetting
+ * already-running timers. Billing Panel fix: it now writes per-item kotAt into
+ * an itemMeta map on each order document (keyed by stable item ID) and no
+ * longer overwrites kotAt on already-preparing items.
+ *
+ * Customer Panel changes (this file):
+ *   1. Listener 1 mapping now forwards itemMeta from each Firestore document.
+ *   2. _renderActiveOrders now renders per-item rows (.aos-item-row) inside
+ *      each order card. Each item row has its own status class and timer.
+ *      data-kot-at moves from the card level to the item-row level.
+ *   3. _startPreparingTimer interval now targets .aos-item-row[data-kot-at]
+ *      and patches .aos-item-status-label within each matched row.
+ *   Backward compat: orders without itemMeta (in-flight legacy orders) fall
+ *   back to order-level status and kotAt — existing behaviour unchanged.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -144,14 +161,17 @@ function _elapsedMin(ts) {
 
 // Start the live timer that patches elapsed-time labels every 30 s.
 // Safe to call multiple times — only one interval runs at a time.
+// [AI UPDATE 2026-07-31] Targets .aos-item-row[data-kot-at] (per-item rows)
+// instead of the old .aos-card[data-kot-at] (per-order card) selector.
+// Patches .aos-item-status-label within each matched row.
 function _startPreparingTimer() {
     if (_timerInterval) return;
     _timerInterval = setInterval(() => {
-        document.querySelectorAll('.aos-card[data-kot-at]').forEach(card => {
-            const kotMs = parseInt(card.dataset.kotAt, 10);
+        document.querySelectorAll('.aos-item-row[data-kot-at]').forEach(row => {
+            const kotMs = parseInt(row.dataset.kotAt, 10);
             if (!kotMs) return;
             const elapsed = Math.max(0, Math.floor((Date.now() - kotMs) / 60000));
-            const label = card.querySelector('.aos-status-label');
+            const label = row.querySelector('.aos-item-status-label');
             if (label) label.textContent = `Preparing 🍕 • ${elapsed} min`;
         });
     }, 30000);
@@ -264,7 +284,11 @@ export async function startOrderTracking(callbacks = {}) {
         items:       o.items      || [],
         total:       o.totalPrice || 0,
         createdAt:   o.createdAt  || null,
-        kotAt:       o.kotAt      || null,   // forwarded so the UI can show elapsed time
+        kotAt:       o.kotAt      || null,   // order-level kotAt (backward compat fallback)
+        // [AI UPDATE 2026-07-31] Per-item status/timer map written by Billing Panel.
+        // Keys are stable item IDs matching items[].itemId or items[].id.
+        // null when Billing Panel has not yet deployed the itemMeta feature.
+        itemMeta:    o.itemMeta   || null,
       }));
 
       if (typeof callbacks.onActiveOrders === "function") {
@@ -343,14 +367,28 @@ function _esc(s = "") {
  *
  * Renders active order cards into #activeOrdersList.
  * Shows #activeOrdersSection when there are orders; hides it when empty.
- * Uses the .aos-* CSS classes already defined in css/style.css.
  *
- * Status → CSS modifier mapping (only classes that exist in style.css):
- *   pending   → .aos-pending  (amber, .aos-dot-pend animated pulse)
- *   accepted  → .aos-pending  (reuse amber — no .aos-accepted class in CSS)
- *   kot       → .aos-preparing (green, .aos-dot-prep animated pulse)
+ * [AI UPDATE 2026-07-31] Per-item lifecycle rendering.
+ * Each item in the order now renders as its own .aos-item-row with its own
+ * status class and elapsed timer, driven by the itemMeta map written by the
+ * Billing Panel when KOT is printed for that specific item.
  *
- * Items: rendered as <ul class="aos-items"> with .aos-item-name / .aos-item-qty per row.
+ * Per-item status logic:
+ *   itemMeta present → use meta.itemStatus + meta.kotAt per item
+ *   itemMeta absent  → fall back to order-level status + kotAt (backward compat)
+ *
+ * CSS classes (defined in css/style.css):
+ *   .aos-item-preparing  — green border-left, "Preparing 🍕 • X min" timer
+ *   .aos-item-pending    — amber border-left, "Order Received — Kitchen notified"
+ *   .aos-item-served     — muted border-left, "Order Received ✓"
+ *
+ * data-kot-at is now on each .aos-item-row (not the card) so the interval
+ * can patch labels per-item without touching the card structure.
+ *
+ * The single .aos-status / .aos-dot row per card is removed — replaced by
+ * per-item status labels inside each .aos-item-row.
+ * The .aos-status, .aos-dot CSS classes still exist in style.css and are
+ * intentionally kept there for potential future use.
  */
 function _renderActiveOrders(orders) {
   const section = document.getElementById("activeOrdersSection");
@@ -360,65 +398,74 @@ function _renderActiveOrders(orders) {
   if (!orders || orders.length === 0) {
     section.classList.add("hidden");
     list.innerHTML = "";
-    _stopPreparingTimer();   // no preparing orders — timer not needed
+    _stopPreparingTimer();   // no preparing items — timer not needed
     return;
   }
 
   section.classList.remove("hidden");
 
-  let hasPreparingOrder = false;
+  let hasPreparingItem = false;
 
   list.innerHTML = orders.map(order => {
-    const status      = (order.status || "pending").toLowerCase();
+    const orderStatus = (order.status || "pending").toLowerCase();
     const itemCount   = (order.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
 
-    // Status row modifier — .aos-preparing for kot, .aos-pending for all others
-    const isPrepping = status === "kot";
-    const statusMod  = isPrepping ? "aos-preparing" : "aos-pending";
-    const dotMod     = isPrepping ? "aos-dot-prep"  : "aos-dot-pend";
+    // ── Per-item rows ──────────────────────────────────────────────────────────
+    const itemsHtml = (order.items || []).map(it => {
+      const itemKey = it.itemId || it.id || null;
+      const meta    = (itemKey && order.itemMeta) ? (order.itemMeta[itemKey] || null) : null;
 
-    // ── KOT elapsed-time label ─────────────────────────────────────────────────
-    // When status is 'kot', show "Preparing 🍕 • X min" using kotAt timestamp.
-    // data-kot-at stores the epoch-ms so the live timer interval can patch the
-    // label directly in the DOM without a full Firestore round-trip.
-    let displayLabel;
-    let kotAtMs = null;
-    if (isPrepping) {
-      hasPreparingOrder = true;
-      kotAtMs = _tsToMs(order.kotAt);
-      const elapsed = kotAtMs !== null ? _elapsedMin(order.kotAt) : null;
-      displayLabel = elapsed !== null
-        ? `Preparing 🍕 • ${elapsed} min`
-        : "Preparing 🍕";
-    } else {
-      displayLabel = order.statusLabel || getStatusLabel(status);
-    }
+      // Determine per-item status and kotAt.
+      // If itemMeta is present, use it. Otherwise fall back to order-level values
+      // so orders placed before the Billing Panel update render correctly.
+      let itemStatus, itemKotAt;
+      if (meta) {
+        itemStatus = (meta.itemStatus || "pending").toLowerCase();
+        itemKotAt  = meta.kotAt || null;
+      } else {
+        itemStatus = orderStatus;             // order-level fallback
+        itemKotAt  = order.kotAt || null;     // order-level fallback
+      }
 
-    // ── Items list ─────────────────────────────────────────────────────────────
-    const itemsHtml = (order.items || []).map(it => `
-      <li>
-        <span class="aos-item-name">${_esc(it.name || "")}</span>
-        <span class="aos-item-qty">×${it.quantity || 1} &nbsp; ${_fmt((it.price || 0) * (it.quantity || 1))}</span>
-      </li>`).join("");
+      // Resolve CSS class, display label, and data-kot-at attribute for this row.
+      let itemStatusClass, displayLabel, kotAtAttr = "";
 
-    // data-kot-at is only set on preparing cards so the interval can target them.
-    const kotAtAttr = (isPrepping && kotAtMs !== null)
-      ? ` data-kot-at="${kotAtMs}"`
-      : "";
+      const isPreparing = itemStatus === "preparing" || itemStatus === "kot";
+
+      if (isPreparing) {
+        hasPreparingItem  = true;
+        const kotAtMs     = _tsToMs(itemKotAt);
+        const elapsed     = kotAtMs !== null ? _elapsedMin(itemKotAt) : null;
+        displayLabel      = elapsed !== null ? `Preparing 🍕 • ${elapsed} min` : "Preparing 🍕";
+        itemStatusClass   = "aos-item-preparing";
+        kotAtAttr         = kotAtMs !== null ? ` data-kot-at="${kotAtMs}"` : "";
+      } else if (itemStatus === "served") {
+        displayLabel    = "Order Received ✓";
+        itemStatusClass = "aos-item-served";
+      } else {
+        // pending, accepted — waiting for kitchen
+        displayLabel    = "Order Received — Kitchen notified soon";
+        itemStatusClass = "aos-item-pending";
+      }
+
+      return `
+        <li class="aos-item-row ${_esc(itemStatusClass)}"${kotAtAttr}>
+          <div class="aos-item-row-name">
+            <span class="aos-item-name">${_esc(it.name || "")}</span>
+            <span class="aos-item-qty">×${it.quantity || 1} · ${_fmt((it.price || 0) * (it.quantity || 1))}</span>
+          </div>
+          <span class="aos-item-status-label">${displayLabel}</span>
+        </li>`;
+    }).join("");
 
     return `
-      <div class="aos-card" data-order-id="${_esc(order.id)}"${kotAtAttr}>
+      <div class="aos-card" data-order-id="${_esc(order.id)}">
         <div class="aos-card-top">
           <div class="aos-card-left">
             <span class="aos-table-tag">${_esc(order.tableId || "—")}</span>
             <span class="aos-item-count">${itemCount} item${itemCount !== 1 ? "s" : ""}</span>
           </div>
           <span class="aos-total">${_fmt(order.total)}</span>
-        </div>
-
-        <div class="aos-status ${statusMod}">
-          <span class="aos-dot ${dotMod}"></span>
-          <span class="aos-status-label">${_esc(displayLabel)}</span>
         </div>
 
         <ul class="aos-items">
@@ -428,10 +475,7 @@ function _renderActiveOrders(orders) {
   }).join("");
 
   // ── Start / stop preparing timer ───────────────────────────────────────────
-  // Start a 30-second interval that patches elapsed-time labels in the DOM.
-  // Stop it when there are no more preparing orders (saves CPU and avoids
-  // querying stale DOM nodes after a full re-render clears the cards).
-  if (hasPreparingOrder) {
+  if (hasPreparingItem) {
     _startPreparingTimer();
   } else {
     _stopPreparingTimer();

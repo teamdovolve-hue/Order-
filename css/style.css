@@ -857,29 +857,78 @@ mark.search-highlight {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.aos-items li {
+/* ── Per-item row (AI UPDATE 2026-07-31) ──────────────────── */
+/* Each item in an order has its own status class and timer.   */
+.aos-item-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  border-left: 3px solid transparent;
+}
+
+.aos-item-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.aos-item-status-label {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Preparing — green tint */
+.aos-item-preparing {
+  background: rgba(16, 185, 129, 0.07);
+  border-left-color: #10b981;
+}
+.aos-item-preparing .aos-item-status-label {
+  color: #10b981;
+}
+
+/* Pending / not yet KOT'd — amber tint */
+.aos-item-pending {
+  background: rgba(245, 166, 35, 0.06);
+  border-left-color: var(--accent);
+}
+.aos-item-pending .aos-item-status-label {
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+/* Served — muted, de-emphasised */
+.aos-item-served {
+  background: rgba(255, 255, 255, 0.02);
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+.aos-item-served .aos-item-status-label {
+  color: rgba(255, 255, 255, 0.35);
+}
+.aos-item-served .aos-item-name {
+  opacity: 0.45;
 }
 
 .aos-item-name {
   font-size: 13px;
   color: var(--text-2);
-  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 8px;
 }
 
 .aos-item-qty {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-3);
-  flex-shrink: 0;
 }
 
 
