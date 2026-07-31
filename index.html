@@ -8,7 +8,78 @@
   <!-- base href keeps css/ and js/ paths correct when served from /t/:n -->
   <base href="/" />
   <!-- Critical: keep hidden elements invisible even if the external CSS is slow or blocked -->
-  <style>.hidden { display: none !important; }</style>
+  <style>
+    .hidden { display: none !important; }
+
+    /* restaurant-status.js — hides main layout when ordering is disabled */
+    .ors-hidden { display: none !important; }
+
+    /* Ordering offline screen */
+    #orderingOfflineScreen {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1A1E29;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .ors-card {
+      background: #242838;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 48px 32px 40px;
+      max-width: 360px;
+      width: 100%;
+      text-align: center;
+    }
+    .ors-icon {
+      font-size: 56px;
+      margin-bottom: 20px;
+      line-height: 1;
+    }
+    .ors-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #fff;
+      margin: 0 0 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .ors-body {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.5);
+      line-height: 1.65;
+      margin: 0 0 28px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .ors-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.35);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      letter-spacing: 0.02em;
+    }
+    .ors-badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #ef4444;
+      flex-shrink: 0;
+      animation: ors-pulse 2s ease-in-out infinite;
+    }
+    @keyframes ors-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+  </style>
 
   <!-- [AI UPDATE 2026-07-29 v2] Task 9 — Removed production debug overlay.
        The red fixed-position error banner has been removed. Errors are still
@@ -296,6 +367,29 @@
     </div>
     <div class="history-list" id="historyList">
       <!-- Populated by history.js -->
+    </div>
+  </div>
+
+  <!-- ── Ordering Offline Screen ──────────────────────────── -->
+  <!--
+    Shown by restaurant-status.js when the operator sets
+    Online Ordering = OFF in the Billing Panel.
+    Hidden by default; toggled in real-time via Firestore onSnapshot.
+  -->
+  <!-- Visible by default (fail-closed). restaurant-status.js hides it once
+       Firestore confirms onlineOrderingEnabled = true. -->
+  <div id="orderingOfflineScreen" role="alert" aria-live="assertive">
+    <div class="ors-card">
+      <div class="ors-icon">🍽️</div>
+      <h1 class="ors-title">Online Ordering Paused</h1>
+      <p class="ors-body">
+        We're not accepting online orders right now.<br/>
+        Please speak to our staff — they'll be happy to help you.
+      </p>
+      <span class="ors-badge">
+        <span class="ors-badge-dot"></span>
+        Orders temporarily unavailable
+      </span>
     </div>
   </div>
 

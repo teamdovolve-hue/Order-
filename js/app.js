@@ -22,6 +22,8 @@ import { updateGreeting, initAuth,
 import { initHistory }                      from "./history.js";
 import { initSearch }                       from "./search.js";
 import { initOrderStatus, stopOrderStatus } from "./order-status.js";
+import { initRestaurantStatus,
+         isOrderingEnabled }                from "./restaurant-status.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -34,6 +36,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // the page — customers can still browse the menu; login is only required
   // when they actually tap "Place Order".
   initAuth();
+  initRestaurantStatus();
   await Promise.race([
     waitForAuthReady(),
     new Promise((resolve) => setTimeout(resolve, 4000)),
@@ -86,7 +89,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 6. Place Order ────────────────────────────────────────────
   document.getElementById("placeOrderBtn")
     ?.addEventListener("click", () => {
-      requireLogin(() => placeOrder());
+      if (!isOrderingEnabled()) return; // offline screen is already visible
+      requireLogin(() => {
+        // Re-check after auth completes: status may have changed during the
+        // login flow (e.g. operator disabled ordering while customer was signing in)
+        if (!isOrderingEnabled()) return;
+        placeOrder();
+      });
     });
 
   // ── 7. Retry on menu load error ───────────────────────────────
