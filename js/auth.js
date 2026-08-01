@@ -181,6 +181,16 @@ export function initAuth() {
       if (e.key === "Enter") { e.preventDefault(); _onLoginSubmit(); }
     });
 
+  // Forgot Password popup — open / close
+  document.getElementById("otpForgotBtn")
+    ?.addEventListener("click", () => {
+      document.getElementById("otpForgotOverlay")?.classList.remove("hidden");
+    });
+  document.getElementById("otpForgotCloseBtn")
+    ?.addEventListener("click", () => {
+      document.getElementById("otpForgotOverlay")?.classList.add("hidden");
+    });
+
   onAuthStateChanged(auth, (user) => {
     _firebaseUser = user;
     _authReadyResolve(user);

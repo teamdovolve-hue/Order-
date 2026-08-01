@@ -146,6 +146,7 @@
             <button type="button" class="otp-btn-toggle" id="otpLoginToggleBtn" aria-label="Show/hide password">Show</button>
           </div>
           <button type="button" class="otp-btn-primary" id="otpLoginBtn">Login</button>
+          <button type="button" id="otpForgotBtn" style="display:block;width:100%;margin-top:10px;background:none;border:none;cursor:pointer;color:#6b7280;font-size:0.85rem;text-decoration:underline;text-underline-offset:2px;padding:6px 0;text-align:center;font-family:inherit;">Forgot Password?</button>
         </form>
       </div>
 
@@ -432,6 +433,18 @@
 
   <!-- ── Scripts ───────────────────────────────────────────── -->
   <script type="module" src="js/app.js"></script>
+
+<!-- FORGOT PASSWORD POPUP -->
+<div id="otpForgotOverlay" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div style="background:#1a1d2e;border:1px solid #30363d;border-radius:20px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+        <div style="font-size:2.4rem;margin-bottom:14px;">🔒</div>
+        <h2 style="font-size:1.25rem;font-weight:800;color:#f1f5f9;margin-bottom:12px;">Forgot Password?</h2>
+        <p style="font-size:0.92rem;color:#c9d1d9;line-height:1.65;margin-bottom:24px;">
+            Please visit our billing counter. Our staff can verify your account and help you regain access to your account.
+        </p>
+        <button id="otpForgotCloseBtn" style="width:100%;padding:13px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;font-weight:700;font-size:0.95rem;border:none;border-radius:12px;cursor:pointer;">Got it</button>
+    </div>
+</div>
 
 </body>
 </html>
