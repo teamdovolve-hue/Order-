@@ -8,10 +8,61 @@
  *   • .menu-card       (regular items)
  *   • .half-full-side  (Half / Full variant sides)
  *   • .triple-side     (Regular / Medium / Large variant sides)
+ *
+ * [AI UPDATE 2026-08-01] Cart persistence via localStorage.
+ * Every add/remove immediately saves to localStorage ("qrmenu_cart").
+ * On module load the saved cart is restored into the Map.
+ * restoreCartUI() must be called after menu items are rendered to
+ * sync DOM card states (qty controls, in-cart classes, cart bar).
+ * clearCart() removes the saved key. Logout also removes it.
  */
 
 /** Map<itemId, { id, name, price, qty }> */
 export const cart = new Map();
+
+// ── localStorage persistence ───────────────────────────────────
+
+const CART_KEY = "qrmenu_cart";
+
+function _saveCart() {
+  try {
+    localStorage.setItem(CART_KEY, JSON.stringify([...cart.values()]));
+  } catch (_) {}
+}
+
+function _loadCart() {
+  try {
+    const raw = localStorage.getItem(CART_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return;
+    for (const item of data) {
+      if (
+        item?.id &&
+        item?.name &&
+        typeof item?.price === "number" &&
+        typeof item?.qty  === "number" &&
+        item.qty > 0
+      ) {
+        cart.set(item.id, { id: item.id, name: item.name, price: item.price, qty: item.qty });
+      }
+    }
+  } catch (_) {}
+}
+
+// Restore cart on module load (before menu renders)
+_loadCart();
+
+/**
+ * Call this after menu items are rendered to the DOM so every
+ * saved cart entry gets its qty-control UI restored.
+ */
+export function restoreCartUI() {
+  refreshCartUI();
+  for (const id of cart.keys()) {
+    updateCardUI(id);
+  }
+}
 
 // ── Add one unit ───────────────────────────────────────────────
 
@@ -21,6 +72,7 @@ export function addItem(id, name, price) {
   } else {
     cart.set(id, { id, name, price: Number(price), qty: 1 });
   }
+  _saveCart();
   refreshCartUI();
   updateCardUI(id);
 }
@@ -32,6 +84,7 @@ export function removeItem(id) {
   const item = cart.get(id);
   item.qty -= 1;
   if (item.qty <= 0) cart.delete(id);
+  _saveCart();
   refreshCartUI();
   updateCardUI(id);
 }
@@ -41,6 +94,7 @@ export function removeItem(id) {
 export function clearCart() {
   const ids = [...cart.keys()];
   cart.clear();
+  try { localStorage.removeItem(CART_KEY); } catch (_) {}
   refreshCartUI();
   ids.forEach((id) => updateCardUI(id));
 }

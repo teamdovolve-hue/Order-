@@ -162,8 +162,8 @@
             maxlength="80"
             autocomplete="name"
           />
-          <!-- Username — auto-generated from name, editable by customer -->
-          <div class="username-row">
+          <!-- Username — auto-generated silently; hidden from customer per UX update 2026-08-01 -->
+          <div class="username-row" style="display:none" aria-hidden="true">
             <span class="username-at">@</span>
             <input
               class="otp-field-input username-input"
@@ -173,19 +173,20 @@
               placeholder="username"
               autocomplete="off"
               spellcheck="false"
+              tabindex="-1"
             />
           </div>
-          <p class="username-status hidden" id="otpUsernameStatus"></p>
+          <p class="username-status hidden" id="otpUsernameStatus" style="display:none" aria-hidden="true"></p>
           <!-- Password fields -->
           <input
-            class="otp-field-input"
+            class="otp-field-input otp-name-input"
             type="password"
             id="otpPasswordInput2"
             placeholder="Create a password (min 6 chars)"
             autocomplete="new-password"
           />
           <input
-            class="otp-field-input"
+            class="otp-field-input otp-name-input"
             type="password"
             id="otpPasswordConfirm"
             placeholder="Confirm password"
@@ -212,7 +213,7 @@
              to display the chosen @username on the confirmation screen. -->
         <dl class="otp-confirm-details">
           <div><dt>Name</dt><dd id="otpConfirmName">—</dd></div>
-          <div><dt>Username</dt><dd id="otpConfirmUsername">—</dd></div>
+          <div style="display:none" aria-hidden="true"><dt>Username</dt><dd id="otpConfirmUsername">—</dd></div>
           <div><dt>Phone</dt><dd id="otpConfirmPhone">—</dd></div>
         </dl>
         <button type="button" class="otp-btn-secondary" id="otpChangeDetails">Change Details</button>

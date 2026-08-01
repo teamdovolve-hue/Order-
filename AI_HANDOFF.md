@@ -64,6 +64,9 @@ _redirects                ← Netlify rewrite rules (legacy, kept for reference)
 
 ## Completed Features
 
+✅ Cart persistence across page refreshes (localStorage, key: `qrmenu_cart`)
+✅ Username auto-generation hidden from registration UI (still stored in Firestore)
+✅ Input field glow/border highlight on dark background (amber soft glow on focus)
 ✅ QR-based table detection (`/t/1` … `/t/10`)
 ✅ Automatic table assignment via Firestore session
 ✅ Customer login flow (phone → lookup → sign in or create account)
@@ -186,6 +189,53 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 - `js/app.js` — 4-second `waitForAuthReady()` timeout
 - `js/auth.js` — (no functional change; debug code added then reverted)
 - `vercel.json` — `framework:null`, `installCommand: skip`, MIME type headers, `/t/:n` rewrite
+
+---
+
+## [AI UPDATE 2026-08-01] — Cart Persistence, Hidden Username, Input Visibility
+
+### Files Modified
+- `js/cart.js`
+- `js/menu.js`
+- `js/auth.js`
+- `index.html`
+- `css/style.css`
+
+### Change 1 — Cart persists across page refreshes
+
+**localStorage key:** `qrmenu_cart`
+
+Every `addItem` / `removeItem` immediately serializes the cart Map to `localStorage.setItem("qrmenu_cart", …)`. `clearCart()` removes the key instead.
+
+On module load, `_loadCart()` restores the Map before the menu renders. After each menu render, `restoreCartUI()` (new export from `cart.js`) is called from `menu.js` → `renderMenuItems()` to sync all qty-control DOM elements and the cart bar to the restored state.
+
+Logout (`_onLogout` in `auth.js`) removes `"qrmenu_cart"` from localStorage alongside the session and history keys.
+
+**Constraint:** `restoreCartUI()` must always be called after menu items are rendered, not before — `updateCardUI` queries live DOM elements.
+
+### Change 2 — Username hidden from registration UI
+
+The `.username-row` div and `#otpUsernameStatus` paragraph in `index.html` are hidden via `style="display:none" aria-hidden="true"`. The hidden `#otpUsernameInput` still exists in the DOM.
+
+Username is still auto-generated in `_onNameInput` using `_generateUsername(name)` and stored in the hidden input. Firestore write and `usernames/{username}` uniqueness index are unchanged.
+
+`_onProfileSubmit` no longer shows user-facing errors for username issues (field is hidden). Instead:
+- If the hidden input is empty or invalid, it re-generates from name.
+- If `_usernameAvailable` is false (generated name taken), a random 4-digit suffix is appended and `_usernameAvailable` is set optimistically. `_onCreateAccount` still runs the final uniqueness check.
+
+The confirm step's Username row is also hidden (`style="display:none"`). The `#otpConfirmUsername` element is still updated by JS (no code change needed there).
+
+### Change 3 — Input field visibility (subtle glow)
+
+All modal input containers now have:
+- Resting border: `rgba(255,255,255,0.14)` (slightly more visible than before)
+- Focus: `border-color: rgba(245,166,35,0.55)` + `box-shadow: 0 0 0 3px rgba(245,166,35,0.10), 0 0 18px rgba(245,166,35,0.07)`
+
+Affected containers: `.otp-name-input`, `.otp-phone-row`, `.username-row`, `.otp-password-row`.
+
+`.otp-password-row` now renders its own `background` + `border` (previously the password inputs inside were fully transparent/invisible). The Show/Hide toggle's own border is removed since the row provides the outer frame.
+
+Registration password inputs (`#otpPasswordInput2`, `#otpPasswordConfirm`) were previously class `otp-field-input` only (transparent, borderless). They now also carry `otp-name-input` class, inheriting the visible border + focus glow.
 
 ---
 

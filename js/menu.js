@@ -31,7 +31,7 @@ import { db } from "./firebase-config.js";
 import {
   collection, doc, onSnapshot, query,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { addItem, removeItem } from "./cart.js";
+import { addItem, removeItem, restoreCartUI } from "./cart.js";
 
 const MENU_COLLECTION  = "menu_items";
 const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
@@ -327,6 +327,8 @@ function renderMenuItems(items, query) {
   grid.innerHTML = "";
   grid.appendChild(frag);
   _wireCardEvents(grid);
+  // [AI UPDATE 2026-08-01] Restore saved cart quantities/UI after every render.
+  restoreCartUI();
 }
 
 // ── Card builders ─────────────────────────────────────────────

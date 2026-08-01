@@ -512,7 +512,6 @@ async function _onProfileSubmit(e) {
   _clearError("otpNameError");
 
   const name     = (document.getElementById("otpNameInput")?.value  || "").trim();
-  const username = (document.getElementById("otpUsernameInput")?.value || "").trim();
   const password = document.getElementById("otpPasswordInput2")?.value || "";
   const confirm  = document.getElementById("otpPasswordConfirm")?.value || "";
 
@@ -521,16 +520,25 @@ async function _onProfileSubmit(e) {
     document.getElementById("otpNameInput")?.focus();
     return;
   }
-  if (!_isValidUsername(username)) {
-    _setError("otpNameError", "Username must be 3–20 characters: letters, numbers, underscore.");
-    document.getElementById("otpUsernameInput")?.focus();
-    return;
+
+  // [AI UPDATE 2026-08-01] Username is auto-generated and hidden from customer.
+  // Ensure we always have a valid username from the hidden input (populated by _onNameInput).
+  // If the auto-generated name was taken, silently append a 4-digit suffix and proceed
+  // optimistically — _onCreateAccount runs the final uniqueness check.
+  let username = (document.getElementById("otpUsernameInput")?.value || "").trim();
+  if (!username || !_isValidUsername(username)) {
+    username = _generateUsername(name) || "user";
+    const usernameInput = document.getElementById("otpUsernameInput");
+    if (usernameInput) usernameInput.value = username;
   }
   if (!_usernameAvailable) {
-    _setError("otpNameError", "Please choose an available username.");
-    document.getElementById("otpUsernameInput")?.focus();
-    return;
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    username = (username + String(suffix)).slice(0, 20);
+    const usernameInput = document.getElementById("otpUsernameInput");
+    if (usernameInput) usernameInput.value = username;
+    _usernameAvailable = true; // optimistic — final check in _onCreateAccount
   }
+
   if (password.length < 6) {
     _setError("otpNameError", "Password must be at least 6 characters.");
     document.getElementById("otpPasswordInput2")?.focus();
@@ -748,6 +756,7 @@ async function _onLogout() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
+  localStorage.removeItem("qrmenu_cart"); // [AI UPDATE 2026-08-01] clear persisted cart on logout
   await signOut(auth).catch(() => {});
   _dispatchAuthChange(null);
   location.reload();
