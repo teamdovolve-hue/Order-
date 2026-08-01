@@ -189,6 +189,49 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 
 ---
 
+## [AI UPDATE 2026-08-01] — Online Ordering Paused Screen Always Shown (Regression Fix)
+
+### Files Modified
+- `index.html`
+- `js/restaurant-status.js`
+
+### Root Cause
+Three compounding problems caused `#orderingOfflineScreen` to show permanently even when `settings/restaurant_status.onlineOrderingEnabled = true` in Firestore:
+
+1. **HTML default state:** `#orderingOfflineScreen` had no `hidden` class — it was visible (`position:fixed; inset:0; z-index:9999`) by default on every page load, covering the entire viewport until `_applyStatus(true)` ran. Any delay in Firestore responding meant customers saw "paused".
+
+2. **Stale IndexedDB cache (`persistentLocalCache`):** `firebase-config.js` uses `persistentLocalCache` which caches documents in IndexedDB. The document `settings/restaurant_status` was created on 2026-07-31 (likely initially as `false` during testing). Customer browsers that visited the production site on or after that date had the stale `false` value cached. Without `{ includeMetadataChanges: true }`, there is no way to distinguish a cached `false` from a server-confirmed `false` — so the code applied "paused" from the cached value permanently (or until the network update arrived, which could be never on a slow connection).
+
+3. **No fallback timeout:** If Firestore was slow but didn't error, the error handler (which defaults to ON) was never triggered. The listener simply stalled, leaving the paused screen visible indefinitely.
+
+### Fix
+
+**`index.html`:**
+- Added `class="hidden"` to `#orderingOfflineScreen` — the paused screen now starts hidden. Loading state ≠ disabled state. The screen only appears after Firestore SERVER confirms `false`.
+
+**`js/restaurant-status.js`:**
+- Added `{ includeMetadataChanges: true }` to `onSnapshot`. This makes the listener fire twice per round-trip: once from IndexedDB cache (`snap.metadata.fromCache = true`) and once from the server (`snap.metadata.fromCache = false`).
+- Added guard: if `!enabled && snap.metadata.fromCache` → skip (return early). Stale cached `false` values no longer show the paused screen.
+- Added `FIRESTORE_TIMEOUT_MS = 8000` fallback timer. If the server does not respond within 8 seconds, defaults to ON. Prevents permanent "paused" on slow connections where the SDK is still connecting but has not errored.
+- Existing error handler (defaults to ON) preserved unchanged.
+
+### What Was NOT Changed
+- Firestore path (`settings/restaurant_status`) and field (`onlineOrderingEnabled`) — both verified correct against live Firestore
+- `_applyStatus()` logic — unchanged
+- `app.js`, `auth.js`, `order.js`, `order-status.js`, `menu.js`, `cart.js` — untouched
+- `isOrderingEnabled()` export — unchanged
+
+### Verified Scenarios
+- ✓ Fresh page load while ON → menu visible immediately
+- ✓ Fresh page load while OFF → "Online Ordering Paused" screen shown (server-confirmed)
+- ✓ Toggle OFF → ON → menu appears in real-time via `onSnapshot`
+- ✓ Toggle ON → OFF → paused screen appears in real-time via `onSnapshot`
+
+### Billing Panel Changes Required
+None. The Billing Panel's write path (`settings/restaurant_status.onlineOrderingEnabled`) was already correct.
+
+---
+
 ## [AI UPDATE 2026-07-31] — Per-Item Timers and Per-Item Served Status
 
 ### Files Modified

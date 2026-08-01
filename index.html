@@ -376,9 +376,11 @@
     Online Ordering = OFF in the Billing Panel.
     Hidden by default; toggled in real-time via Firestore onSnapshot.
   -->
-  <!-- Visible by default (fail-closed). restaurant-status.js hides it once
-       Firestore confirms onlineOrderingEnabled = true. -->
-  <div id="orderingOfflineScreen" role="alert" aria-live="assertive">
+  <!-- Hidden by default. restaurant-status.js shows it only after the Firestore
+       SERVER (not cache) confirms onlineOrderingEnabled = false. During the
+       loading window the screen stays hidden so customers are not shown a false
+       "paused" state while Firestore is still initialising. -->
+  <div id="orderingOfflineScreen" class="hidden" role="alert" aria-live="assertive">
     <div class="ors-card">
       <div class="ors-icon">🍽️</div>
       <h1 class="ors-title">Online Ordering Paused</h1>
