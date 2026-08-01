@@ -324,6 +324,9 @@
   </main>
 
   <!-- ── Cart Bar ──────────────────────────────────────────── -->
+  <!-- [AI UPDATE 2026-08-01] Button text changed from "Place Order →" to "View Details"
+       to open the Order Review Sheet before submission. The review sheet contains
+       the final "Place Order →" button that triggers the existing requireLogin/placeOrder flow. -->
   <div class="cart-bar hidden" id="cartBar">
     <div class="cart-summary">
       <div class="cart-count">
@@ -332,7 +335,38 @@
       </div>
       <div class="cart-total" id="cartTotal">₹0.00</div>
     </div>
-    <button class="btn-place-order" id="placeOrderBtn">Place Order →</button>
+    <button class="btn-place-order" id="placeOrderBtn">View Details</button>
+  </div>
+
+  <!-- ── Order Review Sheet ─────────────────────────────────
+       [AI UPDATE 2026-08-01] New: slides up when customer taps "View Details".
+       Customer reviews items, adjusts quantities, then taps "Place Order →"
+       which calls the existing requireLogin / placeOrder flow unchanged.
+  ─────────────────────────────────────────────────────────── -->
+  <div class="review-modal hidden" id="reviewModal" role="dialog" aria-modal="true" aria-label="Order Review">
+    <div class="review-backdrop"></div>
+    <div class="review-sheet">
+      <!-- Drag handle -->
+      <div class="review-drag-handle"></div>
+
+      <!-- Header -->
+      <div class="review-header">
+        <h2 class="review-title">Order Review</h2>
+      </div>
+
+      <!-- Item list (populated by review.js) -->
+      <div class="review-items-wrap">
+        <div id="reviewItems"></div>
+        <!-- Totals row -->
+        <div id="reviewTotals"></div>
+      </div>
+
+      <!-- Bottom action buttons -->
+      <div class="review-actions">
+        <button class="btn-review-back" id="reviewBackBtn">← Back</button>
+        <button class="btn-review-place" id="reviewPlaceBtn">Place Order →</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Order Success Overlay ─────────────────────────────── -->

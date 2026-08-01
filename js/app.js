@@ -8,9 +8,15 @@
  *   3. Init menu (real-time Firestore listener — no auth needed)
  *   4. Init search
  *   5. Init order history drawer
- *   6. Watch custom auth state → start/stop order status listener
- *   7. Wire Place Order button (gates on login via requireLogin)
- *   8. Wire overlay close buttons
+ *   6. Wire review sheet
+ *   7. Watch custom auth state → start/stop order status listener
+ *   8. Wire "View Details" button → Order Review Sheet → requireLogin → placeOrder
+ *   9. Wire overlay close buttons
+ *
+ * [AI UPDATE 2026-08-01] Step 8: cart bar button now opens the Order Review Sheet
+ * (review.js) instead of triggering requireLogin/placeOrder directly. The review
+ * sheet's "Place Order →" button continues to the existing requireLogin/placeOrder
+ * flow — no order creation logic was changed.
  */
 
 import { initMenu, filterBySearch }         from "./menu.js";
@@ -24,6 +30,8 @@ import { initSearch }                       from "./search.js";
 import { initOrderStatus, stopOrderStatus } from "./order-status.js";
 import { initRestaurantStatus,
          isOrderingEnabled }                from "./restaurant-status.js";
+import { initReview, openReview,
+         closeReview }                      from "./review.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -69,7 +77,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 4. History ────────────────────────────────────────────────
   initHistory();
 
-  // ── 5. Auth state watcher ─────────────────────────────────────
+  // ── 5. Review sheet ───────────────────────────────────────────
+  initReview();
+
+  // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
     updateGreeting();
     if (user) {
@@ -86,34 +97,42 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (isLoggedIn()) initOrderStatus();
 
-  // ── 6. Place Order ────────────────────────────────────────────
+  // ── 8. View Details → Order Review Sheet ─────────────────────
+  //   [AI UPDATE 2026-08-01] Cart bar button now opens the review sheet.
+  //   Inside the review sheet the customer taps "Place Order →" which
+  //   calls requireLogin → placeOrder — the existing flow unchanged.
   document.getElementById("placeOrderBtn")
     ?.addEventListener("click", () => {
       if (!isOrderingEnabled()) return; // offline screen is already visible
-      requireLogin(() => {
-        // Re-check after auth completes: status may have changed during the
-        // login flow (e.g. operator disabled ordering while customer was signing in)
-        if (!isOrderingEnabled()) return;
-        placeOrder();
+      openReview(() => {
+        // Close review FIRST so the login modal (if needed) is never obscured
+        // by the review sheet. Both modals use the same z-index layer.
+        closeReview();
+        requireLogin(() => {
+          // Re-check after auth completes: status may have changed during
+          // the login flow (e.g. operator disabled ordering while signing in)
+          if (!isOrderingEnabled()) return;
+          placeOrder();
+        });
       });
     });
 
-  // ── 7. Retry on menu load error ───────────────────────────────
+  // ── 9. Retry on menu load error ──────────────────────────────
   document.getElementById("retryBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorState")?.classList.add("hidden");
       initMenu();
     });
 
-  // ── 8. Success overlay close ──────────────────────────────────
+  // ── 10. Success overlay close ─────────────────────────────────
   document.getElementById("overlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("successOverlay")?.classList.add("hidden");
-      const btn = document.getElementById("placeOrderBtn");
-      if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
+      // placeOrderBtn text is "View Details" — keep it; cart is already
+      // empty so the bar will be hidden by refreshCartUI in clearCart().
     });
 
-  // ── 9. Error overlay close ───────────────────────────────────
+  // ── 11. Error overlay close ───────────────────────────────────
   document.getElementById("errorOverlayCloseBtn")
     ?.addEventListener("click", () => {
       document.getElementById("errorOverlay")?.classList.add("hidden");

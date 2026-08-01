@@ -1,0 +1,231 @@
+Continue from the current implementation.
+
+Read ARCHITECTURE_LOCK.md and AI_HANDOFF.md before making changes.
+
+Repository: Customer Panel (Order)
+
+Do NOT change Billing Panel, Firestore schema, order creation logic, authentication logic, notifications, or payment flow.
+
+==================================================
+FEATURE: ORDER REVIEW BEFORE FINAL PLACE ORDER
+==================================================
+
+Current flow:
+
+Customer adds items
+↓
+
+Place Order
+
+↓
+
+(Login if required)
+
+↓
+
+Order is submitted immediately.
+
+This needs to change.
+
+==================================================
+NEW FLOW
+==================================================
+
+Customer adds items
+
+↓
+
+"View Details" button
+(replace the current direct Place Order action)
+
+↓
+
+Order Review Sheet / Modal
+
+↓
+
+Customer reviews all items
+
+↓
+
+If NOT logged in
+
+Login flow
+
+↓
+
+Place Order
+
+↓
+
+Order submitted
+
+--------------------------------------------------
+
+If ALREADY logged in
+
+View Details
+
+↓
+
+Review
+
+↓
+
+Place Order
+
+↓
+
+Order submitted immediately
+
+(No extra login)
+
+==================================================
+ORDER REVIEW SCREEN
+==================================================
+
+Display:
+
+• Item Name
+• Quantity
+• Individual Price
+• Line Total
+
+Example:
+
+--------------------------------
+
+Double Decker Burger
+
+₹100 × 2
+
+₹200
+
+--------------------------------
+
+Cold Coffee
+
+₹80 × 1
+
+₹80
+
+--------------------------------
+
+Total Items: 3
+
+Grand Total: ₹280
+
+==================================================
+INSIDE REVIEW
+==================================================
+
+Customer should still be able to:
+
+• Increase quantity
+
+• Decrease quantity
+
+• Remove an item
+
+without closing the review.
+
+Total should update live.
+
+==================================================
+BUTTONS
+==================================================
+
+Bottom buttons:
+
+← Back
+
+Place Order →
+
+Back returns to menu.
+
+Place Order follows the existing flow.
+
+==================================================
+LOGIN LOGIC
+==================================================
+
+Do NOT change existing authentication.
+
+Simply move it AFTER the review.
+
+Meaning:
+
+Logged in
+
+Review
+
+↓
+
+Place Order
+
+↓
+
+Order
+
+--------------------
+
+Not logged in
+
+Review
+
+↓
+
+Place Order
+
+↓
+
+Login
+
+↓
+
+Order
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT duplicate order creation code.
+
+Do NOT create another checkout flow.
+
+Reuse the existing Place Order implementation after the review screen.
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+• Firestore
+• Billing Panel
+• Notifications
+• Order Status
+• History
+• Active Orders
+• Cart logic
+• Existing login implementation
+
+Only insert the Review step before the final order submission.
+
+==================================================
+AFTER IMPLEMENTATION
+==================================================
+
+Test:
+
+✓ Logged-in customer
+
+✓ New customer
+
+✓ Quantity edits inside review
+
+✓ Item removal inside review
+
+✓ Total calculation
+
+✓ Existing order submission flow still works
+
+Update AI_HANDOFF.md with the new checkout flow.

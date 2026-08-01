@@ -4,7 +4,7 @@
 
 **Repository:** https://github.com/teamdovolve-hue/Order-
 **Production URL:** https://newpizzahutlivecake.in (Vercel, static site)
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-08-01
 
 ---
 
@@ -186,6 +186,72 @@ Future improvement: sync history to Firestore under `customers/{uid}/order_histo
 - `js/app.js` — 4-second `waitForAuthReady()` timeout
 - `js/auth.js` — (no functional change; debug code added then reverted)
 - `vercel.json` — `framework:null`, `installCommand: skip`, MIME type headers, `/t/:n` rewrite
+
+---
+
+## [AI UPDATE 2026-08-01] — Order Review Sheet Before Submission
+
+### Files Modified
+- `js/review.js` ← **NEW FILE**
+- `js/app.js`
+- `index.html`
+- `css/style.css`
+
+### What Changed
+
+#### New checkout flow
+```
+Customer adds items to cart
+  ↓ Cart bar shows "View Details" button
+  ↓ openReview() — Order Review Sheet slides up
+  ↓ Customer reviews items, adjusts quantities, sees grand total
+  ↓ Taps "Place Order →" inside review sheet
+  ↓ requireLogin() — if not logged in, login modal appears (unchanged)
+  ↓ closeReview() — sheet dismissed
+  ↓ placeOrder() — existing submission flow (unchanged)
+  ↓ Success/error overlay (unchanged)
+```
+
+#### `js/review.js` (new)
+- `initReview()` — wires static DOM events once on boot
+- `openReview(onPlaceOrder)` — renders current cart, shows sheet, stores callback
+- `closeReview()` — hides sheet
+- Delegated `click` listener on `#reviewItems` handles +/− per-item without closing
+  - Uses `addItem` / `removeItem` from `cart.js` — cart state + menu card UI stay in sync
+  - Auto-closes if cart reaches zero items after a removal
+- `_render()` — re-renders item list and totals from live `cart` Map on every change
+- Tapping backdrop (`.review-backdrop`) also closes the sheet
+
+#### `js/app.js`
+- Imported `initReview`, `openReview`, `closeReview` from `review.js`
+- Boot step 5: calls `initReview()`
+- `#placeOrderBtn` listener: now calls `openReview(cb)` instead of `requireLogin(cb)` directly
+  - Inside the callback: `requireLogin(() => { closeReview(); placeOrder(); })`
+- Success overlay close handler: removed the stale `btn.textContent = "Place Order →"` reset
+  (cart is cleared by `placeOrder()` → `refreshCartUI()` hides the bar anyway)
+
+#### `index.html`
+- `#placeOrderBtn` text changed from "Place Order →" to "View Details"
+- Added `#reviewModal` with backdrop, drag handle, header, scrollable item list, totals, and two action buttons (`#reviewBackBtn`, `#reviewPlaceBtn`)
+
+#### `css/style.css`
+- Added `.review-modal`, `.review-backdrop`, `.review-sheet` — mirrors OTP modal pattern
+- Added `.review-item`, `.review-item-info`, `.review-item-right`, `.review-item-name`, `.review-item-unit-price`, `.review-item-line-total`
+- Added `.review-qty-ctrl`, `.review-qty-btn`, `.review-qty-num`
+- Added `.review-divider`, `.review-total-row`, `.review-grand-total`, `.review-grand-amount`
+- Added `.review-actions`, `.btn-review-back`, `.btn-review-place`
+- Responsive: `border-radius: 28px` on ≥600 px, safe-area inset on notched phones
+
+### What Was NOT Changed
+- `js/order.js` — `placeOrder()` is called identically, not touched
+- `js/auth.js` — `requireLogin()` called identically, not touched
+- `js/cart.js` — `addItem()`, `removeItem()`, `clearCart()`, `refreshCartUI()` not touched
+- `js/order-status.js`, `js/history.js`, `js/menu.js`, `js/search.js` — untouched
+- Firestore collections, document structure, order schema — unchanged
+- Billing Panel compatibility — no changes required
+
+### Billing Panel Changes Required
+None. This is a pure Customer Panel frontend change.
 
 ---
 
