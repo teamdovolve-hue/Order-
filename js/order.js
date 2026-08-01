@@ -278,4 +278,31 @@ async function _triggerOrderNotification(orderId, tableId, customer, items, item
     // Non-fatal: notification failure must never affect order placement
     console.warn('[order] Pushover notification failed (non-fatal):', err.code || err.message);
   }
+}customDomain = Worker URL in firebase-config.js (already set).
+async function _triggerOrderNotification(orderId, tableId, customer, items, itemCount) {
+  try {
+    // Check global notification setting — one-time read (not a listener)
+    const snap    = await getDoc(doc(db, 'settings', 'system'));
+    const enabled = snap.exists() ? snap.data().notificationEnabled !== false : true;
+
+    if (!enabled) {
+      console.log('[order] Pushover notification skipped — globally disabled via Billing Panel toggle');
+      return;
+    }
+
+    const fn = httpsCallable(functions, 'notifyOrder');
+    await fn({
+      orderId,
+      tableId,
+      customerName:  customer?.name  || '',
+      customerPhone: customer?.phone || '',
+      items,
+      itemCount,
+    });
+
+    console.log('[order] Pushover notification sent ✓ for order', orderId);
+  } catch (err) {
+    // Non-fatal: notification failure must never affect order placement
+    console.warn('[order] Pushover notification failed (non-fatal):', err.code || err.message);
+  }
 }
