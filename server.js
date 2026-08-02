@@ -121,14 +121,20 @@ app.get("/t/:n", (req, res) => {
   }
 });
 
-// ── Root — remind customer to scan their table QR ────────────────────────────
+// ── Root — serve the app directly (table shown as "Unknown") ─────────────────
+//   Removed QR gate: direct access now loads the menu normally.
+//   getTableId() in order.js returns "Unknown" when no /t/:n URL is present.
 app.get("/", (req, res) => {
-  res.status(200).send(scanQRPage());
+  try {
+    const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+    res.setHeader("Content-Type", "text/html");
+    res.send(html);
+  } catch (_) {
+    res.status(500).send("Server error.");
+  }
 });
 
 // ── Serve static assets (js/, css/, images, etc.) ────────────────────────────
-//   index:false prevents express.static from auto-serving index.html for /,
-//   which would bypass the scanQRPage() handler above.
 app.use(express.static(path.join(__dirname), { index: false }));
 
 // ── Catch-all — invalid path ──────────────────────────────────────────────────

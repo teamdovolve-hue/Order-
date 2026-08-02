@@ -53,18 +53,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   ]);
   if (isLoggedIn()) await loadActiveTableAssignment().catch(() => {});
 
-  // ── 0. Table gate ─────────────────────────────────────────────
-  //   Check this before anything else.  If the customer didn't arrive
-  //   via a valid /t/1…/t/10 QR URL, replace the page with the correct
-  //   error screen and stop.  Nothing else initialises.
+  // ── 0. Table ID — no gate, always proceeds ───────────────────
+  //   Returns "Table N" for valid QR URLs, "Unknown" for direct access.
+  //   Removed QR gate so testing without a QR code still works.
 
-  const tableId    = getTableId();
-  const isTableUrl = /^\/t\//.test(window.location.pathname);
-
-  if (!tableId) {
-    _showGatePage(isTableUrl ? "invalid" : "scan");
-    return;
-  }
+  const tableId = getTableId();
 
   // ── 1. Table badge ────────────────────────────────────────────
   const badge = document.getElementById("tableBadge");

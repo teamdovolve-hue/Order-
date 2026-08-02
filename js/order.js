@@ -57,7 +57,7 @@ export function getTableId() {
       try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
       return tableId;
     }
-    return null;
+    return "Unknown";
   }
 
   try {
@@ -66,9 +66,9 @@ export function getTableId() {
   } catch (_) {}
 
   const match = window.location.pathname.match(/^\/t\/(\d+)$/);
-  if (!match) return null;
+  if (!match) return "Unknown";
   const n = parseInt(match[1], 10);
-  if (n < 1 || n > VALID_TABLES) return null;
+  if (n < 1 || n > VALID_TABLES) return "Unknown";
   const tableId = `Table ${n}`;
   try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
   return tableId;
