@@ -177,6 +177,10 @@ export async function placeOrder() {
 
     setActiveTableId(tableId);
     clearCart();
+    // Reset button state before showing success overlay.
+    // clearCart() hides the cart bar but the button's disabled + text must be
+    // restored now so the next order begins with "View Details", not "Placing…".
+    if (btn) { btn.disabled = false; btn.textContent = "View Details"; }
     _showSuccess(tableId, totalItems, totalPrice, customer);
 
   } catch (err) {
@@ -186,7 +190,7 @@ export async function placeOrder() {
         ? "Permission denied. Please ask restaurant staff for assistance."
         : err.message || "Order failed. Please check your connection."
     );
-    if (btn) { btn.disabled = false; btn.textContent = "Place Order →"; }
+    if (btn) { btn.disabled = false; btn.textContent = "View Details"; }
   }
 }
 

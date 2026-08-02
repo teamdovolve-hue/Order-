@@ -914,3 +914,46 @@ Create Account → _onCreateAccount()
 - Order placement, active orders, history
 - Any other file outside `js/auth.js`
 - ARCHITECTURE_LOCK.md (no architectural changes)
+
+---
+
+## [AI UPDATE 2026-08-02] — Footer Button State Fix (Stale "Placing…" After First Order)
+
+### File Modified
+- `js/order.js`
+
+### Bug
+After a successful order the footer cart-bar button (`#placeOrderBtn`) was left with
+`disabled = true` and `textContent = "Placing…"`. `clearCart()` hides the cart bar
+immediately after submission, so the stale state was invisible — until the customer
+added a new item and the bar reappeared, showing "Placing…" with the button disabled
+before any order was in progress.
+
+### Root Cause
+`placeOrder()` sets `btn.disabled = true; btn.textContent = "Placing…"` at the start
+of submission. On the **success path** the button was never reset — only `clearCart()`
+and `_showSuccess()` were called. On the **error path** the button was reset, but to
+the old pre-review text `"Place Order →"` instead of the current `"View Details"`.
+
+### Fix
+Two lines changed inside the `try/catch` block in `placeOrder()` (`js/order.js`):
+
+1. **Success path** — added reset immediately after `clearCart()` and before
+   `_showSuccess()`:
+   ```js
+   if (btn) { btn.disabled = false; btn.textContent = "View Details"; }
+   ```
+
+2. **Error path** — corrected the existing reset from `"Place Order →"` to
+   `"View Details"`:
+   ```js
+   if (btn) { btn.disabled = false; btn.textContent = "View Details"; }
+   ```
+
+### What Was NOT Changed
+- Cart logic (`cart.js`)
+- Order payload / Firestore write
+- Billing Panel callable contracts
+- Auth flow
+- Any UI layout or CSS
+- All other files
