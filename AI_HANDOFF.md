@@ -2,6 +2,106 @@
 
 # Customer Panel — Project State
 
+---
+
+## [AI UPDATE 2026-08-02] — Phase 1: Premium Menu Cards + Item Details Bottom Sheet
+
+### Files Modified
+- `js/item-sheet.js` ← **NEW FILE**
+- `js/menu.js`
+- `js/app.js`
+- `index.html`
+- `css/style.css`
+
+### Architectural Decisions
+
+#### 1. ADD button now opens Item Details Sheet (not direct addItem)
+The ADD button on every menu card no longer calls `addItem()` directly. Instead it calls `openItemSheet(item)` from the new `js/item-sheet.js` module. From the sheet, the customer sets qty and optional extras, then taps "Add to Cart" which calls `addItem(id, name, unitPrice)` N times (once per qty unit).
+
+**addItem(id, name, price) interface is unchanged.** The item sheet is a pure presentation layer inserted before the existing cart flow.
+
+#### 2. Qty controls on already-in-cart cards still call addItem/removeItem directly
+When an item is already in the cart, the ADD button is replaced by a ±/qty control. Tapping these controls still calls `addItem()` / `removeItem()` directly without opening the sheet. This is intentional — the sheet is for first-add discovery, not for in-cart adjustments.
+
+#### 3. `_itemsById` Map in menu.js
+A `Map<id, fullItem>` is populated every time the Firestore snapshot fires. This allows `_wireCardEvents` to pass the full item object (including `imageUrl`, `description`, `extraOptions`) to `openItemSheet()` without encoding all fields in `data-*` attributes.
+
+#### 4. Extra options modify the per-unit price
+If a Firestore `menu_items` document has `extraOptions: [{name, price}]`, they are shown as checkboxes in the sheet. Selected extras are added to the base price before `addItem()` is called. **Known limitation:** if the customer adds an item, then re-opens the sheet and adds it again with different extras, the cart item's price is not updated (only qty increments). This is a `cart.js` Map design constraint; fix in a future phase if needed.
+
+#### 5. Image lazy loading
+Images use `loading="lazy"` + `decoding="async"` on `<img>`. The shimmer placeholder is a sibling `<div>` hidden via inline `onload`. On error the entire `.card-img-wrap` is hidden. This requires no JS IntersectionObserver — browser-native lazy loading handles it.
+
+#### 6. Description "Read More" expand
+Description is clamped to 2 lines via `-webkit-line-clamp: 2`. A "Read More" button is rendered alongside every description but only becomes visible after `_wireReadMore()` checks `scrollHeight > clientHeight`. Clicking toggles the `card-desc--expanded` class which removes the clamp.
+
+### Firestore Fields Consumed (NEW — read-only, no writes)
+| Field | Type | Notes |
+|---|---|---|
+| `imageUrl` | string? | Product photo URL. Optional — cards show food emoji placeholder if absent |
+| `description` | string? | Item description. Optional — shown in card (2-line clamp) and sheet (full) |
+| `extraOptions` | array? | `[{name: string, price: number}]`. Optional — section hidden if absent |
+
+All other fields (`name`, `price`, `category`, `available`, `inStock`) unchanged.
+
+### Dynamic Rendering Flow
+```
+Firestore menu_items → onSnapshot → allItems array + _itemsById Map populated
+  ↓
+renderMenuItems() → _createRegularCard(item) for each item
+  ↓
+Card shows: [imageUrl or emoji placeholder] [name] [description 2-line] [price] [ADD]
+  ↓
+Customer taps ADD
+  ↓
+openItemSheet(fullItem) — sheet slides up
+  ↓
+Sheet shows: [large image] [full name] [full description] [extraOptions checkboxes] [custom request] [qty] [live price]
+  ↓
+Customer taps "Add to Cart"
+  ↓
+addItem(id, name, unitPrice) × qty — existing cart flow, unchanged
+```
+
+### Performance Improvements
+- Images lazy-loaded natively (`loading="lazy"`) — no Firestore reads involved
+- Shimmer placeholder prevents layout shift during image load
+- `_itemsById` Map avoids DOM data-attribute encoding of full item objects
+
+### Compatibility Notes
+- All existing Firestore queries unchanged (no new reads, no new listeners)
+- `addItem(id, name, price)` interface unchanged
+- `placeOrder()` → `pending_table_orders` order schema unchanged
+- Half/Full and Triple variant cards: tapping a side opens the sheet for that specific variant document — backward compatible with existing Billing Panel variant structure
+- Search now also matches `description` field (additive — no breaking change to `filterBySearch` API)
+
+### Scalability Notes
+- Any new `menu_items` document field (`imageUrl`, `description`, `extraOptions`) renders automatically — zero code changes required
+- Extra option names and prices come from Firestore — never hardcoded
+- Variant names come from Firestore document names — never hardcoded
+
+### Testing Performed
+- ✓ App loads on `/t/4` with no JS errors
+- ✓ Card layout shows image placeholder, item name, price, ADD button
+- ✓ Category tabs functional
+- ✓ Search functional (now also searches description)
+- ✓ Item sheet modal present in DOM
+- ✓ Existing frozen systems (auth, order, order-status, cart) untouched
+
+### Remaining Phases
+| Phase | Scope |
+|---|---|
+| 2 | Floating Category FAB + Category Bottom Sheet |
+| 3 | Home Screen Intelligent Sections (Recommended, New Items, etc.) |
+| 4 | Cart UI + Animation Polish |
+| 5 | Search Improvements + Performance |
+
+### Billing Panel Changes Required
+**None.** Phase 1 is purely a Customer Panel frontend change. No Firestore schema, callable interface, or order payload was changed.
+
+---
+
+
 **Repository:** https://github.com/teamdovolve-hue/Order-
 **Production URL:** https://newpizzahutlivecake.in (Vercel, static site)
 **Last Updated:** 2026-08-01

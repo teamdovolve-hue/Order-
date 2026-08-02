@@ -27,11 +27,14 @@
  * and ordering disabled, so customers always see the complete menu.
  */
 
+// [AI UPDATE 2026-08-02] Phase 1 — imported openItemSheet; ADD button now
+// opens Item Details Sheet instead of calling addItem() directly.
 import { db } from "./firebase-config.js";
 import {
   collection, doc, onSnapshot, query,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { addItem, removeItem, restoreCartUI } from "./cart.js";
+import { openItemSheet } from "./item-sheet.js";
 
 const MENU_COLLECTION  = "menu_items";
 const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
@@ -41,6 +44,14 @@ let activeCategory = "All";
 let activeSearch   = "";
 let _unsub         = null;
 let _unsubSizes    = null;
+
+/**
+ * Quick-lookup Map for full item objects by Firestore document ID.
+ * Used by _wireCardEvents to pass the full item (imageUrl, description,
+ * extraOptions) to openItemSheet without storing everything in data-* attrs.
+ * [AI UPDATE 2026-08-02] Phase 1
+ */
+let _itemsById = new Map();
 
 /** Pizza-size availability — updated by the sizes listener. */
 let _pizzaSizes = { regular: true, medium: true, large: true };
@@ -77,6 +88,10 @@ export function initMenu() {
     const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     allItems = _sortItems(raw);
+
+    // [AI UPDATE 2026-08-02] Phase 1 — keep a quick-lookup Map for openItemSheet
+    _itemsById.clear();
+    for (const item of allItems) _itemsById.set(item.id, item);
 
     if (allItems.length === 0) {
       showError("No menu items available.\nCheck Firestore collection.");
@@ -219,9 +234,11 @@ function applyFilter() {
   let items;
   if (activeSearch) {
     const q = activeSearch;
+    // [AI UPDATE 2026-08-02] Phase 5 prep — search now also checks description
     items = allItems.filter(i =>
-      (i.name     || "").toLowerCase().includes(q) ||
-      (i.category || "").toLowerCase().includes(q)
+      (i.name        || "").toLowerCase().includes(q) ||
+      (i.category    || "").toLowerCase().includes(q) ||
+      (i.description || "").toLowerCase().includes(q)
     );
     renderMenuItems(items, q);
   } else {
@@ -329,41 +346,96 @@ function renderMenuItems(items, query) {
   _wireCardEvents(grid);
   // [AI UPDATE 2026-08-01] Restore saved cart quantities/UI after every render.
   restoreCartUI();
+  // [AI UPDATE 2026-08-02] Phase 1 — show "Read More" only on cards where
+  // description text actually overflows the 2-line clamp.
+  requestAnimationFrame(() => _wireReadMore(grid));
 }
 
 // ── Card builders ─────────────────────────────────────────────
 
+/**
+ * [AI UPDATE 2026-08-02] Phase 1 — Premium card layout:
+ *   LEFT  — product image with shimmer placeholder + lazy load
+ *   RIGHT — name, description (2-line clamp + Read More), price, ADD button
+ *
+ * ADD button now opens the Item Details Sheet instead of calling
+ * addItem() directly. The qty control (shown when item is in cart)
+ * still calls addItem/removeItem directly — no sheet opened for
+ * increments/decrements of items already in cart.
+ */
 function _createRegularCard(item, query) {
   const div   = document.createElement('div');
   const label = query ? highlight(item.name || "", query) : escHtml(item.name || "");
   const price = item.price || 0;
   const oos   = _isItemOos(item);
+  const desc  = item.description || "";
+  const imgUrl = item.imageUrl   || "";
 
-  div.className    = `menu-card${oos ? ' oos' : ''}`;
-  div.dataset.id   = item.id;
-  div.dataset.name = item.name || "";
-  div.dataset.price= price;
+  div.className     = `menu-card${oos ? ' oos' : ''}`;
+  div.dataset.id    = item.id;
+  div.dataset.name  = item.name || "";
+  div.dataset.price = price;
+
+  // Image area — always rendered; hides itself via CSS if no src
+  const imgHtml = imgUrl
+    ? `<div class="card-img-wrap">
+         <div class="card-img-shimmer"></div>
+         <img class="card-img"
+              src="${escHtml(imgUrl)}"
+              alt="${escHtml(item.name || '')}"
+              loading="lazy"
+              decoding="async"
+              onload="this.classList.add('card-img--loaded');this.previousElementSibling.style.display='none'"
+              onerror="this.closest('.card-img-wrap').style.display='none'" />
+       </div>`
+    : `<div class="card-img-wrap card-img-wrap--empty">
+         <span class="card-img-emoji">🍽️</span>
+       </div>`;
+
+  // Description with 2-line clamp; Read More button shown by _wireReadMore
+  const descHtml = desc
+    ? `<p class="card-desc">${escHtml(desc)}</p>
+       <button class="card-desc-more" type="button" style="display:none">Read More</button>`
+    : "";
 
   div.innerHTML = `
     <div class="card-body">
+      ${imgHtml}
       <div class="card-info">
         <h3 class="card-name">${label}</h3>
+        ${descHtml}
         ${oos ? '<span class="oos-badge">Out of Stock</span>' : ''}
-      </div>
-      <div class="card-footer-inline">
-        <span class="card-price">₹${price}</span>
-        <div class="card-action">
-          ${oos
-            ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
-            : `<button class="btn-add"
-                       data-id="${escHtml(item.id)}"
-                       data-name="${escHtml(item.name || "")}"
-                       data-price="${price}">Add</button>`
-          }
+        <div class="card-footer-inline">
+          <span class="card-price">₹${price}</span>
+          <div class="card-action">
+            ${oos
+              ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
+              : `<button class="btn-add"
+                         data-id="${escHtml(item.id)}"
+                         data-name="${escHtml(item.name || "")}"
+                         data-price="${price}">ADD</button>`
+            }
+          </div>
         </div>
       </div>
     </div>`;
   return div;
+}
+
+/**
+ * After the grid is in the DOM, check each .card-desc for overflow and
+ * reveal the "Read More" button only when the text is actually clamped.
+ * [AI UPDATE 2026-08-02] Phase 1
+ */
+function _wireReadMore(grid) {
+  grid.querySelectorAll('.card-desc').forEach(el => {
+    const btn = el.nextElementSibling;
+    if (!btn || !btn.classList.contains('card-desc-more')) return;
+    // scrollHeight > clientHeight means the text overflows the 2-line clamp
+    if (el.scrollHeight > el.clientHeight + 2) {
+      btn.style.display = 'block';
+    }
+  });
 }
 
 function _createHalfFullCard(halfItem, fullItem) {
@@ -434,17 +506,51 @@ function _createTripleCard(reg, med, lrg) {
 
 // ── Event delegation ──────────────────────────────────────────
 
+/**
+ * [AI UPDATE 2026-08-02] Phase 1 — ADD button now opens Item Details Sheet.
+ *
+ * Changed interactions:
+ *   .btn-add click        → openItemSheet(item) instead of addItem()
+ *   .half-full-side click → openItemSheet(item) for that variant
+ *   .triple-side click    → openItemSheet(item) for that variant
+ *
+ * Unchanged interactions (in-cart qty adjustments, no sheet):
+ *   .qty-plus / .qty-minus   → addItem() / removeItem() directly
+ *   .hf-remove / .triple-remove → removeItem() directly
+ *   .card-desc-more          → expand/collapse description inline
+ */
 function _wireCardEvents(grid) {
   const fresh = grid.cloneNode(true);
   grid.parentNode?.replaceChild(fresh, grid);
 
   fresh.addEventListener("click", (e) => {
-    // ── Regular card ──
-    const addBtn = e.target.closest(".btn-add");
-    if (addBtn && !addBtn.disabled) {
-      addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+
+    // ── Description Read More / Read Less ──────────────────────
+    const moreBtn = e.target.closest(".card-desc-more");
+    if (moreBtn) {
+      e.stopPropagation();
+      const descEl = moreBtn.previousElementSibling;
+      if (descEl?.classList.contains("card-desc")) {
+        const expanded = descEl.classList.toggle("card-desc--expanded");
+        moreBtn.textContent = expanded ? "Read Less" : "Read More";
+      }
       return;
     }
+
+    // ── Regular card — ADD opens Item Details Sheet ────────────
+    const addBtn = e.target.closest(".btn-add");
+    if (addBtn && !addBtn.disabled) {
+      const item = _itemsById.get(addBtn.dataset.id);
+      if (item) {
+        openItemSheet(item);
+      } else {
+        // Fallback: direct add if item somehow not in map
+        addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      }
+      return;
+    }
+
+    // ── Regular card — qty controls (in-cart, no sheet) ────────
     const minus = e.target.closest(".qty-minus");
     if (minus) { removeItem(minus.dataset.id); return; }
     const plus = e.target.closest(".qty-plus");
@@ -454,21 +560,31 @@ function _wireCardEvents(grid) {
       return;
     }
 
-    // ── Half/Full ──
+    // ── Half/Full — side tap opens Item Details Sheet ──────────
     const hfRemove = e.target.closest(".hf-remove");
     if (hfRemove) { e.stopPropagation(); removeItem(hfRemove.dataset.id); return; }
     const hfSide = e.target.closest(".half-full-side");
     if (hfSide && hfSide.dataset.oos !== '1') {
-      addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price));
+      const item = _itemsById.get(hfSide.dataset.id);
+      if (item) {
+        openItemSheet(item);
+      } else {
+        addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price));
+      }
       return;
     }
 
-    // ── Triple ──
+    // ── Triple card — side tap opens Item Details Sheet ────────
     const trRemove = e.target.closest(".triple-remove");
     if (trRemove) { e.stopPropagation(); removeItem(trRemove.dataset.id); return; }
     const trSide = e.target.closest(".triple-side");
     if (trSide && trSide.dataset.oos !== '1') {
-      addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price));
+      const item = _itemsById.get(trSide.dataset.id);
+      if (item) {
+        openItemSheet(item);
+      } else {
+        addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price));
+      }
       return;
     }
   });

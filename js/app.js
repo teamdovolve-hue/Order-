@@ -32,6 +32,8 @@ import { initRestaurantStatus,
          isOrderingEnabled }                from "./restaurant-status.js";
 import { initReview, openReview,
          closeReview }                      from "./review.js";
+// [AI UPDATE 2026-08-02] Phase 1 — Item Details Sheet
+import { initItemSheet }                    from "./item-sheet.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -79,6 +81,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── 5. Review sheet ───────────────────────────────────────────
   initReview();
+
+  // ── 5b. Item Details Sheet ────────────────────────────────────
+  // [AI UPDATE 2026-08-02] Phase 1 — wire item sheet DOM events
+  initItemSheet();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
