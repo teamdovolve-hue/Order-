@@ -93,6 +93,8 @@ let _pendingName         = "";
 let _pendingLoginProfile = null;            // Firestore profile for login step
 let _usernameCheckTimer  = null;
 let _usernameAvailable   = false;
+let _changingDetails     = false;           // true when user clicked "Change Details"
+let _savedProfileValues  = null;            // { name, username, password, confirm } saved for prefill
 let _firebaseUser        = null;
 let _authReadyResolve;
 const _authReady         = new Promise((resolve) => { _authReadyResolve = resolve; });
@@ -259,22 +261,42 @@ function _showProfileStep() {
   document.getElementById("otpLoginStep")?.classList.add("hidden");
   _clearError("otpNameError");
 
-  const nameInput = document.getElementById("otpNameInput");
-  if (nameInput) nameInput.value = "";
+  const nameInput     = document.getElementById("otpNameInput");
   const usernameInput = document.getElementById("otpUsernameInput");
-  if (usernameInput) usernameInput.value = "";
-  const passInput = document.getElementById("otpPasswordInput2");
-  if (passInput) passInput.value = "";
-  const confirmInput = document.getElementById("otpPasswordConfirm");
-  if (confirmInput) confirmInput.value = "";
-  // [AI UPDATE 2026-07-29 v2] Task 8 — properly hide the status element (not just
-  // clear its text) so no blank gap is left when the registration form appears fresh.
-  const statusEl = document.getElementById("otpUsernameStatus");
-  if (statusEl) {
-    statusEl.textContent = "";
-    statusEl.className   = "username-status hidden";
+  const passInput     = document.getElementById("otpPasswordInput2");
+  const confirmInput  = document.getElementById("otpPasswordConfirm");
+
+  if (_changingDetails && _savedProfileValues) {
+    // Restore whatever the user had typed before clicking "Change Details"
+    if (nameInput)     nameInput.value     = _savedProfileValues.name     || "";
+    if (usernameInput) usernameInput.value = _savedProfileValues.username  || "";
+    if (passInput)     passInput.value     = _savedProfileValues.password  || "";
+    if (confirmInput)  confirmInput.value  = _savedProfileValues.confirm   || "";
+    _changingDetails    = false;
+    _savedProfileValues = null;
+    // Re-run username availability check if one was present
+    const restoredUsername = usernameInput?.value.trim();
+    if (restoredUsername && _isValidUsername(restoredUsername)) {
+      _scheduleUsernameCheck(restoredUsername);
+    } else {
+      const statusEl = document.getElementById("otpUsernameStatus");
+      if (statusEl) { statusEl.textContent = ""; statusEl.className = "username-status hidden"; }
+      _usernameAvailable = false;
+    }
+  } else {
+    if (nameInput)     nameInput.value     = "";
+    if (usernameInput) usernameInput.value = "";
+    if (passInput)     passInput.value     = "";
+    if (confirmInput)  confirmInput.value  = "";
+    // [AI UPDATE 2026-07-29 v2] Task 8 — properly hide the status element (not just
+    // clear its text) so no blank gap is left when the registration form appears fresh.
+    const statusEl = document.getElementById("otpUsernameStatus");
+    if (statusEl) {
+      statusEl.textContent = "";
+      statusEl.className   = "username-status hidden";
+    }
+    _usernameAvailable = false;
   }
-  _usernameAvailable = false;
 
   nameInput?.focus();
 }
@@ -285,48 +307,31 @@ function _showProfileStep() {
 // Old behaviour (wired directly to _showProfileStep) always cleared all fields.
 
 function _onChangeDetails() {
-  // Capture current values before transitioning back to the profile step.
-  // _pendingName is set when _onProfileSubmit runs so it tracks the last-submitted
-  // name.  The live DOM value is the canonical source if the user edited it.
-  const currentName     = document.getElementById("otpNameInput")?.value.trim()
-                          || _pendingName
-                          || "";
-  const currentUsername = document.getElementById("otpUsernameInput")?.value.trim() || "";
+  // Save all current profile values so _showProfileStep can restore them.
+  // Passwords are preserved here so the user doesn't have to retype them.
+  _savedProfileValues = {
+    name:     (document.getElementById("otpNameInput")?.value.trim()     || _pendingName || ""),
+    username: (document.getElementById("otpUsernameInput")?.value.trim() || ""),
+    password: (document.getElementById("otpPasswordInput2")?.value       || ""),
+    confirm:  (document.getElementById("otpPasswordConfirm")?.value      || ""),
+  };
+  _changingDetails = true;
 
-  // Show the profile step
-  document.getElementById("otpPhoneStep")?.classList.add("hidden");
-  document.getElementById("otpProfileStep")?.classList.remove("hidden");
-  document.getElementById("otpConfirmStep")?.classList.add("hidden");
-  document.getElementById("otpLoginStep")?.classList.add("hidden");
-  _clearError("otpNameError");
-
-  // Restore Name and @username (do NOT restore passwords — security requirement)
-  const nameInput = document.getElementById("otpNameInput");
-  if (nameInput) nameInput.value = currentName;
-
-  const usernameInput = document.getElementById("otpUsernameInput");
-  if (usernameInput) usernameInput.value = currentUsername;
-
-  // Keep password fields empty
-  const passInput = document.getElementById("otpPasswordInput2");
-  if (passInput) passInput.value = "";
-  const confirmInput = document.getElementById("otpPasswordConfirm");
-  if (confirmInput) confirmInput.value = "";
-
-  // Immediately re-run availability check if the username is present and valid
-  if (currentUsername && _isValidUsername(currentUsername)) {
-    _scheduleUsernameCheck(currentUsername);
-  } else {
-    // No valid username yet — hide the status element cleanly
-    const statusEl = document.getElementById("otpUsernameStatus");
-    if (statusEl) {
-      statusEl.textContent = "";
-      statusEl.className   = "username-status hidden";
-    }
-    _usernameAvailable = false;
+  // Go all the way back to the phone step so the user can correct their number too.
+  // Prefill the phone input with the 10-digit number (strip the +91 prefix).
+  const phoneInput = document.getElementById("otpPhoneInput");
+  if (phoneInput && _pendingPhone) {
+    phoneInput.value = _pendingPhone.replace(/^\+91/, "");
   }
 
-  nameInput?.focus();
+  _clearError("otpPhoneError");
+  _clearError("otpNameError");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
+  document.getElementById("otpLoginStep")?.classList.add("hidden");
+  document.getElementById("otpPhoneStep")?.classList.remove("hidden");
+
+  phoneInput?.focus();
 }
 
 // ── Step 1: Phone lookup ──────────────────────────────────────────────────────
