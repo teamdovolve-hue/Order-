@@ -54,11 +54,30 @@ export function onCategoriesReady(cb) { _onCategoriesReadyCb = cb; }
 
 /**
  * Quick-lookup Map for full item objects by Firestore document ID.
- * Used by _wireCardEvents to pass the full item (imageUrl, description,
- * extraOptions) to openItemSheet without storing everything in data-* attrs.
  * [AI UPDATE 2026-08-02] Phase 1
  */
 let _itemsById = new Map();
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — group objects keyed by groupKey.
+ * Looked up by _wireCardEvents when the ADD button on a group card is clicked.
+ */
+let _groupsById = new Map();
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — items from the "Extra Topping" Firestore
+ * category, kept separate so item-sheet.js can use them as auto-extra prices.
+ * These items are NEVER shown in the menu or category tabs.
+ */
+let _extraToppings = [];
+export function getAllExtraToppings() { return _extraToppings; }
+
+/**
+ * Categories permanently hidden from the menu UI.
+ * Items in these categories are used internally (e.g. as extra-option prices)
+ * but never displayed as menu cards or category tabs.
+ */
+const HIDDEN_CATEGORIES = new Set(["extra topping"]);
 
 /** Pizza-size availability — updated by the sizes listener. */
 let _pizzaSizes = { regular: true, medium: true, large: true };
@@ -94,9 +113,17 @@ export function initMenu() {
     // OOS items are shown with a badge and ordering disabled.
     const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    allItems = _sortItems(raw);
+    // [AI UPDATE 2026-08-02] UX upgrade — split Extra Topping into separate pool
+    _extraToppings = raw.filter(i =>
+      HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+    );
+    const visibleRaw = raw.filter(i =>
+      !HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+    );
 
-    // [AI UPDATE 2026-08-02] Phase 1 — keep a quick-lookup Map for openItemSheet
+    allItems = _sortItems(visibleRaw);
+
+    // Phase 1 — quick-lookup Map for item sheet
     _itemsById.clear();
     for (const item of allItems) _itemsById.set(item.id, item);
 
@@ -338,48 +365,23 @@ function renderMenuItems(items, query) {
     return;
   }
 
-  const frag      = document.createDocumentFragment();
-  const processed = new Set();
+  // [AI UPDATE 2026-08-02] UX upgrade — all variants collapsed into a single
+  // premium card. _groupItems() merges Half/Full and Regular/Medium/Large
+  // variants into group objects; single items pass through unchanged.
+  const grouped = _groupItems(items);
+  _groupsById.clear();
+  for (const g of grouped) {
+    if (g.isGroup) _groupsById.set(g.groupKey, g);
+  }
 
-  items.forEach(item => {
-    if (processed.has(item.id)) return;
-
-    // ── Triple card (Regular / Medium / Large) ──
-    if (_isVariant(item.name)) {
-      const base = _vBase(item.name);
-      const reg = items.find(i => !processed.has(i.id) && _isRegular(i.name) && _vBase(i.name) === base);
-      const med = items.find(i => !processed.has(i.id) && _isMedium(i.name)  && _vBase(i.name) === base);
-      const lrg = items.find(i => !processed.has(i.id) && _isLarge(i.name)   && _vBase(i.name) === base);
-      if (reg && med && lrg) {
-        frag.appendChild(_createTripleCard(reg, med, lrg));
-        processed.add(reg.id); processed.add(med.id); processed.add(lrg.id);
-        return;
-      }
+  const frag = document.createDocumentFragment();
+  for (const entry of grouped) {
+    if (entry.isGroup) {
+      frag.appendChild(_createGroupCard(entry, query));
+    } else {
+      frag.appendChild(_createRegularCard(entry, query));
     }
-
-    // ── Half / Full card ──
-    if (_isHalf(item.name)) {
-      const base = _vBase(item.name);
-      const full = items.find(i => !processed.has(i.id) && _isFull(i.name) && _vBase(i.name) === base);
-      if (full) {
-        frag.appendChild(_createHalfFullCard(item, full));
-        processed.add(item.id); processed.add(full.id);
-        return;
-      }
-    } else if (_isFull(item.name)) {
-      const base = _vBase(item.name);
-      const half = items.find(i => !processed.has(i.id) && _isHalf(i.name) && _vBase(i.name) === base);
-      if (half) {
-        frag.appendChild(_createHalfFullCard(half, item));
-        processed.add(half.id); processed.add(item.id);
-        return;
-      }
-    }
-
-    // ── Regular card ──
-    frag.appendChild(_createRegularCard(item, query));
-    processed.add(item.id);
-  });
+  }
 
   grid.innerHTML = "";
   grid.appendChild(frag);
@@ -389,6 +391,73 @@ function renderMenuItems(items, query) {
   // [AI UPDATE 2026-08-02] Phase 1 — show "Read More" only on cards where
   // description text actually overflows the 2-line clamp.
   requestAnimationFrame(() => _wireReadMore(grid));
+}
+
+// ── Variant grouping ──────────────────────────────────────────
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — collapses variant Firestore docs into
+ * group objects so every product shows ONE premium card regardless of how many
+ * sizes it has.  Single items (no variant suffix) pass through unchanged.
+ *
+ * Returns an array of either:
+ *   { isGroup: false, ...originalItem }
+ *   {
+ *     isGroup: true, groupKey, displayName, category,
+ *     imageUrl, description, extraOptions,
+ *     variants: [{ id, label, price, oos }]
+ *   }
+ */
+function _groupItems(items) {
+  const result    = [];
+  const processed = new Set();
+
+  for (const item of items) {
+    if (processed.has(item.id)) continue;
+
+    if (_isVariant(item.name)) {
+      const base = _vBase(item.name);
+      const cat  = item.category || "Other";
+
+      // Collect every known variant type for this base+category
+      const half = items.find(i => !processed.has(i.id) && _isHalf(i.name)    && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const full = items.find(i => !processed.has(i.id) && _isFull(i.name)    && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const reg  = items.find(i => !processed.has(i.id) && _isRegular(i.name) && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const med  = items.find(i => !processed.has(i.id) && _isMedium(i.name)  && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const lrg  = items.find(i => !processed.has(i.id) && _isLarge(i.name)   && _vBase(i.name) === base && (i.category || "Other") === cat);
+
+      const variants = [];
+      if (half) { variants.push({ id: half.id, label: "Half",    price: half.price, oos: _isItemOos(half) }); processed.add(half.id); }
+      if (full) { variants.push({ id: full.id, label: "Full",    price: full.price, oos: _isItemOos(full) }); processed.add(full.id); }
+      if (reg)  { variants.push({ id: reg.id,  label: "Regular", price: reg.price,  oos: _isItemOos(reg)  }); processed.add(reg.id);  }
+      if (med)  { variants.push({ id: med.id,  label: "Medium",  price: med.price,  oos: _isItemOos(med)  }); processed.add(med.id);  }
+      if (lrg)  { variants.push({ id: lrg.id,  label: "Large",   price: lrg.price,  oos: _isItemOos(lrg)  }); processed.add(lrg.id);  }
+
+      if (variants.length > 0) {
+        if (!processed.has(item.id)) processed.add(item.id);
+        const rep      = reg || half || med || full || lrg || item;
+        const groupKey = `${base}::${cat.toLowerCase()}`;
+        result.push({
+          isGroup:      true,
+          groupKey,
+          displayName:  _displayBase(item.name),
+          category:     cat,
+          imageUrl:     rep.imageUrl     || "",
+          description:  rep.description  || "",
+          extraOptions: rep.extraOptions || [],
+          variants,
+        });
+        continue;
+      }
+    }
+
+    if (!processed.has(item.id)) {
+      processed.add(item.id);
+      result.push({ isGroup: false, ...item });
+    }
+  }
+
+  return result;
 }
 
 // ── Card builders ─────────────────────────────────────────────
@@ -478,6 +547,75 @@ function _wireReadMore(grid) {
   });
 }
 
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — ONE card for all variant groups.
+ * Shows cheapest available price as "Starting from ₹X".
+ * ADD opens item sheet with variant radio buttons.
+ */
+function _createGroupCard(group, query) {
+  const div = document.createElement('div');
+
+  const availableVariants = group.variants.filter(v => !v.oos);
+  const lowestPrice = availableVariants.length
+    ? Math.min(...availableVariants.map(v => v.price))
+    : Math.min(...group.variants.map(v => v.price));
+  const allOos = group.variants.every(v => v.oos);
+  const variantIds = group.variants.map(v => v.id).join(',');
+
+  const label = query
+    ? highlight(group.displayName, query)
+    : escHtml(group.displayName);
+
+  const imgHtml = group.imageUrl
+    ? `<div class="card-img-wrap">
+         <div class="card-img-shimmer"></div>
+         <img class="card-img"
+              src="${escHtml(group.imageUrl)}"
+              alt="${escHtml(group.displayName)}"
+              loading="lazy" decoding="async"
+              onload="this.classList.add('card-img--loaded');this.previousElementSibling.style.display='none'"
+              onerror="this.closest('.card-img-wrap').style.display='none'" />
+       </div>`
+    : `<div class="card-img-wrap card-img-wrap--empty">
+         <span class="card-img-emoji">🍽️</span>
+       </div>`;
+
+  const descHtml = group.description
+    ? `<p class="card-desc">${escHtml(group.description)}</p>
+       <button class="card-desc-more" type="button" style="display:none">Read More</button>`
+    : "";
+
+  div.className = `menu-card menu-card--group${allOos ? " oos" : ""}`;
+  div.dataset.id         = `group__${group.groupKey}`;
+  div.dataset.name       = group.displayName;
+  div.dataset.groupKey   = group.groupKey;
+  div.dataset.variantIds = variantIds;
+
+  div.innerHTML = `
+    <div class="card-body">
+      ${imgHtml}
+      <div class="card-info">
+        <h3 class="card-name">${label}</h3>
+        ${descHtml}
+        ${allOos ? '<span class="oos-badge">Out of Stock</span>' : ''}
+        <div class="card-footer-inline">
+          <div>
+            <span class="card-price-from">Starting from</span>
+            <span class="card-price">₹${lowestPrice}</span>
+          </div>
+          <div class="card-action">
+            <div class="group-cart-badge" style="display:none">0</div>
+            ${allOos
+              ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
+              : `<button class="btn-add" data-group-key="${escHtml(group.groupKey)}">ADD</button>`
+            }
+          </div>
+        </div>
+      </div>
+    </div>`;
+  return div;
+}
+
 function _createHalfFullCard(halfItem, fullItem) {
   const div  = document.createElement('div');
   div.className = 'half-full-card';
@@ -547,17 +685,9 @@ function _createTripleCard(reg, med, lrg) {
 // ── Event delegation ──────────────────────────────────────────
 
 /**
- * [AI UPDATE 2026-08-02] Phase 1 — ADD button now opens Item Details Sheet.
- *
- * Changed interactions:
- *   .btn-add click        → openItemSheet(item) instead of addItem()
- *   .half-full-side click → openItemSheet(item) for that variant
- *   .triple-side click    → openItemSheet(item) for that variant
- *
- * Unchanged interactions (in-cart qty adjustments, no sheet):
- *   .qty-plus / .qty-minus   → addItem() / removeItem() directly
- *   .hf-remove / .triple-remove → removeItem() directly
- *   .card-desc-more          → expand/collapse description inline
+ * [AI UPDATE 2026-08-02] UX upgrade — simplified event delegation.
+ * Group cards and regular cards both open item sheet on ADD.
+ * In-cart qty controls (regular cards only) still call addItem/removeItem directly.
  */
 function _wireCardEvents(grid) {
   const fresh = grid.cloneNode(true);
@@ -577,54 +707,29 @@ function _wireCardEvents(grid) {
       return;
     }
 
-    // ── Regular card — ADD opens Item Details Sheet ────────────
+    // ── ADD button — opens item sheet for single items or groups ─
     const addBtn = e.target.closest(".btn-add");
     if (addBtn && !addBtn.disabled) {
-      const item = _itemsById.get(addBtn.dataset.id);
-      if (item) {
-        openItemSheet(item);
-      } else {
-        // Fallback: direct add if item somehow not in map
-        addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      // Group card
+      if (addBtn.dataset.groupKey) {
+        const group = _groupsById.get(addBtn.dataset.groupKey);
+        if (group) { openItemSheet(group); return; }
       }
+      // Single-item card
+      const item = _itemsById.get(addBtn.dataset.id);
+      if (item) { openItemSheet(item); return; }
+      // Fallback
+      addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
       return;
     }
 
-    // ── Regular card — qty controls (in-cart, no sheet) ────────
+    // ── Regular card in-cart qty controls (no sheet) ────────────
     const minus = e.target.closest(".qty-minus");
     if (minus) { removeItem(minus.dataset.id); return; }
     const plus = e.target.closest(".qty-plus");
     if (plus) {
       const card = plus.closest(".menu-card");
       if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
-      return;
-    }
-
-    // ── Half/Full — side tap opens Item Details Sheet ──────────
-    const hfRemove = e.target.closest(".hf-remove");
-    if (hfRemove) { e.stopPropagation(); removeItem(hfRemove.dataset.id); return; }
-    const hfSide = e.target.closest(".half-full-side");
-    if (hfSide && hfSide.dataset.oos !== '1') {
-      const item = _itemsById.get(hfSide.dataset.id);
-      if (item) {
-        openItemSheet(item);
-      } else {
-        addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price));
-      }
-      return;
-    }
-
-    // ── Triple card — side tap opens Item Details Sheet ────────
-    const trRemove = e.target.closest(".triple-remove");
-    if (trRemove) { e.stopPropagation(); removeItem(trRemove.dataset.id); return; }
-    const trSide = e.target.closest(".triple-side");
-    if (trSide && trSide.dataset.oos !== '1') {
-      const item = _itemsById.get(trSide.dataset.id);
-      if (item) {
-        openItemSheet(item);
-      } else {
-        addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price));
-      }
       return;
     }
   });

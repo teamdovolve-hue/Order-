@@ -1,136 +1,227 @@
 /**
  * item-sheet.js
  * ─────────────────────────────────────────────────────────────
- * Item Details Bottom Sheet — opened when a customer taps ADD
- * on any menu card. Shows image, full description, optional
- * extras, custom request textarea, qty selector, live price,
- * and an "Add to Cart" button.
+ * Item Details Bottom Sheet — opened when a customer taps ADD.
+ *
+ * [AI UPDATE 2026-08-02] UX upgrade — handles both single items
+ * and variant groups (Half/Full, Regular/Medium/Large).
+ * Adds auto-extra logic driven by category + item name rules.
+ * Extras are stored in cartExtras Map in cart.js so order.js
+ * and review.js can include them in the payload/UI.
  *
  * Public API:
- *   initItemSheet()      — wire DOM events once on DOMContentLoaded
- *   openItemSheet(item)  — open sheet for the given menu item
- *   closeItemSheet()     — close sheet
+ *   initItemSheet()      — wire DOM events once on boot
+ *   openItemSheet(item)  — item can be single item OR group object
+ *   closeItemSheet()     — close and reset
  *
- * item shape (from Firestore menu_items via menu.js):
+ * Group object shape (from menu.js _groupItems):
  *   {
- *     id, name, price,
- *     imageUrl?:    string  — product photo URL
- *     description?: string  — full item description
- *     extraOptions?: [{name: string, price: number}]  — optional add-ons
+ *     isGroup: true, groupKey, displayName, category,
+ *     imageUrl?, description?, extraOptions?,
+ *     variants: [{ id, label, price, oos }]
  *   }
  *
- * Compatibility guarantees:
- *   - addItem(id, name, price) interface in cart.js is UNCHANGED.
- *   - No Firestore writes — purely client-side presentation layer.
- *   - Custom request is display-only and is NOT sent to Billing Panel
- *     (pending_table_orders schema has no customRequest field).
+ * Single item shape (from Firestore menu_items):
+ *   { id, name, price, category?, imageUrl?, description?, extraOptions? }
  *
- * [AI UPDATE 2026-08-02] Phase 1 — New module: Item Details Sheet
+ * Auto-extra rules (applied on top of Firestore extraOptions):
+ *   category "Pizza"                → Extra Cheese, Extra Veggies
+ *   category includes "noodle"      → Extra Veggies
+ *   name includes "cheese"          → Extra Cheese
+ *   name includes "paneer"          → Extra Paneer
+ *   (prices pulled from Firestore Extra Topping docs when available)
+ *
+ * Compatibility guarantees:
+ *   - addItem(id, name, price) interface in cart.js UNCHANGED.
+ *   - No Firestore writes.
+ *   - cartExtras Map in cart.js carries extras to order.js + review.js.
  */
 
-import { addItem } from "./cart.js";
+import { addItem, cartExtras } from "./cart.js";
+import { getAllExtraToppings }  from "./menu.js";
 
 // ── Module state ──────────────────────────────────────────────
-let _item   = null;   // current item being shown
-let _qty    = 1;
-let _extras = [];     // boolean[] parallel to item.extraOptions
+let _current          = null;   // single item or group object
+let _qty              = 1;
+let _selectedVariantIdx = 0;    // index into group.variants (or -1 for single)
+let _extrasChecked    = [];     // boolean[] parallel to _resolvedExtras
+let _resolvedExtras   = [];     // [{name, price}] — merged auto + Firestore extras
 
 // ── Public ────────────────────────────────────────────────────
 
-/** Wire all static DOM events. Call once on DOMContentLoaded. */
 export function initItemSheet() {
-  // Backdrop tap → close
   document.getElementById("itemSheetModal")
     ?.querySelector(".item-sheet-backdrop")
     ?.addEventListener("click", closeItemSheet);
 
-  // Quantity controls
   document.getElementById("itemSheetQtyMinus")
     ?.addEventListener("click", _onQtyMinus);
 
   document.getElementById("itemSheetQtyPlus")
     ?.addEventListener("click", _onQtyPlus);
 
-  // Add to Cart
   document.getElementById("itemSheetAddBtn")
     ?.addEventListener("click", _onAddToCart);
 
-  // Extra option checkboxes — delegated
-  document.getElementById("itemSheetExtrasList")
-    ?.addEventListener("change", _onExtrasChange);
+  // Delegated: variant radios + extra checkboxes
+  document.getElementById("itemSheetModal")
+    ?.addEventListener("change", _onSheetChange);
 }
 
 /**
- * Open the sheet for a given item.
- * @param {object} item — { id, name, price, imageUrl?, description?, extraOptions? }
+ * Open the sheet for a single item or a variant group.
+ * @param {object} itemOrGroup
  */
-export function openItemSheet(item) {
-  _item   = item;
-  _qty    = 1;
-  _extras = item.extraOptions ? item.extraOptions.map(() => false) : [];
+export function openItemSheet(itemOrGroup) {
+  _current = itemOrGroup;
+  _qty     = 1;
+
+  if (itemOrGroup.isGroup) {
+    // Default to first non-OOS variant; fall back to first
+    _selectedVariantIdx = itemOrGroup.variants.findIndex(v => !v.oos);
+    if (_selectedVariantIdx < 0) _selectedVariantIdx = 0;
+  } else {
+    _selectedVariantIdx = -1;
+  }
+
+  _resolvedExtras  = _buildExtras(itemOrGroup);
+  _extrasChecked   = _resolvedExtras.map(() => false);
+
   _renderSheet();
   document.getElementById("itemSheetModal")?.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 }
 
-/** Close the sheet. */
 export function closeItemSheet() {
   document.getElementById("itemSheetModal")?.classList.add("hidden");
   document.body.style.overflow = "";
-  _item = null;
+  _current = null;
+}
+
+// ── Auto-extras builder ───────────────────────────────────────
+
+/**
+ * Merge auto-extras (based on category/name rules) with any
+ * extraOptions stored on the Firestore document.
+ * Prices for auto-extras are pulled from the "Extra Topping"
+ * Firestore docs when available, with a ₹50 fallback.
+ */
+function _buildExtras(itemOrGroup) {
+  const category = (itemOrGroup.category || "").toLowerCase();
+  const name     = (itemOrGroup.isGroup
+    ? itemOrGroup.displayName
+    : (itemOrGroup.name || "")).toLowerCase();
+
+  // Index Extra Topping docs by name for price lookup
+  const toppingMap = new Map();
+  for (const t of getAllExtraToppings()) {
+    toppingMap.set((t.name || "").toLowerCase(), Number(t.price) || 50);
+  }
+
+  const lookup = (extraName) =>
+    toppingMap.get(extraName.toLowerCase()) ?? 50;
+
+  // Accumulate in insertion-order Map (deduplicates by name)
+  const extras = new Map();
+
+  const add = (name, price) => {
+    if (!extras.has(name)) extras.set(name, { name, price });
+  };
+
+  // ── Rule-based auto extras ──────────────────────────────────
+  if (category === "pizza") {
+    add("Extra Cheese", lookup("Extra Cheese"));
+    add("Extra Veggies", lookup("Extra Veggies"));
+  }
+  if (category.includes("noodle")) {
+    add("Extra Veggies", lookup("Extra Veggies"));
+  }
+  if (name.includes("cheese")) {
+    add("Extra Cheese", lookup("Extra Cheese"));
+  }
+  if (name.includes("paneer")) {
+    add("Extra Paneer", lookup("Extra Paneer"));
+  }
+
+  // ── Merge Firestore extraOptions (deduplicate) ──────────────
+  const firestoreExtras = itemOrGroup.extraOptions || [];
+  for (const fe of firestoreExtras) {
+    if (fe?.name) add(fe.name, Number(fe.price) || 0);
+  }
+
+  return [...extras.values()];
 }
 
 // ── Rendering ─────────────────────────────────────────────────
 
 function _renderSheet() {
-  if (!_item) return;
+  if (!_current) return;
 
-  // ── Image ──────────────────────────────────────────────────
+  const isGroup   = _current.isGroup === true;
+  const imgUrl    = _current.imageUrl    || "";
+  const desc      = isGroup ? _current.description  : (_current.description  || "");
+  const nameText  = isGroup ? _current.displayName  : (_current.name || "");
+
+  // ── Image ───────────────────────────────────────────────────
   const imgWrap = document.getElementById("itemSheetImgWrap");
   const imgEl   = document.getElementById("itemSheetImg");
   const shimmer = document.getElementById("itemSheetImgShimmer");
-
-  if (_item.imageUrl) {
+  if (imgUrl) {
     if (imgWrap) imgWrap.style.display = "";
     if (shimmer) shimmer.style.display = "";
     if (imgEl) {
       imgEl.style.opacity = "0";
-      imgEl.alt = _item.name || "";
-      imgEl.onload  = () => {
-        imgEl.style.opacity = "1";
-        if (shimmer) shimmer.style.display = "none";
-      };
-      imgEl.onerror = () => {
-        if (imgWrap) imgWrap.style.display = "none";
-      };
-      imgEl.src = _item.imageUrl;
+      imgEl.alt   = nameText;
+      imgEl.onload  = () => { imgEl.style.opacity = "1"; if (shimmer) shimmer.style.display = "none"; };
+      imgEl.onerror = () => { if (imgWrap) imgWrap.style.display = "none"; };
+      imgEl.src = imgUrl;
     }
   } else {
     if (imgWrap) imgWrap.style.display = "none";
   }
 
-  // ── Name ───────────────────────────────────────────────────
+  // ── Name ────────────────────────────────────────────────────
   const nameEl = document.getElementById("itemSheetName");
-  if (nameEl) nameEl.textContent = _item.name || "";
+  if (nameEl) nameEl.textContent = nameText;
 
-  // ── Description ────────────────────────────────────────────
+  // ── Description ─────────────────────────────────────────────
   const descEl = document.getElementById("itemSheetDesc");
   if (descEl) {
-    if (_item.description) {
-      descEl.textContent = _item.description;
-      descEl.style.display = "";
+    descEl.textContent   = desc || "";
+    descEl.style.display = desc ? "" : "none";
+  }
+
+  // ── Variant selector (groups only) ──────────────────────────
+  const variantsSection = document.getElementById("itemSheetVariants");
+  const variantsList    = document.getElementById("itemSheetVariantsList");
+  if (variantsSection && variantsList) {
+    if (isGroup && _current.variants.length > 1) {
+      variantsList.innerHTML = _current.variants.map((v, i) => `
+        <label class="item-sheet-variant-row${v.oos ? " oos" : ""}">
+          <input
+            type="radio"
+            class="item-sheet-variant-radio"
+            name="itemSheetVariant"
+            value="${i}"
+            ${i === _selectedVariantIdx ? "checked" : ""}
+            ${v.oos ? "disabled" : ""}
+          />
+          <span class="item-sheet-variant-label">${_esc(v.label)}</span>
+          <span class="item-sheet-variant-price">₹${v.price}</span>
+          ${v.oos ? '<span class="item-sheet-variant-oos">Out of stock</span>' : ""}
+        </label>`).join("");
+      variantsSection.style.display = "";
     } else {
-      descEl.style.display = "none";
+      variantsSection.style.display = "none";
     }
   }
 
-  // ── Extra options ──────────────────────────────────────────
+  // ── Extra options ────────────────────────────────────────────
   const extrasSection = document.getElementById("itemSheetExtras");
   const extrasList    = document.getElementById("itemSheetExtrasList");
   if (extrasSection && extrasList) {
-    const opts = _item.extraOptions;
-    if (Array.isArray(opts) && opts.length > 0) {
-      extrasList.innerHTML = opts.map((opt, i) => `
+    if (_resolvedExtras.length > 0) {
+      extrasList.innerHTML = _resolvedExtras.map((opt, i) => `
         <label class="item-sheet-extra-row">
           <input
             type="checkbox"
@@ -147,34 +238,41 @@ function _renderSheet() {
     }
   }
 
-  // ── Custom request textarea ────────────────────────────────
+  // ── Custom request textarea ──────────────────────────────────
   const reqEl = document.getElementById("itemSheetRequest");
   if (reqEl) reqEl.value = "";
 
-  // ── Price + qty ────────────────────────────────────────────
+  // ── Qty + price ─────────────────────────────────────────────
+  _qty = 1;
   _updateQtyDisplay();
   _updatePriceDisplay();
 }
 
-/** Per-unit price = base price + selected extras. */
-function _unitPrice() {
-  if (!_item) return 0;
-  let unit = Number(_item.price) || 0;
-  if (_item.extraOptions) {
-    _item.extraOptions.forEach((opt, i) => {
-      if (_extras[i]) unit += Number(opt.price) || 0;
-    });
+// ── Unit price = selected variant base + checked extras ───────
+
+function _currentBasePrice() {
+  if (!_current) return 0;
+  if (_current.isGroup) {
+    const v = _current.variants[_selectedVariantIdx];
+    return Number(v?.price) || 0;
   }
+  return Number(_current.price) || 0;
+}
+
+function _unitPrice() {
+  let unit = _currentBasePrice();
+  _resolvedExtras.forEach((opt, i) => {
+    if (_extrasChecked[i]) unit += Number(opt.price) || 0;
+  });
   return unit;
 }
 
 function _updatePriceDisplay() {
   const el = document.getElementById("itemSheetPrice");
   if (!el) return;
-  const total = _unitPrice() * _qty;
   el.textContent = new Intl.NumberFormat("en-IN", {
     style: "currency", currency: "INR",
-  }).format(total);
+  }).format(_unitPrice() * _qty);
 }
 
 function _updateQtyDisplay() {
@@ -185,6 +283,28 @@ function _updateQtyDisplay() {
 
 // ── Event handlers ────────────────────────────────────────────
 
+function _onSheetChange(e) {
+  // Variant radio
+  const radio = e.target.closest(".item-sheet-variant-radio");
+  if (radio) {
+    const idx = parseInt(radio.value, 10);
+    if (!isNaN(idx)) {
+      _selectedVariantIdx = idx;
+      _updatePriceDisplay();
+    }
+    return;
+  }
+  // Extra checkbox
+  const check = e.target.closest(".item-sheet-extra-check");
+  if (check) {
+    const idx = parseInt(check.dataset.index, 10);
+    if (!isNaN(idx) && idx >= 0 && idx < _extrasChecked.length) {
+      _extrasChecked[idx] = check.checked;
+      _updatePriceDisplay();
+    }
+  }
+}
+
 function _onQtyMinus() {
   if (_qty > 1) { _qty--; _updateQtyDisplay(); }
 }
@@ -193,22 +313,38 @@ function _onQtyPlus() {
   if (_qty < 20) { _qty++; _updateQtyDisplay(); }
 }
 
-function _onExtrasChange(e) {
-  const check = e.target.closest(".item-sheet-extra-check");
-  if (!check) return;
-  const idx = parseInt(check.dataset.index, 10);
-  if (!isNaN(idx) && idx >= 0 && idx < _extras.length) {
-    _extras[idx] = check.checked;
-    _updatePriceDisplay();
-  }
-}
-
 function _onAddToCart() {
-  if (!_item) return;
+  if (!_current) return;
+
   const unit = _unitPrice();
-  for (let i = 0; i < _qty; i++) {
-    addItem(_item.id, _item.name, unit);
+  const selectedExtras = _resolvedExtras
+    .filter((_, i) => _extrasChecked[i])
+    .map(e => ({ name: e.name, price: e.price }));
+
+  let cartId, cartName;
+
+  if (_current.isGroup) {
+    const variant = _current.variants[_selectedVariantIdx];
+    if (!variant || variant.oos) return;
+    cartId   = variant.id;
+    cartName = `${_current.displayName} (${variant.label})`;
+  } else {
+    cartId   = _current.id;
+    cartName = _current.name || "";
   }
+
+  // Add to cart (interface unchanged: id, name, price)
+  for (let i = 0; i < _qty; i++) {
+    addItem(cartId, cartName, unit);
+  }
+
+  // Store extras metadata so review.js + order.js can display/send them
+  if (selectedExtras.length > 0) {
+    cartExtras.set(cartId, { extras: selectedExtras });
+  } else {
+    cartExtras.delete(cartId);
+  }
+
   closeItemSheet();
 }
 

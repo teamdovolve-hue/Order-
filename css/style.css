@@ -2101,6 +2101,118 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 
 
 /* ══════════════════════════════════════════════════════════════
+   GROUP CARD ADDITIONS  [AI UPDATE 2026-08-02]
+══════════════════════════════════════════════════════════════ */
+
+/* "Starting from" label above price */
+.card-price-from {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+/* Qty bubble on group card — shows total qty across all variants */
+.group-cart-badge {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #000;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ITEM SHEET — VARIANT SELECTOR  [AI UPDATE 2026-08-02]
+══════════════════════════════════════════════════════════════ */
+
+.item-sheet-variants {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+}
+
+#itemSheetVariantsList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-sheet-variant-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  user-select: none;
+}
+.item-sheet-variant-row:last-child { border-bottom: none; }
+.item-sheet-variant-row.oos { opacity: 0.45; cursor: not-allowed; }
+
+.item-sheet-variant-radio {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.item-sheet-variant-label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.item-sheet-variant-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.item-sheet-variant-oos {
+  font-size: 11px;
+  color: var(--text-3);
+  background: rgba(255,255,255,0.07);
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REVIEW SHEET — EXTRAS LIST  [AI UPDATE 2026-08-02]
+══════════════════════════════════════════════════════════════ */
+
+.review-extras-list {
+  list-style: none;
+  margin: 3px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.review-extra-item {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
    MENU CARD — PHASE 1 UPGRADES (image + description)
    [AI UPDATE 2026-08-02]
 ══════════════════════════════════════════════════════════════ */

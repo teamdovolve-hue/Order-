@@ -24,7 +24,7 @@ import {
   serverTimestamp,
 }                                         from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { httpsCallable }                  from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
-import { cart, clearCart }                from "./cart.js";
+import { cart, clearCart, cartExtras }    from "./cart.js";
 import { getCustomer }                    from "./customer.js";
 import { waitForAuthReady, getLoginInfo } from "./auth.js";
 
@@ -123,12 +123,16 @@ export async function placeOrder() {
   let   totalPrice = 0;
 
   for (const item of cart.values()) {
+    // [AI UPDATE 2026-08-02] UX upgrade — include selected extras in payload
+    // so Billing Panel and Kitchen see exactly what was ordered.
+    const extras = cartExtras.get(item.id)?.extras || [];
     items.push({
       itemId:   item.id,
       name:     item.name,
       price:    item.price,
       quantity: item.qty,
       subtotal: +(item.price * item.qty).toFixed(2),
+      extras,   // [{name, price}] — empty array when no extras selected
     });
     totalItems += item.qty;
     totalPrice += item.price * item.qty;

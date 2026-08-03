@@ -16,7 +16,7 @@
  * No order-creation, auth, or cart logic was changed.
  */
 
-import { cart, addItem, removeItem } from "./cart.js";
+import { cart, addItem, removeItem, cartExtras } from "./cart.js";
 
 /** Callback supplied by app.js — called when customer taps "Place Order →" */
 let _onPlaceOrder = null;
@@ -99,10 +99,20 @@ function _render() {
     const lineTotal = item.price * item.qty;
     totalQty       += item.qty;
     totalAmt       += lineTotal;
+
+    // [AI UPDATE 2026-08-02] UX upgrade — show selected extras below item name
+    const extras    = cartExtras.get(item.id)?.extras || [];
+    const extrasHtml = extras.length
+      ? `<ul class="review-extras-list">${extras.map(e =>
+          `<li class="review-extra-item">• ${_esc(e.name)}</li>`
+        ).join("")}</ul>`
+      : "";
+
     rows.push(`
       <div class="review-item">
         <div class="review-item-info">
           <span class="review-item-name">${_esc(item.name)}</span>
+          ${extrasHtml}
           <span class="review-item-unit-price">₹${item.price} × ${item.qty}</span>
         </div>
         <div class="review-item-right">
