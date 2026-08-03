@@ -338,9 +338,11 @@ function _onAddToCart() {
     addItem(cartId, cartName, unit);
   }
 
-  // Store extras metadata so review.js + order.js can display/send them
-  if (selectedExtras.length > 0) {
-    cartExtras.set(cartId, { extras: selectedExtras });
+  // [AI UPDATE 2026-08-03] Store extras + special request so review.js + order.js
+  // can display the request in cart/review and include it in the order payload.
+  const specialRequest = (document.getElementById("itemSheetRequest")?.value || "").trim();
+  if (selectedExtras.length > 0 || specialRequest) {
+    cartExtras.set(cartId, { extras: selectedExtras, specialRequest });
   } else {
     cartExtras.delete(cartId);
   }

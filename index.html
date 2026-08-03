@@ -436,16 +436,10 @@
        a category jump sheet so customers don't have to scroll back
        to the top to switch categories.
   ──────────────────────────────────────────────────────────── -->
-  <button class="category-fab" id="categoryFab" aria-label="Browse categories">
-    <span class="category-fab-icon-svg" aria-hidden="true">
-      <!-- grid / menu icon -->
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor"/>
-        <rect x="13" y="2" width="7" height="7" rx="1.5" fill="currentColor"/>
-        <rect x="2" y="13" width="7" height="7" rx="1.5" fill="currentColor"/>
-        <rect x="13" y="13" width="7" height="7" rx="1.5" fill="currentColor"/>
-      </svg>
-    </span>
+  <!-- [AI UPDATE 2026-08-03] Redesigned from circle icon to branded pill button -->
+  <button class="category-fab" id="categoryFab" aria-label="Browse menu categories">
+    <span class="category-fab-pill-icon" aria-hidden="true">☰</span>
+    <span class="category-fab-pill-text">Menu</span>
   </button>
 
   <div class="category-fab-modal hidden" id="categoryFabModal" role="dialog" aria-modal="true" aria-label="Browse categories">
