@@ -27,11 +27,14 @@
  * and ordering disabled, so customers always see the complete menu.
  */
 
+// [AI UPDATE 2026-08-02] Phase 1 — imported openItemSheet; ADD button now
+// opens Item Details Sheet instead of calling addItem() directly.
 import { db } from "./firebase-config.js";
 import {
   collection, doc, onSnapshot, query,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { addItem, removeItem, restoreCartUI } from "./cart.js";
+import { openItemSheet } from "./item-sheet.js";
 
 const MENU_COLLECTION  = "menu_items";
 const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
@@ -41,6 +44,117 @@ let activeCategory = "All";
 let activeSearch   = "";
 let _unsub         = null;
 let _unsubSizes    = null;
+
+// [AI UPDATE 2026-08-03] Phase 3 — Home sections support
+/** When true, applyFilter() skips home sections and shows the flat full list. */
+let _forceFlat = false;
+/** Registered by home-sections.js; called to render the discovery sections. */
+let _renderHomeSectionsCb = null;
+
+/**
+ * [AI UPDATE 2026-08-02] Phase 2 — callback invoked after each renderCategoryTabs()
+ * call so category-fab.js can keep its sheet list in sync with Firestore data.
+ */
+let _onCategoriesReadyCb = null;
+export function onCategoriesReady(cb) { _onCategoriesReadyCb = cb; }
+
+// [AI UPDATE 2026-08-03] Phase 3 — Home sections public API
+
+/**
+ * Registered by home-sections.js at init time.
+ * Avoids a circular import: menu.js never imports home-sections.js.
+ */
+export function setHomeSectionsRenderer(cb) { _renderHomeSectionsCb = cb; }
+
+/**
+ * Switch to the flat full-menu view (bypasses home sections).
+ * Called by the "See All" buttons inside each home section.
+ */
+export function showFlatMenu() {
+  _forceFlat = true;
+  applyFilter();
+  document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/**
+ * Build a card DOM element for a single grouped entry.
+ * Used by home-sections.js to reuse the exact same premium cards.
+ * @param {Object} entry  Group or regular entry from _groupItems()
+ * @param {string} query  Highlight query (pass "" for no highlighting)
+ */
+export function buildCardElement(entry, query = "") {
+  return entry.isGroup
+    ? _createGroupCard(entry, query)
+    : _createRegularCard(entry, query);
+}
+
+/**
+ * Attach a delegated click handler to any container holding .menu-card elements.
+ * Used by home-sections.js so home section cards respond to ADD / qty buttons.
+ * Safe to call once — uses addEventListener (no cloneNode replacement).
+ */
+export function wireCardContainer(container) {
+  container.addEventListener("click", (e) => {
+    // Description Read More / Read Less
+    const moreBtn = e.target.closest(".card-desc-more");
+    if (moreBtn) {
+      e.stopPropagation();
+      const descEl = moreBtn.previousElementSibling;
+      if (descEl?.classList.contains("card-desc")) {
+        const expanded = descEl.classList.toggle("card-desc--expanded");
+        moreBtn.textContent = expanded ? "Read Less" : "Read More";
+      }
+      return;
+    }
+    // ADD button — opens item sheet
+    const addBtn = e.target.closest(".btn-add");
+    if (addBtn && !addBtn.disabled) {
+      if (addBtn.dataset.groupKey) {
+        const group = _groupsById.get(addBtn.dataset.groupKey);
+        if (group) { openItemSheet(group); return; }
+      }
+      const item = _itemsById.get(addBtn.dataset.id);
+      if (item) { openItemSheet(item); return; }
+      addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      return;
+    }
+    // Qty controls (regular in-cart items)
+    const minus = e.target.closest(".qty-minus");
+    if (minus) { removeItem(minus.dataset.id); return; }
+    const plus = e.target.closest(".qty-plus");
+    if (plus) {
+      const card = plus.closest(".menu-card");
+      if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
+    }
+  });
+}
+
+/**
+ * Quick-lookup Map for full item objects by Firestore document ID.
+ * [AI UPDATE 2026-08-02] Phase 1
+ */
+let _itemsById = new Map();
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — group objects keyed by groupKey.
+ * Looked up by _wireCardEvents when the ADD button on a group card is clicked.
+ */
+let _groupsById = new Map();
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — items from the "Extra Topping" Firestore
+ * category, kept separate so item-sheet.js can use them as auto-extra prices.
+ * These items are NEVER shown in the menu or category tabs.
+ */
+let _extraToppings = [];
+export function getAllExtraToppings() { return _extraToppings; }
+
+/**
+ * Categories permanently hidden from the menu UI.
+ * Items in these categories are used internally (e.g. as extra-option prices)
+ * but never displayed as menu cards or category tabs.
+ */
+const HIDDEN_CATEGORIES = new Set(["extra topping"]);
 
 /** Pizza-size availability — updated by the sizes listener. */
 let _pizzaSizes = { regular: true, medium: true, large: true };
@@ -76,7 +190,19 @@ export function initMenu() {
     // OOS items are shown with a badge and ordering disabled.
     const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    allItems = _sortItems(raw);
+    // [AI UPDATE 2026-08-02] UX upgrade — split Extra Topping into separate pool
+    _extraToppings = raw.filter(i =>
+      HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+    );
+    const visibleRaw = raw.filter(i =>
+      !HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+    );
+
+    allItems = _sortItems(visibleRaw);
+
+    // Phase 1 — quick-lookup Map for item sheet
+    _itemsById.clear();
+    for (const item of allItems) _itemsById.set(item.id, item);
 
     if (allItems.length === 0) {
       showError("No menu items available.\nCheck Firestore collection.");
@@ -219,17 +345,43 @@ function applyFilter() {
   let items;
   if (activeSearch) {
     const q = activeSearch;
+    // [AI UPDATE 2026-08-02] Phase 5 prep — search now also checks description
     items = allItems.filter(i =>
-      (i.name     || "").toLowerCase().includes(q) ||
-      (i.category || "").toLowerCase().includes(q)
+      (i.name        || "").toLowerCase().includes(q) ||
+      (i.category    || "").toLowerCase().includes(q) ||
+      (i.description || "").toLowerCase().includes(q)
     );
+    _hideHomeSections();
     renderMenuItems(items, q);
+  } else if (activeCategory === "All" && !_forceFlat && _renderHomeSectionsCb) {
+    // [AI UPDATE 2026-08-03] Phase 3 — show intelligent home sections
+    // Pre-populate _groupsById so ADD button handlers work on home section cards
+    const grouped = _groupItems(allItems);
+    _groupsById.clear();
+    for (const g of grouped) {
+      if (g.isGroup) _groupsById.set(g.groupKey, g);
+    }
+    _showHomeSections();
+    _renderHomeSectionsCb(allItems, grouped);
   } else {
     items = activeCategory === "All"
       ? allItems
       : allItems.filter(i => (i.category || "Other") === activeCategory);
+    _hideHomeSections();
     renderMenuItems(items, "");
   }
+}
+
+// [AI UPDATE 2026-08-03] Phase 3 — show/hide helpers
+function _showHomeSections() {
+  const grid = document.getElementById("menuGrid");
+  if (grid) { grid.innerHTML = ""; grid.classList.add("hidden"); }
+  document.getElementById("homeSections")?.classList.remove("hidden");
+}
+
+function _hideHomeSections() {
+  document.getElementById("homeSections")?.classList.add("hidden");
+  document.getElementById("menuGrid")?.classList.remove("hidden");
 }
 
 // ── Category tabs ─────────────────────────────────────────────
@@ -253,16 +405,50 @@ function renderCategoryTabs(items) {
   scroll.addEventListener("click", (e) => {
     const btn = e.target.closest(".cat-btn");
     if (!btn) return;
-    scroll.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    activeCategory = btn.dataset.cat;
-    const si = document.getElementById("searchInput");
-    if (si) si.value = "";
-    activeSearch = "";
-    const catNav = document.getElementById("categoryNav");
-    if (catNav) catNav.style.display = "";
-    applyFilter();
+    _selectCategory(btn.dataset.cat);
   });
+
+  // [AI UPDATE 2026-08-02] Phase 2 — notify category-fab.js with updated list
+  const itemCounts = {};
+  categories.forEach(cat => {
+    itemCounts[cat] = cat === "All"
+      ? items.length
+      : items.filter(i => (i.category || "Other") === cat).length;
+  });
+  _onCategoriesReadyCb?.(categories, itemCounts);
+}
+
+/**
+ * Shared category-selection logic used by both the tab strip click handler
+ * and the exported setActiveCategory (called by category-fab.js).
+ * [AI UPDATE 2026-08-02] Phase 2
+ */
+function _selectCategory(cat) {
+  _forceFlat = false; // [AI UPDATE 2026-08-03] Reset flat override on explicit category pick
+  const scroll = document.querySelector(".category-scroll");
+  if (scroll) {
+    scroll.querySelectorAll(".cat-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.cat === cat);
+    });
+    // Scroll the active tab into view
+    const activeBtn = scroll.querySelector(`.cat-btn[data-cat="${CSS.escape(cat)}"]`);
+    activeBtn?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }
+  activeCategory = cat;
+  const si = document.getElementById("searchInput");
+  if (si) si.value = "";
+  activeSearch = "";
+  const catNav = document.getElementById("categoryNav");
+  if (catNav) catNav.style.display = "";
+  applyFilter();
+}
+
+/**
+ * Programmatically activate a category — called by category-fab.js.
+ * [AI UPDATE 2026-08-02] Phase 2
+ */
+export function setActiveCategory(cat) {
+  _selectCategory(cat);
 }
 
 // ── Main renderer — pairs up variants ────────────────────────
@@ -281,85 +467,255 @@ function renderMenuItems(items, query) {
     return;
   }
 
-  const frag      = document.createDocumentFragment();
-  const processed = new Set();
+  // [AI UPDATE 2026-08-02] UX upgrade — all variants collapsed into a single
+  // premium card. _groupItems() merges Half/Full and Regular/Medium/Large
+  // variants into group objects; single items pass through unchanged.
+  const grouped = _groupItems(items);
+  _groupsById.clear();
+  for (const g of grouped) {
+    if (g.isGroup) _groupsById.set(g.groupKey, g);
+  }
 
-  items.forEach(item => {
-    if (processed.has(item.id)) return;
-
-    // ── Triple card (Regular / Medium / Large) ──
-    if (_isVariant(item.name)) {
-      const base = _vBase(item.name);
-      const reg = items.find(i => !processed.has(i.id) && _isRegular(i.name) && _vBase(i.name) === base);
-      const med = items.find(i => !processed.has(i.id) && _isMedium(i.name)  && _vBase(i.name) === base);
-      const lrg = items.find(i => !processed.has(i.id) && _isLarge(i.name)   && _vBase(i.name) === base);
-      if (reg && med && lrg) {
-        frag.appendChild(_createTripleCard(reg, med, lrg));
-        processed.add(reg.id); processed.add(med.id); processed.add(lrg.id);
-        return;
-      }
+  const frag = document.createDocumentFragment();
+  for (const entry of grouped) {
+    if (entry.isGroup) {
+      frag.appendChild(_createGroupCard(entry, query));
+    } else {
+      frag.appendChild(_createRegularCard(entry, query));
     }
-
-    // ── Half / Full card ──
-    if (_isHalf(item.name)) {
-      const base = _vBase(item.name);
-      const full = items.find(i => !processed.has(i.id) && _isFull(i.name) && _vBase(i.name) === base);
-      if (full) {
-        frag.appendChild(_createHalfFullCard(item, full));
-        processed.add(item.id); processed.add(full.id);
-        return;
-      }
-    } else if (_isFull(item.name)) {
-      const base = _vBase(item.name);
-      const half = items.find(i => !processed.has(i.id) && _isHalf(i.name) && _vBase(i.name) === base);
-      if (half) {
-        frag.appendChild(_createHalfFullCard(half, item));
-        processed.add(half.id); processed.add(item.id);
-        return;
-      }
-    }
-
-    // ── Regular card ──
-    frag.appendChild(_createRegularCard(item, query));
-    processed.add(item.id);
-  });
+  }
 
   grid.innerHTML = "";
   grid.appendChild(frag);
   _wireCardEvents(grid);
   // [AI UPDATE 2026-08-01] Restore saved cart quantities/UI after every render.
   restoreCartUI();
+  // [AI UPDATE 2026-08-02] Phase 1 — show "Read More" only on cards where
+  // description text actually overflows the 2-line clamp.
+  requestAnimationFrame(() => _wireReadMore(grid));
+}
+
+// ── Variant grouping ──────────────────────────────────────────
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — collapses variant Firestore docs into
+ * group objects so every product shows ONE premium card regardless of how many
+ * sizes it has.  Single items (no variant suffix) pass through unchanged.
+ *
+ * Returns an array of either:
+ *   { isGroup: false, ...originalItem }
+ *   {
+ *     isGroup: true, groupKey, displayName, category,
+ *     imageUrl, description, extraOptions,
+ *     variants: [{ id, label, price, oos }]
+ *   }
+ */
+function _groupItems(items) {
+  const result    = [];
+  const processed = new Set();
+
+  for (const item of items) {
+    if (processed.has(item.id)) continue;
+
+    if (_isVariant(item.name)) {
+      const base = _vBase(item.name);
+      const cat  = item.category || "Other";
+
+      // Collect every known variant type for this base+category
+      const half = items.find(i => !processed.has(i.id) && _isHalf(i.name)    && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const full = items.find(i => !processed.has(i.id) && _isFull(i.name)    && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const reg  = items.find(i => !processed.has(i.id) && _isRegular(i.name) && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const med  = items.find(i => !processed.has(i.id) && _isMedium(i.name)  && _vBase(i.name) === base && (i.category || "Other") === cat);
+      const lrg  = items.find(i => !processed.has(i.id) && _isLarge(i.name)   && _vBase(i.name) === base && (i.category || "Other") === cat);
+
+      const variants = [];
+      if (half) { variants.push({ id: half.id, label: "Half",    price: half.price, oos: _isItemOos(half) }); processed.add(half.id); }
+      if (full) { variants.push({ id: full.id, label: "Full",    price: full.price, oos: _isItemOos(full) }); processed.add(full.id); }
+      if (reg)  { variants.push({ id: reg.id,  label: "Regular", price: reg.price,  oos: _isItemOos(reg)  }); processed.add(reg.id);  }
+      if (med)  { variants.push({ id: med.id,  label: "Medium",  price: med.price,  oos: _isItemOos(med)  }); processed.add(med.id);  }
+      if (lrg)  { variants.push({ id: lrg.id,  label: "Large",   price: lrg.price,  oos: _isItemOos(lrg)  }); processed.add(lrg.id);  }
+
+      if (variants.length > 0) {
+        if (!processed.has(item.id)) processed.add(item.id);
+        const rep      = reg || half || med || full || lrg || item;
+        const groupKey = `${base}::${cat.toLowerCase()}`;
+        result.push({
+          // [AI UPDATE 2026-08-03] Phase 3 — spread all rep fields so
+          // isFeatured, orderCount, isNew, displayOrder, createdAt, etc.
+          // are available to home-sections.js without extra Firestore reads.
+          ...rep,
+          isGroup:      true,
+          groupKey,
+          displayName:  _displayBase(item.name),
+          category:     cat,
+          imageUrl:     rep.imageUrl     || "",
+          description:  rep.description  || "",
+          extraOptions: rep.extraOptions || [],
+          variants,
+        });
+        continue;
+      }
+    }
+
+    if (!processed.has(item.id)) {
+      processed.add(item.id);
+      result.push({ isGroup: false, ...item });
+    }
+  }
+
+  return result;
 }
 
 // ── Card builders ─────────────────────────────────────────────
 
+/**
+ * [AI UPDATE 2026-08-02] Phase 1 — Premium card layout:
+ *   LEFT  — product image with shimmer placeholder + lazy load
+ *   RIGHT — name, description (2-line clamp + Read More), price, ADD button
+ *
+ * ADD button now opens the Item Details Sheet instead of calling
+ * addItem() directly. The qty control (shown when item is in cart)
+ * still calls addItem/removeItem directly — no sheet opened for
+ * increments/decrements of items already in cart.
+ */
 function _createRegularCard(item, query) {
   const div   = document.createElement('div');
   const label = query ? highlight(item.name || "", query) : escHtml(item.name || "");
   const price = item.price || 0;
   const oos   = _isItemOos(item);
+  const desc  = item.description || "";
+  const imgUrl = item.imageUrl   || "";
 
-  div.className    = `menu-card${oos ? ' oos' : ''}`;
-  div.dataset.id   = item.id;
-  div.dataset.name = item.name || "";
-  div.dataset.price= price;
+  div.className     = `menu-card${oos ? ' oos' : ''}`;
+  div.dataset.id    = item.id;
+  div.dataset.name  = item.name || "";
+  div.dataset.price = price;
+
+  // Image area — always rendered; hides itself via CSS if no src
+  const imgHtml = imgUrl
+    ? `<div class="card-img-wrap">
+         <div class="card-img-shimmer"></div>
+         <img class="card-img"
+              src="${escHtml(imgUrl)}"
+              alt="${escHtml(item.name || '')}"
+              loading="lazy"
+              decoding="async"
+              onload="this.classList.add('card-img--loaded');this.previousElementSibling.style.display='none'"
+              onerror="this.closest('.card-img-wrap').style.display='none'" />
+       </div>`
+    : `<div class="card-img-wrap card-img-wrap--empty">
+         <span class="card-img-emoji">🍽️</span>
+       </div>`;
+
+  // Description with 2-line clamp; Read More button shown by _wireReadMore
+  const descHtml = desc
+    ? `<p class="card-desc">${escHtml(desc)}</p>
+       <button class="card-desc-more" type="button" style="display:none">Read More</button>`
+    : "";
 
   div.innerHTML = `
     <div class="card-body">
+      ${imgHtml}
       <div class="card-info">
         <h3 class="card-name">${label}</h3>
+        ${descHtml}
         ${oos ? '<span class="oos-badge">Out of Stock</span>' : ''}
+        <div class="card-footer-inline">
+          <span class="card-price">₹${price}</span>
+          <div class="card-action">
+            ${oos
+              ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
+              : `<button class="btn-add"
+                         data-id="${escHtml(item.id)}"
+                         data-name="${escHtml(item.name || "")}"
+                         data-price="${price}">ADD</button>`
+            }
+          </div>
+        </div>
       </div>
-      <div class="card-footer-inline">
-        <span class="card-price">₹${price}</span>
-        <div class="card-action">
-          ${oos
-            ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
-            : `<button class="btn-add"
-                       data-id="${escHtml(item.id)}"
-                       data-name="${escHtml(item.name || "")}"
-                       data-price="${price}">Add</button>`
-          }
+    </div>`;
+  return div;
+}
+
+/**
+ * After the grid is in the DOM, check each .card-desc for overflow and
+ * reveal the "Read More" button only when the text is actually clamped.
+ * [AI UPDATE 2026-08-02] Phase 1
+ */
+function _wireReadMore(grid) {
+  grid.querySelectorAll('.card-desc').forEach(el => {
+    const btn = el.nextElementSibling;
+    if (!btn || !btn.classList.contains('card-desc-more')) return;
+    // scrollHeight > clientHeight means the text overflows the 2-line clamp
+    if (el.scrollHeight > el.clientHeight + 2) {
+      btn.style.display = 'block';
+    }
+  });
+}
+
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — ONE card for all variant groups.
+ * Shows cheapest available price as "Starting from ₹X".
+ * ADD opens item sheet with variant radio buttons.
+ */
+function _createGroupCard(group, query) {
+  const div = document.createElement('div');
+
+  const availableVariants = group.variants.filter(v => !v.oos);
+  const lowestPrice = availableVariants.length
+    ? Math.min(...availableVariants.map(v => v.price))
+    : Math.min(...group.variants.map(v => v.price));
+  const allOos = group.variants.every(v => v.oos);
+  const variantIds = group.variants.map(v => v.id).join(',');
+
+  const label = query
+    ? highlight(group.displayName, query)
+    : escHtml(group.displayName);
+
+  const imgHtml = group.imageUrl
+    ? `<div class="card-img-wrap">
+         <div class="card-img-shimmer"></div>
+         <img class="card-img"
+              src="${escHtml(group.imageUrl)}"
+              alt="${escHtml(group.displayName)}"
+              loading="lazy" decoding="async"
+              onload="this.classList.add('card-img--loaded');this.previousElementSibling.style.display='none'"
+              onerror="this.closest('.card-img-wrap').style.display='none'" />
+       </div>`
+    : `<div class="card-img-wrap card-img-wrap--empty">
+         <span class="card-img-emoji">🍽️</span>
+       </div>`;
+
+  const descHtml = group.description
+    ? `<p class="card-desc">${escHtml(group.description)}</p>
+       <button class="card-desc-more" type="button" style="display:none">Read More</button>`
+    : "";
+
+  div.className = `menu-card menu-card--group${allOos ? " oos" : ""}`;
+  div.dataset.id         = `group__${group.groupKey}`;
+  div.dataset.name       = group.displayName;
+  div.dataset.groupKey   = group.groupKey;
+  div.dataset.variantIds = variantIds;
+
+  div.innerHTML = `
+    <div class="card-body">
+      ${imgHtml}
+      <div class="card-info">
+        <h3 class="card-name">${label}</h3>
+        ${descHtml}
+        ${allOos ? '<span class="oos-badge">Out of Stock</span>' : ''}
+        <div class="card-footer-inline">
+          <div>
+            <span class="card-price-from">Starting from</span>
+            <span class="card-price">₹${lowestPrice}</span>
+          </div>
+          <div class="card-action">
+            <div class="group-cart-badge" style="display:none">0</div>
+            ${allOos
+              ? '<button class="btn-add btn-oos" disabled>Unavailable</button>'
+              : `<button class="btn-add" data-group-key="${escHtml(group.groupKey)}">ADD</button>`
+            }
+          </div>
         </div>
       </div>
     </div>`;
@@ -434,41 +790,52 @@ function _createTripleCard(reg, med, lrg) {
 
 // ── Event delegation ──────────────────────────────────────────
 
+/**
+ * [AI UPDATE 2026-08-02] UX upgrade — simplified event delegation.
+ * Group cards and regular cards both open item sheet on ADD.
+ * In-cart qty controls (regular cards only) still call addItem/removeItem directly.
+ */
 function _wireCardEvents(grid) {
   const fresh = grid.cloneNode(true);
   grid.parentNode?.replaceChild(fresh, grid);
 
   fresh.addEventListener("click", (e) => {
-    // ── Regular card ──
+
+    // ── Description Read More / Read Less ──────────────────────
+    const moreBtn = e.target.closest(".card-desc-more");
+    if (moreBtn) {
+      e.stopPropagation();
+      const descEl = moreBtn.previousElementSibling;
+      if (descEl?.classList.contains("card-desc")) {
+        const expanded = descEl.classList.toggle("card-desc--expanded");
+        moreBtn.textContent = expanded ? "Read Less" : "Read More";
+      }
+      return;
+    }
+
+    // ── ADD button — opens item sheet for single items or groups ─
     const addBtn = e.target.closest(".btn-add");
     if (addBtn && !addBtn.disabled) {
+      // Group card
+      if (addBtn.dataset.groupKey) {
+        const group = _groupsById.get(addBtn.dataset.groupKey);
+        if (group) { openItemSheet(group); return; }
+      }
+      // Single-item card
+      const item = _itemsById.get(addBtn.dataset.id);
+      if (item) { openItemSheet(item); return; }
+      // Fallback
       addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
       return;
     }
+
+    // ── Regular card in-cart qty controls (no sheet) ────────────
     const minus = e.target.closest(".qty-minus");
     if (minus) { removeItem(minus.dataset.id); return; }
     const plus = e.target.closest(".qty-plus");
     if (plus) {
       const card = plus.closest(".menu-card");
       if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
-      return;
-    }
-
-    // ── Half/Full ──
-    const hfRemove = e.target.closest(".hf-remove");
-    if (hfRemove) { e.stopPropagation(); removeItem(hfRemove.dataset.id); return; }
-    const hfSide = e.target.closest(".half-full-side");
-    if (hfSide && hfSide.dataset.oos !== '1') {
-      addItem(hfSide.dataset.id, hfSide.dataset.name, Number(hfSide.dataset.price));
-      return;
-    }
-
-    // ── Triple ──
-    const trRemove = e.target.closest(".triple-remove");
-    if (trRemove) { e.stopPropagation(); removeItem(trRemove.dataset.id); return; }
-    const trSide = e.target.closest(".triple-side");
-    if (trSide && trSide.dataset.oos !== '1') {
-      addItem(trSide.dataset.id, trSide.dataset.name, Number(trSide.dataset.price));
       return;
     }
   });

@@ -24,7 +24,7 @@ import {
   serverTimestamp,
 }                                         from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { httpsCallable }                  from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
-import { cart, clearCart }                from "./cart.js";
+import { cart, clearCart, cartExtras }    from "./cart.js";
 import { getCustomer }                    from "./customer.js";
 import { waitForAuthReady, getLoginInfo } from "./auth.js";
 
@@ -57,7 +57,7 @@ export function getTableId() {
       try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
       return tableId;
     }
-    return null;
+    return "Unknown";
   }
 
   try {
@@ -66,9 +66,9 @@ export function getTableId() {
   } catch (_) {}
 
   const match = window.location.pathname.match(/^\/t\/(\d+)$/);
-  if (!match) return null;
+  if (!match) return "Unknown";
   const n = parseInt(match[1], 10);
-  if (n < 1 || n > VALID_TABLES) return null;
+  if (n < 1 || n > VALID_TABLES) return "Unknown";
   const tableId = `Table ${n}`;
   try { sessionStorage.setItem(SESSION_KEY, tableId); } catch (_) {}
   return tableId;
@@ -123,12 +123,19 @@ export async function placeOrder() {
   let   totalPrice = 0;
 
   for (const item of cart.values()) {
+    // [AI UPDATE 2026-08-02] UX upgrade — include selected extras in payload
+    // so Billing Panel and Kitchen see exactly what was ordered.
+    // [AI UPDATE 2026-08-03] Also include specialRequest when present.
+    const extras         = cartExtras.get(item.id)?.extras         || [];
+    const specialRequest = cartExtras.get(item.id)?.specialRequest || "";
     items.push({
       itemId:   item.id,
       name:     item.name,
       price:    item.price,
       quantity: item.qty,
       subtotal: +(item.price * item.qty).toFixed(2),
+      extras,   // [{name, price}] — empty array when no extras selected
+      ...(specialRequest && { specialRequest }), // omit field entirely when empty
     });
     totalItems += item.qty;
     totalPrice += item.price * item.qty;

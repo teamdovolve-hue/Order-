@@ -320,6 +320,9 @@
       <button class="btn-retry" id="retryBtn">Retry</button>
     </div>
 
+    <!-- [AI UPDATE 2026-08-03] Phase 3 — Home sections (shown when "All" is active) -->
+    <div class="home-sections hidden" id="homeSections"></div>
+
     <!-- Menu grid -->
     <div class="menu-grid hidden" id="menuGrid"></div>
 
@@ -428,6 +431,92 @@
         <span class="ors-badge-dot"></span>
         Orders temporarily unavailable
       </span>
+    </div>
+  </div>
+
+  <!-- ── Category FAB + Bottom Sheet ──────────────────────────
+       [AI UPDATE 2026-08-02] Phase 2 — floating button that opens
+       a category jump sheet so customers don't have to scroll back
+       to the top to switch categories.
+  ──────────────────────────────────────────────────────────── -->
+  <!-- [AI UPDATE 2026-08-03] Redesigned from circle icon to branded pill button -->
+  <button class="category-fab" id="categoryFab" aria-label="Browse menu categories">
+    <span class="category-fab-pill-icon" aria-hidden="true">☰</span>
+    <span class="category-fab-pill-text">Menu</span>
+  </button>
+
+  <div class="category-fab-modal hidden" id="categoryFabModal" role="dialog" aria-modal="true" aria-label="Browse categories">
+    <div class="category-fab-backdrop"></div>
+    <div class="category-fab-sheet">
+      <div class="category-fab-drag-handle"></div>
+      <h2 class="category-fab-title">Jump to Category</h2>
+      <div class="category-fab-list" id="categoryFabList"></div>
+    </div>
+  </div>
+
+  <!-- ── Item Details Sheet ───────────────────────────────────
+       [AI UPDATE 2026-08-02] Phase 1 — slides up when customer
+       taps ADD on any menu card. Shows image, full description,
+       optional extras, custom request, qty selector, live price.
+  ──────────────────────────────────────────────────────────── -->
+  <div class="item-sheet-modal hidden" id="itemSheetModal" role="dialog" aria-modal="true" aria-label="Item details">
+    <div class="item-sheet-backdrop"></div>
+    <div class="item-sheet">
+      <!-- Drag handle -->
+      <div class="item-sheet-drag-handle"></div>
+
+      <!-- Product image (hidden when no imageUrl) -->
+      <div class="item-sheet-img-wrap" id="itemSheetImgWrap" style="display:none">
+        <div class="item-sheet-img-shimmer" id="itemSheetImgShimmer"></div>
+        <img class="item-sheet-img" id="itemSheetImg" alt="" loading="lazy" decoding="async" />
+      </div>
+
+      <!-- Scrollable body -->
+      <div class="item-sheet-body">
+        <h2 class="item-sheet-name" id="itemSheetName"></h2>
+        <p class="item-sheet-desc" id="itemSheetDesc"></p>
+
+        <!-- Variant selector (Half/Full, Regular/Medium/Large) — hidden for single items -->
+        <div class="item-sheet-variants" id="itemSheetVariants" style="display:none">
+          <h3 class="item-sheet-section-title">Choose Size</h3>
+          <div id="itemSheetVariantsList"></div>
+        </div>
+
+        <!-- Extra options — hidden when none exist -->
+        <div class="item-sheet-extras" id="itemSheetExtras" style="display:none">
+          <h3 class="item-sheet-section-title">Add Extras</h3>
+          <div id="itemSheetExtrasList"></div>
+        </div>
+
+        <!-- Special request -->
+        <div class="item-sheet-custom">
+          <h3 class="item-sheet-section-title">
+            Special Request
+            <span class="item-sheet-optional">Optional</span>
+          </h3>
+          <textarea
+            class="item-sheet-request-input"
+            id="itemSheetRequest"
+            placeholder="e.g. Less spicy, extra sauce, no onions…"
+            rows="2"
+            maxlength="200"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- Footer: price + qty + add button -->
+      <div class="item-sheet-footer">
+        <div class="item-sheet-price-wrap">
+          <span class="item-sheet-price-label">Total</span>
+          <span class="item-sheet-price" id="itemSheetPrice">₹0</span>
+        </div>
+        <div class="item-sheet-qty-ctrl">
+          <button class="item-sheet-qty-btn" id="itemSheetQtyMinus" aria-label="Decrease quantity">−</button>
+          <span class="item-sheet-qty-num" id="itemSheetQtyNum">1</span>
+          <button class="item-sheet-qty-btn" id="itemSheetQtyPlus" aria-label="Increase quantity">+</button>
+        </div>
+        <button class="item-sheet-add-btn" id="itemSheetAddBtn">Add to Cart</button>
+      </div>
     </div>
   </div>
 

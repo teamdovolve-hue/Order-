@@ -20,6 +20,15 @@
 /** Map<itemId, { id, name, price, qty }> */
 export const cart = new Map();
 
+/**
+ * Extras metadata for the current session.
+ * Map<itemId, { extras: [{name, price}] }>
+ * [AI UPDATE 2026-08-02] UX upgrade — populated by item-sheet.js after
+ * each "Add to Cart". Read by order.js (payload) and review.js (UI).
+ * NOT persisted to localStorage — price already includes extras.
+ */
+export const cartExtras = new Map();
+
 // ── localStorage persistence ───────────────────────────────────
 
 const CART_KEY = "qrmenu_cart";
@@ -83,7 +92,10 @@ export function removeItem(id) {
   if (!cart.has(id)) return;
   const item = cart.get(id);
   item.qty -= 1;
-  if (item.qty <= 0) cart.delete(id);
+  if (item.qty <= 0) {
+    cart.delete(id);
+    cartExtras.delete(id); // [AI UPDATE 2026-08-02]
+  }
   _saveCart();
   refreshCartUI();
   updateCardUI(id);
@@ -94,6 +106,7 @@ export function removeItem(id) {
 export function clearCart() {
   const ids = [...cart.keys()];
   cart.clear();
+  cartExtras.clear(); // [AI UPDATE 2026-08-02]
   try { localStorage.removeItem(CART_KEY); } catch (_) {}
   refreshCartUI();
   ids.forEach((id) => updateCardUI(id));
@@ -156,24 +169,21 @@ export function updateCardUI(itemId) {
     }
   }
 
-  // ── .half-full-side ──
-  const hfSide = document.querySelector(`.half-full-side[data-id="${itemId}"]`);
-  if (hfSide) {
-    hfSide.classList.toggle("in-cart", qty > 0);
-    const qtyEl = hfSide.querySelector(".hf-qty");
-    const remEl = hfSide.querySelector(".hf-remove");
-    if (qtyEl) { qtyEl.textContent = qty; qtyEl.style.display = qty > 0 ? "flex" : "none"; }
-    if (remEl)   remEl.style.display = qty > 0 ? "flex" : "none";
-  }
-
-  // ── .triple-side ──
-  const trSide = document.querySelector(`.triple-side[data-id="${itemId}"]`);
-  if (trSide) {
-    trSide.classList.toggle("in-cart", qty > 0);
-    const qtyEl = trSide.querySelector(".triple-qty");
-    const remEl = trSide.querySelector(".triple-remove");
-    if (qtyEl) { qtyEl.textContent = qty; qtyEl.style.display = qty > 0 ? "flex" : "none"; }
-    if (remEl)   remEl.style.display = qty > 0 ? "flex" : "none";
+  // ── Group card badge (variants share one card) ────────────────
+  // [AI UPDATE 2026-08-02] UX upgrade — find group cards that contain
+  // this variant ID and update their total-qty badge.
+  if (!card) {
+    document.querySelectorAll(".menu-card[data-variant-ids]").forEach(groupCard => {
+      const ids = groupCard.dataset.variantIds.split(",");
+      if (!ids.includes(itemId)) return;
+      const totalQty = ids.reduce((sum, vid) => sum + (cart.get(vid)?.qty || 0), 0);
+      const badge = groupCard.querySelector(".group-cart-badge");
+      if (badge) {
+        badge.textContent  = totalQty;
+        badge.style.display = totalQty > 0 ? "flex" : "none";
+      }
+      groupCard.classList.toggle("in-cart", totalQty > 0);
+    });
   }
 }
 

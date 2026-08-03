@@ -32,6 +32,12 @@ import { initRestaurantStatus,
          isOrderingEnabled }                from "./restaurant-status.js";
 import { initReview, openReview,
          closeReview }                      from "./review.js";
+// [AI UPDATE 2026-08-02] Phase 1 — Item Details Sheet
+import { initItemSheet }                    from "./item-sheet.js";
+// [AI UPDATE 2026-08-02] Phase 2 — Floating Category FAB
+import { initCategoryFab }                  from "./category-fab.js";
+// [AI UPDATE 2026-08-03] Phase 3 — Intelligent Home Screen
+import { initHomeSections }                 from "./home-sections.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -51,18 +57,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   ]);
   if (isLoggedIn()) await loadActiveTableAssignment().catch(() => {});
 
-  // ── 0. Table gate ─────────────────────────────────────────────
-  //   Check this before anything else.  If the customer didn't arrive
-  //   via a valid /t/1…/t/10 QR URL, replace the page with the correct
-  //   error screen and stop.  Nothing else initialises.
+  // ── 0. Table ID — no gate, always proceeds ───────────────────
+  //   Returns "Table N" for valid QR URLs, "Unknown" for direct access.
+  //   Removed QR gate so testing without a QR code still works.
 
-  const tableId    = getTableId();
-  const isTableUrl = /^\/t\//.test(window.location.pathname);
-
-  if (!tableId) {
-    _showGatePage(isTableUrl ? "invalid" : "scan");
-    return;
-  }
+  const tableId = getTableId();
 
   // ── 1. Table badge ────────────────────────────────────────────
   const badge = document.getElementById("tableBadge");
@@ -79,6 +78,18 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── 5. Review sheet ───────────────────────────────────────────
   initReview();
+
+  // ── 5b. Item Details Sheet ────────────────────────────────────
+  // [AI UPDATE 2026-08-02] Phase 1 — wire item sheet DOM events
+  initItemSheet();
+
+  // ── 5c. Category FAB ──────────────────────────────────────────
+  // [AI UPDATE 2026-08-02] Phase 2 — floating category jump button
+  initCategoryFab();
+
+  // ── 5d. Home Sections ─────────────────────────────────────────
+  // [AI UPDATE 2026-08-03] Phase 3 — registers renderer with menu.js
+  initHomeSections();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
