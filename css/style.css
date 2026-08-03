@@ -2364,6 +2364,15 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   gap: 8px;
 }
 
+/* [AI UPDATE 2026-08-03] BUG FIX — variant card badge + ADD button layout.
+   Without display:flex the badge (a block element) stacks vertically on top
+   of the ADD button when it becomes visible, causing overlap on group cards. */
+.menu-card .card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ADD button update — uppercase, slightly smaller padding */
 .menu-card .btn-add {
   font-size: 13px;
@@ -2930,6 +2939,84 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 /* ── Responsive & safe-area ──────────────────────────────────── */
 @media (min-width: 600px) {
   .review-sheet { border-radius: 28px; max-height: 82dvh; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   HOME SECTIONS — Intelligent Discovery
+   [AI UPDATE 2026-08-03] Phase 3
+   Shown only when "All" category is active and no search is open.
+   Cards reuse .menu-card exactly — only width is constrained.
+══════════════════════════════════════════════════════════════ */
+
+.home-sections {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+
+.home-section {
+  padding-bottom: 4px;
+}
+
+/* Section header: title + "See All" */
+.home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 16px 10px;
+}
+
+.home-section-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-1);
+  letter-spacing: 0.1px;
+  margin: 0;
+}
+
+.home-section-see-all {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-section-see-all:hover { background: rgba(245, 166, 35, 0.1); }
+
+/* Horizontal scroll row */
+.home-section-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0 16px 14px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;          /* Firefox */
+}
+.home-section-scroll::-webkit-scrollbar { display: none; }
+
+/* Cards inside the scroll row — fixed width, no bottom margin */
+.home-section-scroll .menu-card {
+  flex: 0 0 272px;
+  width: 272px;
+  margin-bottom: 0;
+  scroll-snap-align: start;
+}
+
+/* Slightly tighter image on small home-section cards */
+.home-section-scroll .card-img-wrap {
+  width: 70px;
+  height: 70px;
+  flex-shrink: 0;
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {

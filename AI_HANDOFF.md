@@ -4,6 +4,130 @@
 
 ---
 
+## [AI UPDATE 2026-08-03] — Bug Fix: Variant Card Badge Overlap + Phase 3 Intelligent Home Screen
+
+### Branch
+`test-ux-polish`
+
+---
+
+### Bug Fix: Variant Card Layout (group-cart-badge overlapping ADD button)
+
+**Root Cause:**
+`.card-action` (the container holding the amber qty badge + ADD button on group/variant cards) lacked `display: flex`. The `.group-cart-badge` is a block-level flex element — when it became visible it stacked vertically above the ADD button, causing visual overlap inside the `card-footer-inline` row.
+
+**Fix (`css/style.css`):**
+```css
+.menu-card .card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+```
+Badge and ADD button now appear side by side. Simple (non-variant) cards are unaffected — their `.card-action` only contains the ADD button.
+
+**Files changed:** `css/style.css` only. No JS changes.
+
+---
+
+### Phase 3 — Intelligent Home Screen
+
+**Objective:** When the "All" category is selected and no search is active, replace the flat menu list with four dynamic discovery sections. Any specific category or search restores normal behavior exactly.
+
+#### Architecture: Circular-Import-Free Design
+
+`menu.js` and `home-sections.js` are kept decoupled via a registered-callback pattern:
+
+```
+app.js
+ ├─ initMenu()           — registers Firestore listener, calls applyFilter()
+ └─ initHomeSections()   — calls setHomeSectionsRenderer(fn) on menu.js
+
+menu.js                  — never imports home-sections.js
+ ├─ setHomeSectionsRenderer(cb)  — stores the renderer callback
+ ├─ showFlatMenu()               — sets _forceFlat=true, re-runs applyFilter
+ ├─ buildCardElement(entry, q)   — exported; reuses _createGroupCard/_createRegularCard
+ └─ wireCardContainer(el)        — exported; attaches delegated click handler
+
+home-sections.js         — imports from menu.js (no circular dep)
+ └─ initHomeSections()   — registers renderer + wires #homeSections container once
+```
+
+Because Firestore `onSnapshot` fires asynchronously, `initHomeSections()` (called synchronously after `initMenu()`) is always registered before the first `applyFilter()` runs.
+
+#### State machine in `applyFilter()` (`js/menu.js`)
+
+| Condition | Behaviour |
+|---|---|
+| `activeSearch` truthy | Hide home sections → show flat filtered `#menuGrid` |
+| `activeCategory === "All"` + `!_forceFlat` + renderer registered | Show `#homeSections`, hide `#menuGrid`, call renderer |
+| `activeCategory === "All"` + `_forceFlat` | Hide `#homeSections` → show flat full list in `#menuGrid` |
+| Any specific category | Hide `#homeSections` → show filtered `#menuGrid` |
+
+`_forceFlat` is reset to `false` whenever `_selectCategory()` is called (user taps a category button or the FAB category list).
+
+#### Section Algorithms (all in-memory, zero extra Firestore reads)
+
+Sections operate on `grouped` — the output of `_groupItems(allItems)` — which now carries all original Firestore fields via `...rep` spread. Fields used: `isFeatured`, `orderCount`, `isNew`, `displayOrder`, `createdAt`.
+
+| Section | Primary sort | Fallback |
+|---|---|---|
+| ⭐ Recommended | `isFeatured` first, then `orderCount` desc | All available items by `orderCount` |
+| 🔥 Most Ordered | `orderCount` desc (only items with count > 0) | Featured items → then all available |
+| ✨ New Arrivals | `isNew === true` items first | All items by `createdAt` desc (newest first) |
+| 👨‍🍳 Chef's Picks | `isFeatured` by `displayOrder` asc | All available by `displayOrder` asc |
+
+Limits: Recommended/Most Ordered/Chef's Picks → 8 items. New Arrivals → 6 items. Sections with 0 qualifying items are silently omitted. OOS-only groups and OOS single items are excluded from all sections.
+
+#### `_groupItems` change (`js/menu.js`)
+
+Previously the group entry only contained a fixed set of fields. Now:
+```js
+result.push({
+  ...rep,         // ALL fields from representative variant item (isFeatured, orderCount, etc.)
+  isGroup: true, groupKey, displayName, category, imageUrl, description, extraOptions, variants,
+});
+```
+This is safe: all code that branches on `isGroup === true` was already explicit.
+
+#### Card Rendering
+
+`buildCardElement(entry, query)` exported from `menu.js` delegates to the existing `_createGroupCard` / `_createRegularCard` builders. Home section cards are **identical DOM elements** to main menu cards — no CSS duplication. Width is fixed to `272px` via `.home-section-scroll .menu-card { flex: 0 0 272px; }`.
+
+`wireCardContainer(container)` attaches a single delegated click handler on `#homeSections` (called once at init). Handles ADD (opens item sheet), qty-minus, qty-plus, and Read More — same logic as `_wireCardEvents` but without the cloneNode/replaceChild replacement pattern.
+
+Cart quantity badges update automatically on home section cards: `restoreCartUI()` (from `cart.js`) queries the entire DOM by `data-id` / `data-group-key`, so hidden or visible home section cards are updated alongside main menu cards.
+
+#### "See All" behaviour
+
+Every section has a "See All" button. Clicking it calls `showFlatMenu()` which sets `_forceFlat = true` and re-runs `applyFilter()`, rendering the full flat menu list in `#menuGrid`. The "All" category tab remains active. Tapping any other category (or tapping "All" again) resets `_forceFlat` and returns to home sections.
+
+#### New file: `js/home-sections.js`
+
+- `initHomeSections()` — exported; called once from `app.js`
+- `_render(allItems, grouped)` — registered renderer, builds sections and injects cards
+- `_computeSections(grouped)` — pure function; returns `[{id, title, entries}]` array
+- `_isOos`, `_tsOf`, `_orderCount`, `_isFeatured`, `_isNew`, `_dispOrder`, `_limit` — private helpers
+
+#### Files Changed
+
+| File | Change |
+|---|---|
+| `js/home-sections.js` | **NEW** — section algorithms, renderer, init |
+| `js/menu.js` | Added `_forceFlat`, `_renderHomeSectionsCb`, `setHomeSectionsRenderer`, `showFlatMenu`, `buildCardElement`, `wireCardContainer`; modified `_groupItems` to spread `...rep`; modified `applyFilter` to branch on home sections; added `_showHomeSections`/`_hideHomeSections` |
+| `js/app.js` | Added `import { initHomeSections }` and `initHomeSections()` call at step 5d |
+| `css/style.css` | Added `.home-sections`, `.home-section`, `.home-section-header`, `.home-section-title`, `.home-section-see-all`, `.home-section-scroll`, and scroll-card overrides |
+| `index.html` | Added `<div class="home-sections hidden" id="homeSections">` before `#menuGrid` |
+
+#### What Was NOT Changed
+
+- Auth, Firestore schema, order placement, cart logic
+- `_wireCardEvents` on `#menuGrid` — untouched
+- Category filter, search, OOS badge behaviour
+- Any Billing Panel interface
+
+---
+
 ## [AI UPDATE 2026-08-03] — UX Polish: Image, Special Request, Category FAB
 
 ### Branch
