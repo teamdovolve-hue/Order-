@@ -1,3 +1,4 @@
 - [Live deployment split](deployment-domains.md) — the QR ordering app is served by Netlify; Replit preview changes do not reach the live domain automatically.
 - [Portable npm installs](portable-npm-installs.md) — never commit lockfiles containing Replit package-firewall URLs; external deploys need public npm resolution.
 - [UX Polish — Special Request & FAB](ux-polish-notes.md) — cartExtras stores specialRequest (not persisted to localStorage); git push times out from agent (use Replit Git panel).
+- [Products schema migration](products-schema-migration.md) — menu.js auto-detects products vs menu_items schema; extras→extraOptions mapping critical for item-sheet.js.

@@ -8,7 +8,8 @@
  *   • Half / Full card — paired "(Half)" + "(Full)" items
  *   • Triple card      — "(Regular)" + "(Medium)" + "(Large)" pizza groups
  *
- * Sort: cheapest → most expensive (group min price across all categories).
+ * Sort: by Admin-defined category displayOrder (products schema) or A→Z
+ * (legacy). Within each category: cheapest → most expensive.
  * Pizza sorted by Regular price; Half/Full sorted by Half price.
  *
  * Out-of-Stock behaviour:
@@ -25,13 +26,33 @@
  * `inStock === false` and `available === false` for full backward compatibility.
  * No filter that hides items is used — OOS items remain visible with a badge
  * and ordering disabled, so customers always see the complete menu.
+ *
+ * [AI UPDATE 2026-08-03] New hierarchical schema support.
+ * The Admin Panel migrated from flat `menu_items` to `categories` → `products`
+ * → `variants`. On init, menu.js checks whether the `products` collection is
+ * non-empty. If yes, it subscribes to `products` + `categories` with onSnapshot
+ * (real-time) and transforms them into the same flat item format the rest of
+ * menu.js already expects — no downstream code changes needed. If `products` is
+ * empty it falls back to the legacy `menu_items` listener so old deployments
+ * are unaffected.
+ *
+ * Field mapping from products schema → flat item schema:
+ *   products.categoryName          → item.category
+ *   products.extras[].name/price   → item.extraOptions[].name/price
+ *   products.flags.recommended     → item.isFeatured
+ *   products.flags.mostOrdered     → item._isMostOrdered  (home sections)
+ *   products.flags.casualSnack     → item._isCasualSnack  (home sections)
+ *   products.flags.chefPick        → item._isChefPick     (home sections)
+ *   products.flags.newArrival      → item.isNew
+ *   categories[catId].displayOrder → item._catDisplayOrder (sort key)
+ *   variant name suffix            → appended to item.name: "Pizza (Regular)"
  */
 
 // [AI UPDATE 2026-08-02] Phase 1 — imported openItemSheet; ADD button now
 // opens Item Details Sheet instead of calling addItem() directly.
 import { db } from "./firebase-config.js";
 import {
-  collection, doc, onSnapshot, query,
+  collection, doc, onSnapshot, query, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { addItem, removeItem, restoreCartUI } from "./cart.js";
 import { openItemSheet } from "./item-sheet.js";
@@ -44,6 +65,15 @@ let activeCategory = "All";
 let activeSearch   = "";
 let _unsub         = null;
 let _unsubSizes    = null;
+
+// [AI UPDATE 2026-08-03] New schema listeners + category display order
+let _unsubProducts = null;   // onSnapshot for products collection (new schema)
+let _unsubCats     = null;   // onSnapshot for categories collection (new schema)
+/**
+ * Map<categoryName, displayOrder> populated when reading from products/categories.
+ * Used by _sortItems() and renderCategoryTabs() to respect Admin-defined order.
+ */
+const _catDisplayOrderMap = new Map();
 
 // [AI UPDATE 2026-08-03] Phase 3 — Home sections support
 /** When true, applyFilter() skips home sections and shows the flat full list. */
@@ -163,8 +193,12 @@ let _pizzaSizes = { regular: true, medium: true, large: true };
 
 export function initMenu() {
   showLoading(true);
-  if (_unsub)      { _unsub();      _unsub      = null; }
-  if (_unsubSizes) { _unsubSizes(); _unsubSizes = null; }
+  // Clean up all existing listeners
+  if (_unsub)        { _unsub();        _unsub        = null; }
+  if (_unsubSizes)   { _unsubSizes();   _unsubSizes   = null; }
+  if (_unsubProducts){ _unsubProducts();_unsubProducts = null; }
+  if (_unsubCats)    { _unsubCats();    _unsubCats    = null; }
+  _catDisplayOrderMap.clear();
 
   // ── Listen to pizza-size availability (billing panel toggle) ──
   _unsubSizes = onSnapshot(doc(db, "settings", "pizza_sizes"), (snap) => {
@@ -184,39 +218,228 @@ export function initMenu() {
     console.warn("[menu] pizza_sizes listener error:", err.message);
   });
 
-  // ── Listen to menu items ──
-  _unsub = onSnapshot(query(collection(db, MENU_COLLECTION)), (snap) => {
-    // Keep ALL items — do NOT filter by availability here.
-    // OOS items are shown with a badge and ordering disabled.
-    const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    // [AI UPDATE 2026-08-02] UX upgrade — split Extra Topping into separate pool
-    _extraToppings = raw.filter(i =>
-      HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
-    );
-    const visibleRaw = raw.filter(i =>
-      !HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
-    );
-
-    allItems = _sortItems(visibleRaw);
-
-    // Phase 1 — quick-lookup Map for item sheet
-    _itemsById.clear();
-    for (const item of allItems) _itemsById.set(item.id, item);
-
-    if (allItems.length === 0) {
-      showError("No menu items available.\nCheck Firestore collection.");
-      return;
+  // ── Detect which schema is active, then start the right listener ──
+  //
+  // New schema (products + categories): Admin Panel >= 2026-08-03
+  //   Check is a one-shot getDocs; if non-empty we subscribe with onSnapshot.
+  // Legacy schema (menu_items): original flat collection.
+  //   Used when products is empty OR the check fails (network error, etc.).
+  getDocs(collection(db, "products")).then((prodCheck) => {
+    if (!prodCheck.empty) {
+      // ── New schema path ──────────────────────────────────────────
+      console.log("[menu] Using new products/categories schema.");
+      _startProductsListener();
+    } else {
+      // ── Legacy path ──────────────────────────────────────────────
+      console.log("[menu] products empty — using legacy menu_items schema.");
+      _startMenuItemsListener();
     }
+  }).catch((err) => {
+    console.warn("[menu] products check failed, falling back to menu_items:", err.message);
+    _startMenuItemsListener();
+  });
+}
 
-    renderCategoryTabs(allItems);
-    applyFilter();
-    showLoading(false);
-    document.getElementById("menuGrid")?.classList.remove("hidden");
+// ── New-schema listener (products + categories) ───────────────
+
+/**
+ * Subscribe to both `products` and `categories` with onSnapshot.
+ * On every snapshot, rebuild the flat item list via _productsToFlatItems()
+ * and feed it through the same processing pipeline as the legacy path.
+ *
+ * Uses a simple dual-snapshot coordinator: both listeners store their latest
+ * snapshot and call _onBothReady() which re-renders only when both are available.
+ */
+function _startProductsListener() {
+  let _latestProdSnap = null;
+  let _latestCatSnap  = null;
+
+  function _onBothReady() {
+    if (!_latestProdSnap || !_latestCatSnap) return;
+
+    // Build catMap: catId → { name, displayOrder, imageUrl }
+    const catMap = {};
+    _latestCatSnap.docs.forEach(d => {
+      catMap[d.id] = {
+        name:         d.data().name         || "",
+        displayOrder: d.data().displayOrder ?? 999,
+        imageUrl:     d.data().imageUrl     || null,
+      };
+    });
+
+    // Refresh global category display-order map (used by sort + tab render)
+    _catDisplayOrderMap.clear();
+    Object.values(catMap).forEach(c => {
+      if (c.name) _catDisplayOrderMap.set(c.name, c.displayOrder);
+    });
+
+    // Convert products snapshot to flat items
+    const flatItems = _productsToFlatItems(_latestProdSnap.docs, catMap);
+    _processRawItems(flatItems);
+  }
+
+  _unsubCats = onSnapshot(collection(db, "categories"), (snap) => {
+    _latestCatSnap = snap;
+    _onBothReady();
+  }, (err) => {
+    console.warn("[menu] categories listener error:", err.message);
+    // If categories fails, still try to render with whatever prod snapshot we have
+    if (_latestProdSnap) _onBothReady();
+  });
+
+  _unsubProducts = onSnapshot(collection(db, "products"), (snap) => {
+    _latestProdSnap = snap;
+    _onBothReady();
+  }, (err) => {
+    console.error("[menu] products listener error:", err);
+    showError("Couldn't load the menu. Please check your connection.");
+  });
+}
+
+/**
+ * Transform a Firestore `products` collection snapshot into the flat item array
+ * that the rest of menu.js expects (same shape as `menu_items` documents).
+ *
+ * For products with variants, one flat item is emitted per variant with name
+ * formatted as "ProductName (VariantName)" — e.g. "Margherita Pizza (Regular)".
+ * This lets the existing _groupItems() variant-detection regex work unchanged.
+ *
+ * For products without variants, one flat item is emitted with the product name.
+ *
+ * Field mapping:
+ *   products.categoryName        → item.category
+ *   products.extras[].name/price → item.extraOptions[].name/price  (item-sheet)
+ *   products.flags.recommended   → item.isFeatured
+ *   products.flags.mostOrdered   → item._isMostOrdered
+ *   products.flags.casualSnack   → item._isCasualSnack
+ *   products.flags.chefPick      → item._isChefPick
+ *   products.flags.newArrival    → item.isNew
+ *   catMap[categoryId].displayOrder → item._catDisplayOrder
+ *
+ * @param {FirestoreDocumentSnapshot[]} prodDocs  — docs from products collection
+ * @param {Object} catMap  — catId → { name, displayOrder, imageUrl }
+ * @returns {Object[]}  flat item array
+ */
+function _productsToFlatItems(prodDocs, catMap) {
+  const items = [];
+
+  prodDocs.forEach(d => {
+    const prod = { id: d.id, ...d.data() };
+
+    // Skip fully inactive products
+    if (prod.active === false) return;
+
+    const catName      = prod.categoryName || "Other";
+    const catEntry     = Object.values(catMap).find(c => c.name === catName) || {};
+    const catDispOrder = catEntry.displayOrder ?? 999;
+
+    // Map flags → home-section fields
+    const flags          = prod.flags || {};
+    const isFeatured     = !!(flags.recommended);
+    const _isMostOrdered = !!(flags.mostOrdered);
+    const _isCasualSnack = !!(flags.casualSnack);
+    const _isChefPick    = !!(flags.chefPick);
+    const isNew          = !!(flags.newArrival);
+
+    // Map extras → extraOptions (for item-sheet.js compatibility)
+    const extraOptions = (prod.extras || [])
+      .filter(e => e.active !== false)
+      .map(e => ({ name: e.name || "", price: Number(e.price) || 0 }));
+
+    const base = {
+      category:        catName,
+      imageUrl:        prod.imageUrl || null,
+      description:     prod.description || "",
+      extraOptions,
+      isFeatured,
+      // orderCount: use a synthetic value from flags.mostOrdered so home-sections.js
+      // "Most Ordered" section ranks flagged items above unflagged ones.
+      orderCount:      _isMostOrdered ? 999 : 0,
+      _isMostOrdered,
+      _isCasualSnack,
+      _isChefPick,
+      isNew,
+      _catDisplayOrder: catDispOrder,
+      _displayOrder:    prod.displayOrder ?? 999,
+      displayOrder:     prod.displayOrder ?? 999,
+    };
+
+    if (prod.hasVariants && prod.variantsList && prod.variantsList.length > 0) {
+      prod.variantsList.forEach((v) => {
+        // Individual variant inStock + product-level inStock both gate availability.
+        // Set inStock: false only when OOS; omit the field otherwise so
+        // _isItemOos() returns false for in-stock variants (its default path).
+        const varOos = v.inStock === false || prod.inStock === false;
+        const entry = {
+          ...base,
+          id:       v.id,
+          name:     `${prod.name} (${v.name})`,
+          price:    Number(v.price) || 0,
+          imageUrl: v.imageUrl || prod.imageUrl || null,
+        };
+        if (varOos) entry.inStock = false;
+        items.push(entry);
+      });
+    } else {
+      const entry = {
+        ...base,
+        id:    prod.id,
+        name:  prod.name || "",
+        price: Number(prod.price) || 0,
+      };
+      if (prod.inStock === false) entry.inStock = false;
+      items.push(entry);
+    }
+  });
+
+  return items;
+}
+
+// ── Legacy listener (menu_items) ──────────────────────────────
+
+function _startMenuItemsListener() {
+  _unsub = onSnapshot(query(collection(db, MENU_COLLECTION)), (snap) => {
+    const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    _processRawItems(raw);
   }, (err) => {
     console.error("[menu] Firestore error:", err);
     showError("Couldn't load the menu. Please check your connection.");
   });
+}
+
+// ── Shared snapshot processor ─────────────────────────────────
+
+/**
+ * Process a raw flat-item array (from either menu_items or _productsToFlatItems).
+ * Splits off Extra Topping items, sorts, builds lookup maps, and renders.
+ */
+function _processRawItems(raw) {
+  // Keep ALL items — do NOT filter by availability here.
+  // OOS items are shown with a badge and ordering disabled.
+
+  // [AI UPDATE 2026-08-02] UX upgrade — split Extra Topping into separate pool
+  _extraToppings = raw.filter(i =>
+    HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+  );
+  const visibleRaw = raw.filter(i =>
+    !HIDDEN_CATEGORIES.has((i.category || "").toLowerCase().trim())
+  );
+
+  allItems = _sortItems(visibleRaw);
+
+  // Phase 1 — quick-lookup Map for item sheet
+  _itemsById.clear();
+  for (const item of allItems) _itemsById.set(item.id, item);
+
+  if (allItems.length === 0) {
+    showError("No menu items available.\nCheck Firestore collection.");
+    return;
+  }
+
+  renderCategoryTabs(allItems);
+  applyFilter();
+  showLoading(false);
+  document.getElementById("menuGrid")?.classList.remove("hidden");
 }
 
 /** Called by search.js on every keystroke. */
@@ -312,7 +535,13 @@ function _sortItems(items) {
     const catA = (a.category || 'Other').toLowerCase();
     const catB = (b.category || 'Other').toLowerCase();
 
-    // 1. Sort categories alphabetically (A → Z)
+    // 1. Sort categories by Admin-defined displayOrder when using new schema;
+    //    fall back to alphabetical for legacy menu_items.
+    if (_catDisplayOrderMap.size > 0) {
+      const orderA = _catDisplayOrderMap.get(a.category || 'Other') ?? 999;
+      const orderB = _catDisplayOrderMap.get(b.category || 'Other') ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+    }
     const catCmp = catA.localeCompare(catB, undefined, { sensitivity: 'base' });
     if (catCmp !== 0) return catCmp;
 
@@ -387,9 +616,15 @@ function _hideHomeSections() {
 // ── Category tabs ─────────────────────────────────────────────
 
 function renderCategoryTabs(items) {
-  const cats = [...new Set(items.map(i => i.category || "Other"))].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" })
-  );
+  const cats = [...new Set(items.map(i => i.category || "Other"))].sort((a, b) => {
+    // Use Admin-defined displayOrder when using new schema; fall back to alphabetical.
+    if (_catDisplayOrderMap.size > 0) {
+      const orderA = _catDisplayOrderMap.get(a) ?? 999;
+      const orderB = _catDisplayOrderMap.get(b) ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+    }
+    return a.localeCompare(b, undefined, { sensitivity: "base" });
+  });
   const categories = ["All", ...cats];
   const scroll     = document.querySelector(".category-scroll");
   if (!scroll) return;

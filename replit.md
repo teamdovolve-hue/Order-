@@ -9,6 +9,19 @@ Mobile-first, dark-themed QR menu for restaurant tables. Customers scan a QR cod
 - Firebase callable functions in the `asia-south1` region
 - Served with `node server.js`
 
+## Menu Schema (as of 2026-08-03)
+The Admin Panel migrated from flat `menu_items` to a hierarchical schema:
+```
+categories/{catId}      { name, imageUrl, active, displayOrder }
+products/{productId}    { categoryId, categoryName, name, imageUrl, description,
+                          inStock, active, hasVariants, price, extras[], flags{},
+                          variantsList[], displayOrder }
+products/{id}/variants  { name, price, imageUrl, active, inStock, displayOrder }
+```
+`menu.js` auto-detects which schema is live: if `products` is non-empty it
+subscribes to `products` + `categories` with real-time `onSnapshot`. Otherwise
+it falls back to the legacy `menu_items` listener. No manual config needed.
+
 ## How to Run
 The app is served at port 5000 via the **Start application** workflow (`node server.js`).
 
