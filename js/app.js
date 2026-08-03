@@ -34,6 +34,8 @@ import { initReview, openReview,
          closeReview }                      from "./review.js";
 // [AI UPDATE 2026-08-02] Phase 1 — Item Details Sheet
 import { initItemSheet }                    from "./item-sheet.js";
+// [AI UPDATE 2026-08-02] Phase 2 — Floating Category FAB
+import { initCategoryFab }                  from "./category-fab.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -78,6 +80,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 5b. Item Details Sheet ────────────────────────────────────
   // [AI UPDATE 2026-08-02] Phase 1 — wire item sheet DOM events
   initItemSheet();
+
+  // ── 5c. Category FAB ──────────────────────────────────────────
+  // [AI UPDATE 2026-08-02] Phase 2 — floating category jump button
+  initCategoryFab();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {

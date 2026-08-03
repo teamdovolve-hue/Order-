@@ -46,6 +46,13 @@ let _unsub         = null;
 let _unsubSizes    = null;
 
 /**
+ * [AI UPDATE 2026-08-02] Phase 2 — callback invoked after each renderCategoryTabs()
+ * call so category-fab.js can keep its sheet list in sync with Firestore data.
+ */
+let _onCategoriesReadyCb = null;
+export function onCategoriesReady(cb) { _onCategoriesReadyCb = cb; }
+
+/**
  * Quick-lookup Map for full item objects by Firestore document ID.
  * Used by _wireCardEvents to pass the full item (imageUrl, description,
  * extraOptions) to openItemSheet without storing everything in data-* attrs.
@@ -270,16 +277,49 @@ function renderCategoryTabs(items) {
   scroll.addEventListener("click", (e) => {
     const btn = e.target.closest(".cat-btn");
     if (!btn) return;
-    scroll.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    activeCategory = btn.dataset.cat;
-    const si = document.getElementById("searchInput");
-    if (si) si.value = "";
-    activeSearch = "";
-    const catNav = document.getElementById("categoryNav");
-    if (catNav) catNav.style.display = "";
-    applyFilter();
+    _selectCategory(btn.dataset.cat);
   });
+
+  // [AI UPDATE 2026-08-02] Phase 2 — notify category-fab.js with updated list
+  const itemCounts = {};
+  categories.forEach(cat => {
+    itemCounts[cat] = cat === "All"
+      ? items.length
+      : items.filter(i => (i.category || "Other") === cat).length;
+  });
+  _onCategoriesReadyCb?.(categories, itemCounts);
+}
+
+/**
+ * Shared category-selection logic used by both the tab strip click handler
+ * and the exported setActiveCategory (called by category-fab.js).
+ * [AI UPDATE 2026-08-02] Phase 2
+ */
+function _selectCategory(cat) {
+  const scroll = document.querySelector(".category-scroll");
+  if (scroll) {
+    scroll.querySelectorAll(".cat-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.cat === cat);
+    });
+    // Scroll the active tab into view
+    const activeBtn = scroll.querySelector(`.cat-btn[data-cat="${CSS.escape(cat)}"]`);
+    activeBtn?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }
+  activeCategory = cat;
+  const si = document.getElementById("searchInput");
+  if (si) si.value = "";
+  activeSearch = "";
+  const catNav = document.getElementById("categoryNav");
+  if (catNav) catNav.style.display = "";
+  applyFilter();
+}
+
+/**
+ * Programmatically activate a category — called by category-fab.js.
+ * [AI UPDATE 2026-08-02] Phase 2
+ */
+export function setActiveCategory(cat) {
+  _selectCategory(cat);
 }
 
 // ── Main renderer — pairs up variants ────────────────────────

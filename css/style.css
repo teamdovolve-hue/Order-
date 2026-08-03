@@ -1923,6 +1923,184 @@ mark.search-highlight {
 
 
 /* ══════════════════════════════════════════════════════════════
+   CATEGORY FAB + BOTTOM SHEET  [AI UPDATE 2026-08-02] Phase 2
+══════════════════════════════════════════════════════════════ */
+
+/* ── Floating button ─────────────────────────────────────────── */
+.category-fab {
+  position: fixed;
+  bottom: 90px;          /* sits above cart bar (~68px) */
+  right: 18px;
+  z-index: 60;           /* above cart-bar (50), below review/item sheets */
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(245, 166, 35, 0.45);
+  transition: transform 0.18s ease, background 0.15s, box-shadow 0.18s;
+  outline: none;
+}
+
+.category-fab:hover  { background: var(--accent-dark); box-shadow: 0 6px 28px rgba(245,166,35,0.55); }
+.category-fab:active { transform: scale(0.93); }
+
+.category-fab.fab--open {
+  transform: rotate(45deg) scale(0.95);
+}
+
+.category-fab-icon-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.18s ease;
+}
+
+/* When no cart bar is shown, drop the FAB lower */
+.cart-bar.hidden ~ .category-fab,
+body:not(:has(#cartBar:not(.hidden))) .category-fab {
+  bottom: 24px;
+}
+
+/* Safe-area adjustment for devices with home bar */
+@supports (bottom: env(safe-area-inset-bottom)) {
+  .category-fab {
+    bottom: calc(90px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ── Modal wrapper ───────────────────────────────────────────── */
+.category-fab-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 180;           /* below item-sheet (210) and review (200) */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: otpFadeIn 0.2s ease;
+}
+
+/* ── Backdrop ────────────────────────────────────────────────── */
+.category-fab-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+/* ── Sheet ───────────────────────────────────────────────────── */
+.category-fab-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: #1a1e2b;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 24px 24px 0 0;
+  max-height: 72dvh;
+  display: flex;
+  flex-direction: column;
+  animation: otpSlideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 -20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+@media (min-width: 600px) {
+  .category-fab-sheet {
+    border-radius: 24px;
+    max-height: 70dvh;
+    margin-bottom: 24px;
+  }
+}
+
+/* ── Drag handle ─────────────────────────────────────────────── */
+.category-fab-drag-handle {
+  width: 38px;
+  height: 4px;
+  background: rgba(255,255,255,0.16);
+  border-radius: 2px;
+  margin: 13px auto 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* ── Title ───────────────────────────────────────────────────── */
+.category-fab-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+  text-align: center;
+  padding: 12px 20px 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ── Scrollable list ─────────────────────────────────────────── */
+.category-fab-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0;
+}
+
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .category-fab-list {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ── Category row ────────────────────────────────────────────── */
+.category-fab-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 22px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+  font-family: inherit;
+}
+
+.category-fab-row:hover  { background: rgba(255,255,255,0.05); }
+.category-fab-row:active { background: rgba(255,255,255,0.09); }
+
+.category-fab-row + .category-fab-row {
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.category-fab-icon {
+  font-size: 22px;
+  width: 32px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.category-fab-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.category-fab-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: rgba(255,255,255,0.07);
+  border-radius: 20px;
+  padding: 2px 9px;
+  flex-shrink: 0;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
    MENU CARD — PHASE 1 UPGRADES (image + description)
    [AI UPDATE 2026-08-02]
 ══════════════════════════════════════════════════════════════ */
