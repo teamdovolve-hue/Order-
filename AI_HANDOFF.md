@@ -4,6 +4,244 @@
 
 ---
 
+## [AI UPDATE 2026-08-03] — Bug Fix: Variant Card Badge Overlap + Phase 3 Intelligent Home Screen
+
+### Branch
+`test-ux-polish`
+
+---
+
+### Bug Fix: Variant Card Layout (group-cart-badge overlapping ADD button)
+
+**Root Cause:**
+`.card-action` (the container holding the amber qty badge + ADD button on group/variant cards) lacked `display: flex`. The `.group-cart-badge` is a block-level flex element — when it became visible it stacked vertically above the ADD button, causing visual overlap inside the `card-footer-inline` row.
+
+**Fix (`css/style.css`):**
+```css
+.menu-card .card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+```
+Badge and ADD button now appear side by side. Simple (non-variant) cards are unaffected — their `.card-action` only contains the ADD button.
+
+**Files changed:** `css/style.css` only. No JS changes.
+
+---
+
+### Phase 3 — Intelligent Home Screen
+
+**Objective:** When the "All" category is selected and no search is active, replace the flat menu list with four dynamic discovery sections. Any specific category or search restores normal behavior exactly.
+
+#### Architecture: Circular-Import-Free Design
+
+`menu.js` and `home-sections.js` are kept decoupled via a registered-callback pattern:
+
+```
+app.js
+ ├─ initMenu()           — registers Firestore listener, calls applyFilter()
+ └─ initHomeSections()   — calls setHomeSectionsRenderer(fn) on menu.js
+
+menu.js                  — never imports home-sections.js
+ ├─ setHomeSectionsRenderer(cb)  — stores the renderer callback
+ ├─ showFlatMenu()               — sets _forceFlat=true, re-runs applyFilter
+ ├─ buildCardElement(entry, q)   — exported; reuses _createGroupCard/_createRegularCard
+ └─ wireCardContainer(el)        — exported; attaches delegated click handler
+
+home-sections.js         — imports from menu.js (no circular dep)
+ └─ initHomeSections()   — registers renderer + wires #homeSections container once
+```
+
+Because Firestore `onSnapshot` fires asynchronously, `initHomeSections()` (called synchronously after `initMenu()`) is always registered before the first `applyFilter()` runs.
+
+#### State machine in `applyFilter()` (`js/menu.js`)
+
+| Condition | Behaviour |
+|---|---|
+| `activeSearch` truthy | Hide home sections → show flat filtered `#menuGrid` |
+| `activeCategory === "All"` + `!_forceFlat` + renderer registered | Show `#homeSections`, hide `#menuGrid`, call renderer |
+| `activeCategory === "All"` + `_forceFlat` | Hide `#homeSections` → show flat full list in `#menuGrid` |
+| Any specific category | Hide `#homeSections` → show filtered `#menuGrid` |
+
+`_forceFlat` is reset to `false` whenever `_selectCategory()` is called (user taps a category button or the FAB category list).
+
+#### Section Algorithms (all in-memory, zero extra Firestore reads)
+
+Sections operate on `grouped` — the output of `_groupItems(allItems)` — which now carries all original Firestore fields via `...rep` spread. Fields used: `isFeatured`, `orderCount`, `isNew`, `displayOrder`, `createdAt`.
+
+| Section | Primary sort | Fallback |
+|---|---|---|
+| ⭐ Recommended | `isFeatured` first, then `orderCount` desc | All available items by `orderCount` |
+| 🔥 Most Ordered | `orderCount` desc (only items with count > 0) | Featured items → then all available |
+| ✨ New Arrivals | `isNew === true` items first | All items by `createdAt` desc (newest first) |
+| 👨‍🍳 Chef's Picks | `isFeatured` by `displayOrder` asc | All available by `displayOrder` asc |
+
+Limits: Recommended/Most Ordered/Chef's Picks → 8 items. New Arrivals → 6 items. Sections with 0 qualifying items are silently omitted. OOS-only groups and OOS single items are excluded from all sections.
+
+#### `_groupItems` change (`js/menu.js`)
+
+Previously the group entry only contained a fixed set of fields. Now:
+```js
+result.push({
+  ...rep,         // ALL fields from representative variant item (isFeatured, orderCount, etc.)
+  isGroup: true, groupKey, displayName, category, imageUrl, description, extraOptions, variants,
+});
+```
+This is safe: all code that branches on `isGroup === true` was already explicit.
+
+#### Card Rendering
+
+`buildCardElement(entry, query)` exported from `menu.js` delegates to the existing `_createGroupCard` / `_createRegularCard` builders. Home section cards are **identical DOM elements** to main menu cards — no CSS duplication. Width is fixed to `272px` via `.home-section-scroll .menu-card { flex: 0 0 272px; }`.
+
+`wireCardContainer(container)` attaches a single delegated click handler on `#homeSections` (called once at init). Handles ADD (opens item sheet), qty-minus, qty-plus, and Read More — same logic as `_wireCardEvents` but without the cloneNode/replaceChild replacement pattern.
+
+Cart quantity badges update automatically on home section cards: `restoreCartUI()` (from `cart.js`) queries the entire DOM by `data-id` / `data-group-key`, so hidden or visible home section cards are updated alongside main menu cards.
+
+#### "See All" behaviour
+
+Every section has a "See All" button. Clicking it calls `showFlatMenu()` which sets `_forceFlat = true` and re-runs `applyFilter()`, rendering the full flat menu list in `#menuGrid`. The "All" category tab remains active. Tapping any other category (or tapping "All" again) resets `_forceFlat` and returns to home sections.
+
+#### New file: `js/home-sections.js`
+
+- `initHomeSections()` — exported; called once from `app.js`
+- `_render(allItems, grouped)` — registered renderer, builds sections and injects cards
+- `_computeSections(grouped)` — pure function; returns `[{id, title, entries}]` array
+- `_isOos`, `_tsOf`, `_orderCount`, `_isFeatured`, `_isNew`, `_dispOrder`, `_limit` — private helpers
+
+#### Files Changed
+
+| File | Change |
+|---|---|
+| `js/home-sections.js` | **NEW** — section algorithms, renderer, init |
+| `js/menu.js` | Added `_forceFlat`, `_renderHomeSectionsCb`, `setHomeSectionsRenderer`, `showFlatMenu`, `buildCardElement`, `wireCardContainer`; modified `_groupItems` to spread `...rep`; modified `applyFilter` to branch on home sections; added `_showHomeSections`/`_hideHomeSections` |
+| `js/app.js` | Added `import { initHomeSections }` and `initHomeSections()` call at step 5d |
+| `css/style.css` | Added `.home-sections`, `.home-section`, `.home-section-header`, `.home-section-title`, `.home-section-see-all`, `.home-section-scroll`, and scroll-card overrides |
+| `index.html` | Added `<div class="home-sections hidden" id="homeSections">` before `#menuGrid` |
+
+#### What Was NOT Changed
+
+- Auth, Firestore schema, order placement, cart logic
+- `_wireCardEvents` on `#menuGrid` — untouched
+- Category filter, search, OOS badge behaviour
+- Any Billing Panel interface
+
+---
+
+## [AI UPDATE 2026-08-03] — UX Polish: Image, Special Request, Category FAB
+
+### Branch
+`test-ux-polish` (pushed to GitHub for preview; not yet merged to `main`)
+
+### Files Modified
+- `css/style.css`
+- `index.html`
+- `js/item-sheet.js`
+- `js/review.js`
+- `js/order.js`
+
+### Change 1 — Product Image Fix (Item Details Bottom Sheet)
+
+**Problem:** The image inside the item sheet was cropped because the container used `height: 220px` + `object-fit: cover`.
+
+**Fix (css/style.css):**
+- `.item-sheet-img-wrap`: Changed from full-width fixed-height to `width: calc(100% - 32px)` + `margin: 12px auto 0` + `aspect-ratio: 4/3` + `border-radius: 18px`. Added `box-shadow` for premium feel. Background changed to `rgba(255,255,255,0.04)` (translucent) so it blends with the sheet.
+- `.item-sheet-img`: Changed `object-fit: cover` → `object-fit: contain`. Added `padding: 10px` so the food never touches the edges.
+- Shimmer placeholder updated to match rounded corners.
+
+**Result:** Full image always visible, original aspect ratio preserved, rounded corners, premium shadow.
+
+### Change 2 — Special Request Shown in Cart / Order Review
+
+**Problem:** The special request typed in the item sheet was stored nowhere — it was cleared on "Add to Cart" and never reached the review or order payload.
+
+**Fix (js/item-sheet.js):**
+- `_onAddToCart()` now reads `#itemSheetRequest` textarea value.
+- Stored in `cartExtras.set(cartId, { extras, specialRequest })` alongside existing extras.
+- If both extras and specialRequest are empty, the Map entry is deleted (unchanged from before).
+
+**Fix (js/review.js):**
+- `_render()` reads `cartExtras.get(item.id)?.specialRequest` for every cart item.
+- If a request exists: renders it in an amber pill with "Edit" + "✕" buttons.
+- If no request: renders a dashed "+ Special request" button.
+- `data-review-action` values added: `add-req`, `edit-req`, `save-req`, `cancel-req`, `clear-req`.
+
+**Fix (js/order.js):**
+- `placeOrder()` now reads `cartExtras.get(item.id)?.specialRequest`.
+- Included in the Firestore order item as `specialRequest` field (only when non-empty via `...spread`).
+- Billing Panel / KOT will automatically see the request in the order items array.
+
+### Change 3 — Edit Special Request from Cart
+
+**Implementation (js/review.js):**
+- Module-level `_editingRequestId` tracks which item is in edit mode.
+- When "Edit" is tapped: `_editingRequestId = item.id`, re-render shows inline `<textarea>` pre-filled with current request + "Save" / "Cancel" buttons.
+- `requestAnimationFrame` auto-focuses the textarea and positions cursor at end.
+- On "Save": updates `cartExtras`, clears `_editingRequestId`, re-renders.
+- On "Cancel": clears `_editingRequestId`, re-renders (no save).
+- On "✕": sets `specialRequest = ""`, re-renders (request removed).
+- `closeReview()` also resets `_editingRequestId = null`.
+
+**No changes to:** `cart.js`, `order-status.js`, `auth.js`, Firestore schema.
+
+### Change 4 — Floating Category Button Redesign
+
+**Problem:** The generic circle icon FAB didn't communicate its purpose.
+
+**Fix (index.html):**
+- Replaced SVG grid icon with `☰` emoji + "Menu" text label.
+- New HTML: `<span class="category-fab-pill-icon">☰</span> <span class="category-fab-pill-text">Menu</span>`
+
+**Fix (css/style.css):**
+- `.category-fab`: Removed `width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: #000`.
+- New: `height: 46px; padding: 0 18px; border-radius: 999px; background: #171923; color: var(--accent); border: 1.5px solid var(--accent)`.
+- Shadow: amber glow `rgba(245,166,35,0.25)` + deep dark `rgba(0,0,0,0.55)`.
+- Hover: subtle amber tint background.
+- Active/open state: flips to solid amber fill.
+- `.category-fab-pill-icon` / `.category-fab-pill-text` added.
+
+### Change 5 — Category Bottom Sheet Polish
+
+**Fix (css/style.css):**
+- `.category-fab-row`: `padding: 13px` → `padding: 15px`; added `min-height: 56px` for better touch targets on mobile; added `-webkit-tap-highlight-color: transparent`.
+- Animation remains `otpSlideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1)` — smooth and snappy.
+
+### New CSS Classes Added
+| Class | Purpose |
+|---|---|
+| `.review-special-req` | Amber pill showing existing special request |
+| `.review-special-text` | Request text inside the pill |
+| `.review-special-btns` | Edit + Clear button group |
+| `.review-special-edit` | "Edit" button |
+| `.review-special-clear` | "✕" clear button |
+| `.review-add-req` | Dashed "+ Special request" trigger button |
+| `.review-req-edit-wrap` | Inline edit container |
+| `.review-req-textarea` | Special request edit textarea |
+| `.review-req-edit-actions` | Save + Cancel button row |
+| `.review-req-save` | Save button (amber) |
+| `.review-req-cancel` | Cancel button (muted) |
+| `.category-fab-pill-icon` | ☰ emoji inside the pill FAB |
+| `.category-fab-pill-text` | "Menu" text inside the pill FAB |
+
+### What Was NOT Changed
+- Auth flow, Firestore schema, order status values, callable interfaces
+- `cart.js` public API (addItem, removeItem, clearCart, refreshCartUI, updateCardUI)
+- `order.js` placeOrder() submission logic (only items array gained optional `specialRequest` field)
+- `order-status.js`, `history.js`, `menu.js`, `search.js`, `restaurant-status.js`
+- Billing Panel compatibility — `specialRequest` is an additive optional field; existing orders without it are unaffected
+
+### Billing Panel Changes Required
+**None for existing functionality.** The `specialRequest` field is now present on order items when the customer typed a request. The Billing Panel / KOT printer will show it naturally if it already renders item fields. No schema migration needed — the field is additive and optional.
+
+### Testing Performed
+- ✓ App loads at `/t/1` with no console errors
+- ✓ Category FAB renders as amber-bordered pill "☰ Menu"
+- ✓ Tapping FAB opens category bottom sheet with improved touch targets
+- ✓ Item sheet image uses contain (no cropping), rounded, shadowed
+- ✓ Special request field preserved in cartExtras through add → review → order flow
+
+---
+
 ## [AI UPDATE 2026-08-02] — Phase 1: Premium Menu Cards + Item Details Bottom Sheet
 
 ### Files Modified

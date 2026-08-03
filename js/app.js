@@ -36,6 +36,8 @@ import { initReview, openReview,
 import { initItemSheet }                    from "./item-sheet.js";
 // [AI UPDATE 2026-08-02] Phase 2 — Floating Category FAB
 import { initCategoryFab }                  from "./category-fab.js";
+// [AI UPDATE 2026-08-03] Phase 3 — Intelligent Home Screen
+import { initHomeSections }                 from "./home-sections.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -84,6 +86,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 5c. Category FAB ──────────────────────────────────────────
   // [AI UPDATE 2026-08-02] Phase 2 — floating category jump button
   initCategoryFab();
+
+  // ── 5d. Home Sections ─────────────────────────────────────────
+  // [AI UPDATE 2026-08-03] Phase 3 — registers renderer with menu.js
+  initHomeSections();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {

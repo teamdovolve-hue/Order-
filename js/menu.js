@@ -45,12 +45,89 @@ let activeSearch   = "";
 let _unsub         = null;
 let _unsubSizes    = null;
 
+// [AI UPDATE 2026-08-03] Phase 3 — Home sections support
+/** When true, applyFilter() skips home sections and shows the flat full list. */
+let _forceFlat = false;
+/** Registered by home-sections.js; called to render the discovery sections. */
+let _renderHomeSectionsCb = null;
+
 /**
  * [AI UPDATE 2026-08-02] Phase 2 — callback invoked after each renderCategoryTabs()
  * call so category-fab.js can keep its sheet list in sync with Firestore data.
  */
 let _onCategoriesReadyCb = null;
 export function onCategoriesReady(cb) { _onCategoriesReadyCb = cb; }
+
+// [AI UPDATE 2026-08-03] Phase 3 — Home sections public API
+
+/**
+ * Registered by home-sections.js at init time.
+ * Avoids a circular import: menu.js never imports home-sections.js.
+ */
+export function setHomeSectionsRenderer(cb) { _renderHomeSectionsCb = cb; }
+
+/**
+ * Switch to the flat full-menu view (bypasses home sections).
+ * Called by the "See All" buttons inside each home section.
+ */
+export function showFlatMenu() {
+  _forceFlat = true;
+  applyFilter();
+  document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/**
+ * Build a card DOM element for a single grouped entry.
+ * Used by home-sections.js to reuse the exact same premium cards.
+ * @param {Object} entry  Group or regular entry from _groupItems()
+ * @param {string} query  Highlight query (pass "" for no highlighting)
+ */
+export function buildCardElement(entry, query = "") {
+  return entry.isGroup
+    ? _createGroupCard(entry, query)
+    : _createRegularCard(entry, query);
+}
+
+/**
+ * Attach a delegated click handler to any container holding .menu-card elements.
+ * Used by home-sections.js so home section cards respond to ADD / qty buttons.
+ * Safe to call once — uses addEventListener (no cloneNode replacement).
+ */
+export function wireCardContainer(container) {
+  container.addEventListener("click", (e) => {
+    // Description Read More / Read Less
+    const moreBtn = e.target.closest(".card-desc-more");
+    if (moreBtn) {
+      e.stopPropagation();
+      const descEl = moreBtn.previousElementSibling;
+      if (descEl?.classList.contains("card-desc")) {
+        const expanded = descEl.classList.toggle("card-desc--expanded");
+        moreBtn.textContent = expanded ? "Read Less" : "Read More";
+      }
+      return;
+    }
+    // ADD button — opens item sheet
+    const addBtn = e.target.closest(".btn-add");
+    if (addBtn && !addBtn.disabled) {
+      if (addBtn.dataset.groupKey) {
+        const group = _groupsById.get(addBtn.dataset.groupKey);
+        if (group) { openItemSheet(group); return; }
+      }
+      const item = _itemsById.get(addBtn.dataset.id);
+      if (item) { openItemSheet(item); return; }
+      addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      return;
+    }
+    // Qty controls (regular in-cart items)
+    const minus = e.target.closest(".qty-minus");
+    if (minus) { removeItem(minus.dataset.id); return; }
+    const plus = e.target.closest(".qty-plus");
+    if (plus) {
+      const card = plus.closest(".menu-card");
+      if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
+    }
+  });
+}
 
 /**
  * Quick-lookup Map for full item objects by Firestore document ID.
@@ -274,13 +351,37 @@ function applyFilter() {
       (i.category    || "").toLowerCase().includes(q) ||
       (i.description || "").toLowerCase().includes(q)
     );
+    _hideHomeSections();
     renderMenuItems(items, q);
+  } else if (activeCategory === "All" && !_forceFlat && _renderHomeSectionsCb) {
+    // [AI UPDATE 2026-08-03] Phase 3 — show intelligent home sections
+    // Pre-populate _groupsById so ADD button handlers work on home section cards
+    const grouped = _groupItems(allItems);
+    _groupsById.clear();
+    for (const g of grouped) {
+      if (g.isGroup) _groupsById.set(g.groupKey, g);
+    }
+    _showHomeSections();
+    _renderHomeSectionsCb(allItems, grouped);
   } else {
     items = activeCategory === "All"
       ? allItems
       : allItems.filter(i => (i.category || "Other") === activeCategory);
+    _hideHomeSections();
     renderMenuItems(items, "");
   }
+}
+
+// [AI UPDATE 2026-08-03] Phase 3 — show/hide helpers
+function _showHomeSections() {
+  const grid = document.getElementById("menuGrid");
+  if (grid) { grid.innerHTML = ""; grid.classList.add("hidden"); }
+  document.getElementById("homeSections")?.classList.remove("hidden");
+}
+
+function _hideHomeSections() {
+  document.getElementById("homeSections")?.classList.add("hidden");
+  document.getElementById("menuGrid")?.classList.remove("hidden");
 }
 
 // ── Category tabs ─────────────────────────────────────────────
@@ -323,6 +424,7 @@ function renderCategoryTabs(items) {
  * [AI UPDATE 2026-08-02] Phase 2
  */
 function _selectCategory(cat) {
+  _forceFlat = false; // [AI UPDATE 2026-08-03] Reset flat override on explicit category pick
   const scroll = document.querySelector(".category-scroll");
   if (scroll) {
     scroll.querySelectorAll(".cat-btn").forEach(b => {
@@ -438,6 +540,10 @@ function _groupItems(items) {
         const rep      = reg || half || med || full || lrg || item;
         const groupKey = `${base}::${cat.toLowerCase()}`;
         result.push({
+          // [AI UPDATE 2026-08-03] Phase 3 — spread all rep fields so
+          // isFeatured, orderCount, isNew, displayOrder, createdAt, etc.
+          // are available to home-sections.js without extra Firestore reads.
+          ...rep,
           isGroup:      true,
           groupKey,
           displayName:  _displayBase(item.name),

@@ -125,7 +125,9 @@ export async function placeOrder() {
   for (const item of cart.values()) {
     // [AI UPDATE 2026-08-02] UX upgrade — include selected extras in payload
     // so Billing Panel and Kitchen see exactly what was ordered.
-    const extras = cartExtras.get(item.id)?.extras || [];
+    // [AI UPDATE 2026-08-03] Also include specialRequest when present.
+    const extras         = cartExtras.get(item.id)?.extras         || [];
+    const specialRequest = cartExtras.get(item.id)?.specialRequest || "";
     items.push({
       itemId:   item.id,
       name:     item.name,
@@ -133,6 +135,7 @@ export async function placeOrder() {
       quantity: item.qty,
       subtotal: +(item.price * item.qty).toFixed(2),
       extras,   // [{name, price}] — empty array when no extras selected
+      ...(specialRequest && { specialRequest }), // omit field entirely when empty
     });
     totalItems += item.qty;
     totalPrice += item.price * item.qty;

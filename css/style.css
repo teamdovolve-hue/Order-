@@ -1926,39 +1926,69 @@ mark.search-highlight {
    CATEGORY FAB + BOTTOM SHEET  [AI UPDATE 2026-08-02] Phase 2
 ══════════════════════════════════════════════════════════════ */
 
-/* ── Floating button ─────────────────────────────────────────── */
+/* ── Floating pill button ────────────────────────────────────── */
+/* [AI UPDATE 2026-08-03] Redesigned from circle icon to branded pill.
+   Dark background + amber border + icon + "Menu" label instantly
+   communicates "opens the food menu/categories". */
 .category-fab {
   position: fixed;
   bottom: 90px;          /* sits above cart bar (~68px) */
   right: 18px;
   z-index: 60;           /* above cart-bar (50), below review/item sheets */
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #000;
-  border: none;
+  height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #171923;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 20px rgba(245, 166, 35, 0.45);
-  transition: transform 0.18s ease, background 0.15s, box-shadow 0.18s;
+  gap: 7px;
+  box-shadow:
+    0 4px 20px rgba(245, 166, 35, 0.25),
+    0 2px 12px rgba(0, 0, 0, 0.55);
+  transition: transform 0.18s ease, background 0.15s, box-shadow 0.18s, border-color 0.15s;
   outline: none;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.category-fab:hover  { background: var(--accent-dark); box-shadow: 0 6px 28px rgba(245,166,35,0.55); }
-.category-fab:active { transform: scale(0.93); }
+.category-fab:hover {
+  background: rgba(245, 166, 35, 0.1);
+  box-shadow: 0 6px 28px rgba(245, 166, 35, 0.38), 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+.category-fab:active { transform: scale(0.95); }
 
 .category-fab.fab--open {
-  transform: rotate(45deg) scale(0.95);
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  transform: scale(0.97);
 }
 
+/* Icon and text inside the pill */
+.category-fab-pill-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.category-fab-pill-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+/* Keep old class in case it's referenced anywhere */
 .category-fab-icon-svg {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.18s ease;
 }
 
 /* When no cart bar is shown, drop the FAB lower */
@@ -2054,18 +2084,21 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 }
 
 /* ── Category row ────────────────────────────────────────────── */
+/* [AI UPDATE 2026-08-03] Increased padding for better touch targets (min 56px height) */
 .category-fab-row {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
-  padding: 13px 22px;
+  padding: 15px 22px;
+  min-height: 56px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s;
+  transition: background 0.15s;
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .category-fab-row:hover  { background: rgba(255,255,255,0.05); }
@@ -2331,6 +2364,15 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   gap: 8px;
 }
 
+/* [AI UPDATE 2026-08-03] BUG FIX — variant card badge + ADD button layout.
+   Without display:flex the badge (a block element) stacks vertically on top
+   of the ADD button when it becomes visible, causing overlap on group cards. */
+.menu-card .card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ADD button update — uppercase, slightly smaller padding */
 .menu-card .btn-add {
   font-size: 13px;
@@ -2388,13 +2430,24 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 }
 
 /* ── Product image ───────────────────────────────────────────── */
+/* [AI UPDATE 2026-08-03] Image redesigned as a hero element:
+   - object-fit: contain so nothing is cropped
+   - Horizontal padding via margin on container
+   - Rounded corners and premium shadow
+   - Subtle translucent background instead of opaque surface */
 .item-sheet-img-wrap {
   position: relative;
-  width: 100%;
-  height: 220px;
+  width: calc(100% - 32px);
+  margin: 12px auto 0;
+  border-radius: 18px;
   flex-shrink: 0;
   overflow: hidden;
-  background: var(--surface-2);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 2px 10px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  aspect-ratio: 4 / 3;
 }
 
 .item-sheet-img-shimmer {
@@ -2408,6 +2461,7 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
+  border-radius: 18px;
 }
 
 .item-sheet-img {
@@ -2415,7 +2469,8 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;  /* full image, never cropped */
+  padding: 10px;        /* breathing room around the food */
   transition: opacity 0.35s ease;
 }
 
@@ -2886,6 +2941,234 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   .review-sheet { border-radius: 28px; max-height: 82dvh; }
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   HOME SECTIONS — Intelligent Discovery
+   [AI UPDATE 2026-08-03] Phase 3
+   Shown only when "All" category is active and no search is open.
+   Cards reuse .menu-card exactly — only width is constrained.
+══════════════════════════════════════════════════════════════ */
+
+.home-sections {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+
+.home-section {
+  padding-bottom: 4px;
+}
+
+/* Section header: title + "See All" */
+.home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 16px 10px;
+}
+
+.home-section-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-1);
+  letter-spacing: 0.1px;
+  margin: 0;
+}
+
+.home-section-see-all {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-section-see-all:hover { background: rgba(245, 166, 35, 0.1); }
+
+/* Horizontal scroll row */
+.home-section-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0 16px 14px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;          /* Firefox */
+}
+.home-section-scroll::-webkit-scrollbar { display: none; }
+
+/* Cards inside the scroll row — fixed width, no bottom margin */
+.home-section-scroll .menu-card {
+  flex: 0 0 272px;
+  width: 272px;
+  margin-bottom: 0;
+  scroll-snap-align: start;
+}
+
+/* Slightly tighter image on small home-section cards */
+.home-section-scroll .card-img-wrap {
+  width: 70px;
+  height: 70px;
+  flex-shrink: 0;
+}
+
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .review-actions { padding-bottom: calc(36px + env(safe-area-inset-bottom)); }
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   REVIEW SHEET — SPECIAL REQUEST
+   [AI UPDATE 2026-08-03] Show, add, and edit special requests
+   directly inside the Order Review Sheet without removing items.
+══════════════════════════════════════════════════════════════ */
+
+/* Display mode: request text + edit/clear buttons */
+.review-special-req {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(245, 166, 35, 0.06);
+  border: 1px solid rgba(245, 166, 35, 0.18);
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-top: 2px;
+}
+
+.review-special-text {
+  font-size: 12px;
+  color: rgba(245, 166, 35, 0.85);
+  font-weight: 500;
+  line-height: 1.45;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.review-special-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.review-special-edit {
+  background: rgba(245, 166, 35, 0.12);
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.review-special-edit:hover { background: rgba(245, 166, 35, 0.2); }
+
+.review-special-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.review-special-clear:hover { color: var(--red); }
+
+/* "Add request" button — shown when no request exists */
+.review-add-req {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  margin-top: 3px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.review-add-req:hover {
+  border-color: rgba(245, 166, 35, 0.3);
+  color: var(--accent);
+  background: rgba(245, 166, 35, 0.05);
+}
+
+/* Edit mode: textarea + save/cancel */
+.review-req-edit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.review-req-textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  border-radius: 8px;
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 9px 11px;
+  resize: none;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.08);
+  transition: border-color 0.2s, background 0.2s;
+  -webkit-appearance: none;
+}
+.review-req-textarea::placeholder { color: rgba(255, 255, 255, 0.22); }
+.review-req-textarea:focus {
+  border-color: rgba(245, 166, 35, 0.65);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.review-req-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.review-req-save {
+  flex: 1;
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.review-req-save:hover { background: var(--accent-dark); }
+
+.review-req-cancel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.review-req-cancel:hover { background: rgba(255, 255, 255, 0.1); }
