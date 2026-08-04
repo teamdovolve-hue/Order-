@@ -479,8 +479,12 @@
 
       <!-- Scrollable body -->
       <div class="item-sheet-body">
-        <h2 class="item-sheet-name" id="itemSheetName"></h2>
-        <p class="item-sheet-desc" id="itemSheetDesc"></p>
+
+        <!-- Product header: name + description -->
+        <div class="item-sheet-header-block">
+          <h2 class="item-sheet-name" id="itemSheetName"></h2>
+          <p class="item-sheet-desc" id="itemSheetDesc"></p>
+        </div>
 
         <!-- Variant selector (Half/Full, Regular/Medium/Large) — hidden for single items -->
         <div class="item-sheet-variants" id="itemSheetVariants" style="display:none">
@@ -490,14 +494,14 @@
 
         <!-- Extra options — hidden when none exist -->
         <div class="item-sheet-extras" id="itemSheetExtras" style="display:none">
-          <h3 class="item-sheet-section-title">Add Extras</h3>
+          <h3 class="item-sheet-section-title">Add Extras <span class="item-sheet-optional">Optional</span></h3>
           <div id="itemSheetExtrasList"></div>
         </div>
 
         <!-- Special request -->
         <div class="item-sheet-custom">
           <h3 class="item-sheet-section-title">
-            Special Request
+            📝 Special Request
             <span class="item-sheet-optional">Optional</span>
           </h3>
           <textarea
@@ -508,6 +512,7 @@
             maxlength="200"
           ></textarea>
         </div>
+
       </div>
 
       <!-- Footer: price + qty + add button -->

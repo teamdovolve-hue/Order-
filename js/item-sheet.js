@@ -200,7 +200,7 @@ function _renderSheet() {
   if (variantsSection && variantsList) {
     if (isGroup && _current.variants.length > 1) {
       variantsList.innerHTML = _current.variants.map((v, i) => `
-        <label class="item-sheet-variant-row${v.oos ? " oos" : ""}">
+        <label class="is-variant-card${v.oos ? " oos" : ""}">
           <input
             type="radio"
             class="item-sheet-variant-radio"
@@ -209,9 +209,12 @@ function _renderSheet() {
             ${i === _selectedVariantIdx ? "checked" : ""}
             ${v.oos ? "disabled" : ""}
           />
-          <span class="item-sheet-variant-label">${_esc(v.label)}</span>
-          <span class="item-sheet-variant-price">₹${v.price}</span>
-          ${v.oos ? '<span class="item-sheet-variant-oos">Out of stock</span>' : ""}
+          <div class="is-variant-body">
+            <span class="is-variant-name">${_esc(v.label)}</span>
+            ${v.oos ? '<span class="is-variant-oos-tag">Out of stock</span>' : ""}
+          </div>
+          <span class="is-variant-price">₹${v.price}</span>
+          <span class="is-variant-dot" aria-hidden="true"></span>
         </label>`).join("");
       variantsSection.style.display = "";
     } else {
@@ -225,15 +228,18 @@ function _renderSheet() {
   if (extrasSection && extrasList) {
     if (_resolvedExtras.length > 0) {
       extrasList.innerHTML = _resolvedExtras.map((opt, i) => `
-        <label class="item-sheet-extra-row">
+        <label class="is-extra-card">
+          <div class="is-extra-body">
+            <span class="is-extra-name">${_esc(opt.name || "")}</span>
+          </div>
+          <span class="is-extra-price">+₹${Number(opt.price) || 0}</span>
+          <span class="is-extra-cb-box" aria-hidden="true"></span>
           <input
             type="checkbox"
             class="item-sheet-extra-check"
             data-index="${i}"
             data-price="${Number(opt.price) || 0}"
           />
-          <span class="item-sheet-extra-name">${_esc(opt.name || "")}</span>
-          <span class="item-sheet-extra-price">+₹${Number(opt.price) || 0}</span>
         </label>`).join("");
       extrasSection.style.display = "";
     } else {

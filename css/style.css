@@ -2169,59 +2169,200 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
    ITEM SHEET — VARIANT SELECTOR  [AI UPDATE 2026-08-02]
 ══════════════════════════════════════════════════════════════ */
 
+/* ── Variant cards ─────────────────────────────────── */
 .item-sheet-variants {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: var(--r-lg);
-  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 #itemSheetVariantsList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
-.item-sheet-variant-row {
+/* Card wrapper — label is the entire card */
+.is-variant-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1.5px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
   cursor: pointer;
   user-select: none;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  -webkit-tap-highlight-color: transparent;
 }
-.item-sheet-variant-row:last-child { border-bottom: none; }
-.item-sheet-variant-row.oos { opacity: 0.45; cursor: not-allowed; }
-
-.item-sheet-variant-radio {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
-  flex-shrink: 0;
-  cursor: pointer;
+.is-variant-card.oos {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+/* Selected state via :has() */
+.is-variant-card:has(.item-sheet-variant-radio:checked) {
+  border-color: var(--accent);
+  background: rgba(245,166,35,0.07);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 14px rgba(245,166,35,0.12);
 }
 
-.item-sheet-variant-label {
+/* Hide native radio — keep functional for keyboard & label activation */
+.is-variant-card .item-sheet-variant-radio {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.is-variant-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.is-variant-name {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-1);
 }
 
-.item-sheet-variant-price {
-  font-size: 14px;
-  font-weight: 700;
+.is-variant-oos-tag {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.is-variant-price {
+  font-size: 15px;
+  font-weight: 800;
   color: var(--accent);
   flex-shrink: 0;
 }
 
-.item-sheet-variant-oos {
-  font-size: 11px;
-  color: var(--text-3);
-  background: rgba(255,255,255,0.07);
-  border-radius: 4px;
-  padding: 2px 7px;
+/* Custom radio dot */
+.is-variant-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.2);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.18s, background 0.18s;
+  position: relative;
+}
+.is-variant-dot::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.18s, transform 0.18s;
+  transform: scale(0.4);
+}
+.is-variant-card:has(.item-sheet-variant-radio:checked) .is-variant-dot {
+  border-color: var(--accent);
+}
+.is-variant-card:has(.item-sheet-variant-radio:checked) .is-variant-dot::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Extra option cards ─────────────────────────────── */
+.item-sheet-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#itemSheetExtrasList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.is-extra-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1.5px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Checked state */
+.is-extra-card:has(.item-sheet-extra-check:checked) {
+  border-color: var(--accent);
+  background: rgba(245,166,35,0.06);
+}
+
+/* Hide native checkbox — keep functional for keyboard & label activation */
+.is-extra-card .item-sheet-extra-check {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.is-extra-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.is-extra-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.is-extra-price {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+  flex-shrink: 0;
+}
+
+/* Custom checkbox box */
+.is-extra-cb-box {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid rgba(255,255,255,0.2);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.18s, background 0.18s;
+  position: relative;
+}
+.is-extra-cb-box::after {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border-right: 2.5px solid #000;
+  border-bottom: 2.5px solid #000;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.is-extra-card:has(.item-sheet-extra-check:checked) .is-extra-cb-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.is-extra-card:has(.item-sheet-extra-check:checked) .is-extra-cb-box::after {
+  opacity: 1;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2375,10 +2516,17 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
    ITEM DETAILS BOTTOM SHEET
    [AI UPDATE 2026-08-02] Phase 1
 ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   ITEM DETAILS SHEET — PREMIUM REDESIGN
+   [AI UPDATE 2026-08-04] Compact image banner, variant/extra
+   selectable cards, circular qty controls, sticky grand-total
+   footer. All logic and IDs unchanged.
+══════════════════════════════════════════════════════════════ */
+
 .item-sheet-modal {
   position: fixed;
   inset: 0;
-  z-index: 210; /* above review modal (200) */
+  z-index: 210;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -2388,22 +2536,22 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 .item-sheet-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(6px);
 }
 
 .item-sheet {
   position: relative;
   width: 100%;
   max-width: 480px;
-  background: #171923;
+  background: #141414;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 28px 28px 0 0;
   display: flex;
   flex-direction: column;
-  max-height: 90dvh;
+  max-height: 92dvh;
   animation: otpSlideUp 0.38s cubic-bezier(0.32, 0.72, 0, 1);
-  box-shadow: 0 -24px 80px rgba(0,0,0,0.6);
+  box-shadow: 0 -24px 80px rgba(0,0,0,0.65);
   overflow: hidden;
 }
 
@@ -2411,31 +2559,20 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 .item-sheet-drag-handle {
   width: 40px;
   height: 4px;
-  background: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.15);
   border-radius: 2px;
   margin: 14px auto 0;
   flex-shrink: 0;
 }
 
-/* ── Product image ───────────────────────────────────────────── */
-/* [AI UPDATE 2026-08-03] Image redesigned as a hero element:
-   - object-fit: contain so nothing is cropped
-   - Horizontal padding via margin on container
-   - Rounded corners and premium shadow
-   - Subtle translucent background instead of opaque surface */
+/* ── Product image — compact banner (reduced height) ─────────── */
 .item-sheet-img-wrap {
   position: relative;
-  width: calc(100% - 32px);
-  margin: 12px auto 0;
-  border-radius: 18px;
+  width: 100%;
+  height: 160px;
   flex-shrink: 0;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.45),
-    0 2px 10px rgba(0, 0, 0, 0.3),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  aspect-ratio: 4 / 3;
+  background: rgba(255,255,255,0.04);
 }
 
 .item-sheet-img-shimmer {
@@ -2449,7 +2586,6 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
-  border-radius: 18px;
 }
 
 .item-sheet-img {
@@ -2457,8 +2593,7 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;  /* full image, never cropped */
-  padding: 10px;        /* breathing room around the food */
+  object-fit: cover;
   transition: opacity 0.35s ease;
 }
 
@@ -2466,23 +2601,28 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 .item-sheet-body {
   overflow-y: auto;
   flex: 1;
-  padding: 18px 20px 12px;
+  padding: 20px 16px 12px;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
 }
 
-/* ── Item name ───────────────────────────────────────────────── */
+/* ── Product header: name + description ─────────────────────── */
+.item-sheet-header-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .item-sheet-name {
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 800;
   color: var(--text-1);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.4px;
   line-height: 1.25;
 }
 
-/* ── Description ─────────────────────────────────────────────── */
 .item-sheet-desc {
   font-size: 14px;
   color: var(--text-2);
@@ -2490,109 +2630,75 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   margin: 0;
 }
 
-/* ── Section titles ──────────────────────────────────────────── */
+/* ── Section block ───────────────────────────────────────────── */
+.item-sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Section title ───────────────────────────────────────────── */
 .item-sheet-section-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-2);
-  letter-spacing: 0.4px;
-  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-3);
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 0;
 }
 
 .item-sheet-optional {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
   color: var(--text-3);
   letter-spacing: 0;
-}
-
-/* ── Extra options ───────────────────────────────────────────── */
-.item-sheet-extras {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: var(--r-lg);
-  padding: 14px 16px;
-}
-
-#itemSheetExtrasList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.item-sheet-extra-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  cursor: pointer;
-  user-select: none;
-}
-.item-sheet-extra-row:last-child { border-bottom: none; }
-
-.item-sheet-extra-check {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  accent-color: var(--accent);
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.item-sheet-extra-name {
-  flex: 1;
-  font-size: 14px;
-  color: var(--text-1);
-  font-weight: 500;
-}
-
-.item-sheet-extra-price {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--green);
-  flex-shrink: 0;
+  text-transform: none;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 1px 6px;
 }
 
 /* ── Custom request textarea ─────────────────────────────────── */
 .item-sheet-custom {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
 .item-sheet-request-input {
   background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: var(--r-md);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
   color: var(--text-1);
   font-family: inherit;
   font-size: 14px;
-  line-height: 1.5;
-  padding: 12px 14px;
+  line-height: 1.55;
+  padding: 13px 15px;
   resize: none;
   outline: none;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   -webkit-appearance: none;
+  width: 100%;
 }
-.item-sheet-request-input::placeholder { color: rgba(255,255,255,0.22); }
+.item-sheet-request-input::placeholder { color: rgba(255,255,255,0.2); }
 .item-sheet-request-input:focus {
-  border-color: rgba(245,166,35,0.45);
+  border-color: rgba(245,166,35,0.5);
   background: rgba(255,255,255,0.07);
   box-shadow: 0 0 0 3px rgba(245,166,35,0.08);
 }
 
-/* ── Footer: price + qty + add button ────────────────────────── */
+/* ── Sticky footer: grand total + qty + add button ───────────── */
 .item-sheet-footer {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 18px;
+  padding: 14px 16px;
   border-top: 1px solid rgba(255,255,255,0.07);
   flex-shrink: 0;
-  background: #171923;
+  background: #141414;
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -2606,62 +2712,65 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   flex-direction: column;
   align-items: flex-start;
   flex-shrink: 0;
-  min-width: 70px;
+  min-width: 72px;
 }
 
 .item-sheet-price-label {
   font-size: 10px;
   color: var(--text-3);
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .item-sheet-price {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--accent);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.5px;
 }
 
-/* Qty control */
+/* Circular qty controls */
 .item-sheet-qty-ctrl {
   display: flex;
   align-items: center;
-  gap: 0;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: var(--r-md);
-  overflow: hidden;
+  gap: 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 100px;
+  padding: 3px 5px;
   flex-shrink: 0;
 }
 
 .item-sheet-qty-btn {
-  background: transparent;
+  background: rgba(255,255,255,0.08);
   border: none;
   color: var(--text-1);
-  width: 36px;
-  height: 38px;
-  font-size: 20px;
-  font-weight: 500;
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
+  font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s;
+  border-radius: 50%;
+  transition: background 0.12s, transform 0.08s;
   line-height: 1;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
 }
-.item-sheet-qty-btn:hover  { background: rgba(255,255,255,0.08); }
-.item-sheet-qty-btn:active { background: rgba(255,255,255,0.14); }
+.item-sheet-qty-btn:hover  { background: rgba(255,255,255,0.14); }
+.item-sheet-qty-btn:active { background: rgba(255,255,255,0.2); transform: scale(0.9); }
 
 .item-sheet-qty-num {
-  min-width: 30px;
+  min-width: 26px;
   text-align: center;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-1);
   user-select: none;
-  padding: 0 4px;
 }
 
 /* Add to Cart button */
@@ -2670,21 +2779,23 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   background: var(--accent);
   color: #000;
   border: none;
-  border-radius: var(--r-md);
-  padding: 12px 14px;
+  border-radius: 14px;
+  padding: 13px 16px;
   font-size: 15px;
   font-weight: 800;
   cursor: pointer;
   letter-spacing: 0.2px;
   transition: background 0.15s, transform 0.1s;
   white-space: nowrap;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 .item-sheet-add-btn:hover  { background: var(--accent-dark); }
 .item-sheet-add-btn:active { transform: scale(0.97); }
 
-/* Wide screen: centered modal */
+/* Wide screen */
 @media (min-width: 600px) {
-  .item-sheet { border-radius: 28px; max-height: 85dvh; }
+  .item-sheet { border-radius: 28px; max-height: 86dvh; }
   .item-sheet-modal { align-items: center; padding: 24px; }
 }
 
