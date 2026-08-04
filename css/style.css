@@ -2795,6 +2795,14 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   text-overflow: ellipsis;
 }
 
+/* Variant label displayed below the product name in the cart review */
+.review-variant-lbl {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
 .review-item-unit-price {
   font-size: 12px;
   color: var(--text-2);

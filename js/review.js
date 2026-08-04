@@ -152,6 +152,10 @@ function _render() {
     totalQty           += item.qty;
     totalAmt           += lineTotal;
 
+    // Variant label (e.g. "250 ml") — shown as "• 250 ml" below the product name
+    const variantLabel = cartExtras.get(item.id)?.variantLabel || "";
+    const parentName   = cartExtras.get(item.id)?.parentName   || "";
+
     // Extras
     const extras        = cartExtras.get(item.id)?.extras || [];
     const extrasHtml    = extras.length
@@ -199,7 +203,9 @@ function _render() {
     rows.push(`
       <div class="review-item">
         <div class="review-item-info">
-          <span class="review-item-name">${_esc(item.name)}</span>
+          <span class="review-item-name">${variantLabel
+            ? `${_esc(parentName || item.name)}<br><span class="review-variant-lbl">• ${_esc(variantLabel)}</span>`
+            : _esc(item.name)}</span>
           ${extrasHtml}
           ${specialReqHtml}
           <span class="review-item-unit-price">₹${item.price} × ${item.qty}</span>

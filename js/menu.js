@@ -365,21 +365,41 @@ function _productsToFlatItems(prodDocs, catMap) {
     };
 
     if (prod.hasVariants && prod.variantsList && prod.variantsList.length > 0) {
-      prod.variantsList.forEach((v) => {
-        // Individual variant inStock + product-level inStock both gate availability.
-        // Set inStock: false only when OOS; omit the field otherwise so
-        // _isItemOos() returns false for in-stock variants (its default path).
-        const varOos = v.inStock === false || prod.inStock === false;
+      // ── Emit ONE item per parent product with _nativeVariants attached ──────
+      //
+      // Previously this path expanded every variant into a separate flat item
+      // named "ProductName (VariantName)" — e.g. "Frooti (125 ml)", "Frooti (250 ml)".
+      // _groupItems() could only re-collapse a hardcoded set of size suffixes
+      // (Half / Full / Regular / Medium / Large), so any other label ("125 ml",
+      // "Small", "600 ml", "1 L", etc.) was left as a standalone card — causing
+      // the duplicates the user reported.
+      //
+      // Fix: keep the parent product name intact and carry all variant data as
+      // _nativeVariants. _groupItems() detects this property and converts the
+      // item into a group object directly — no regex needed.
+      const nativeVariants = prod.variantsList
+        .filter(v => v.active !== false)
+        .map(v => ({
+          id:       v.id || `${prod.id}_${(v.name || "").replace(/\s+/g, "_")}`,
+          label:    v.name || "",
+          price:    Number(v.price) || 0,
+          imageUrl: v.imageUrl || null,   // null = fall back to parent imageUrl in item-sheet
+          oos:      v.inStock === false || prod.inStock === false,
+        }));
+
+      if (nativeVariants.length > 0) {
+        // Use cheapest variant as the sort-key price ("Starting from ₹X")
+        const minPrice = Math.min(...nativeVariants.map(v => v.price));
         const entry = {
           ...base,
-          id:       v.id,
-          name:     `${prod.name} (${v.name})`,
-          price:    Number(v.price) || 0,
-          imageUrl: v.imageUrl || prod.imageUrl || null,
+          id:              prod.id,
+          name:            prod.name || "",
+          price:           minPrice,
+          _nativeVariants: nativeVariants,
         };
-        if (varOos) entry.inStock = false;
+        if (prod.inStock === false) entry.inStock = false;
         items.push(entry);
-      });
+      }
     } else {
       const entry = {
         ...base,
@@ -751,6 +771,22 @@ function _groupItems(items) {
 
   for (const item of items) {
     if (processed.has(item.id)) continue;
+
+    // ── Native variants (new products schema) ────────────────────────────────
+    // Items emitted by _productsToFlatItems() for hasVariants products carry
+    // a _nativeVariants array. Convert directly to a group object — no regex.
+    if (item._nativeVariants && item._nativeVariants.length > 0) {
+      processed.add(item.id);
+      const groupKey = `${item.id}::${(item.category || "Other").toLowerCase()}`;
+      result.push({
+        ...item,
+        isGroup:     true,
+        groupKey,
+        displayName: item.name,
+        variants:    item._nativeVariants,
+      });
+      continue;
+    }
 
     if (_isVariant(item.name)) {
       const base = _vBase(item.name);

@@ -128,9 +128,13 @@ export async function placeOrder() {
     // [AI UPDATE 2026-08-03] Also include specialRequest when present.
     const extras         = cartExtras.get(item.id)?.extras         || [];
     const specialRequest = cartExtras.get(item.id)?.specialRequest || "";
+    const variantLabel   = cartExtras.get(item.id)?.variantLabel   || "";
+    const parentName     = cartExtras.get(item.id)?.parentName     || "";
     items.push({
       itemId:   item.id,
-      name:     item.name,
+      name:     item.name,                              // "Frooti (250 ml)" — backward compat
+      ...(parentName   && { parentName }),              // "Frooti"
+      ...(variantLabel && { variantName: variantLabel }),// "250 ml"
       price:    item.price,
       quantity: item.qty,
       subtotal: +(item.price * item.qty).toFixed(2),

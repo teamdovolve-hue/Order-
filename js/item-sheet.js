@@ -158,7 +158,10 @@ function _renderSheet() {
   if (!_current) return;
 
   const isGroup   = _current.isGroup === true;
-  const imgUrl    = _current.imageUrl    || "";
+  // For variant groups, use the selected variant's image when available;
+  // fall back to the parent product image so there are never broken images.
+  const selVariant = _current.isGroup ? (_current.variants[_selectedVariantIdx] || null) : null;
+  const imgUrl     = selVariant?.imageUrl || _current.imageUrl || "";
   const desc      = isGroup ? _current.description  : (_current.description  || "");
   const nameText  = isGroup ? _current.displayName  : (_current.name || "");
 
@@ -283,6 +286,35 @@ function _updateQtyDisplay() {
 
 // ── Event handlers ────────────────────────────────────────────
 
+/**
+ * Update the sheet image when the customer switches variants.
+ * Shows the variant-specific image when it has one; otherwise shows
+ * the parent product image.  Never shows a broken image.
+ */
+function _updateVariantImage() {
+  if (!_current?.isGroup) return;
+  const variant = _current.variants[_selectedVariantIdx];
+  if (!variant) return;
+
+  const imgUrl  = variant.imageUrl || _current.imageUrl || "";
+  const imgWrap = document.getElementById("itemSheetImgWrap");
+  const imgEl   = document.getElementById("itemSheetImg");
+  const shimmer = document.getElementById("itemSheetImgShimmer");
+
+  if (imgUrl) {
+    if (imgWrap) imgWrap.style.display = "";
+    if (shimmer) shimmer.style.display = "";
+    if (imgEl) {
+      imgEl.style.opacity = "0";
+      imgEl.onload  = () => { imgEl.style.opacity = "1"; if (shimmer) shimmer.style.display = "none"; };
+      imgEl.onerror = () => { if (imgWrap) imgWrap.style.display = "none"; };
+      imgEl.src = imgUrl;
+    }
+  } else {
+    if (imgWrap) imgWrap.style.display = "none";
+  }
+}
+
 function _onSheetChange(e) {
   // Variant radio
   const radio = e.target.closest(".item-sheet-variant-radio");
@@ -290,6 +322,7 @@ function _onSheetChange(e) {
     const idx = parseInt(radio.value, 10);
     if (!isNaN(idx)) {
       _selectedVariantIdx = idx;
+      _updateVariantImage();   // swap to variant-specific image (or parent fallback)
       _updatePriceDisplay();
     }
     return;
@@ -338,13 +371,24 @@ function _onAddToCart() {
     addItem(cartId, cartName, unit);
   }
 
-  // [AI UPDATE 2026-08-03] Store extras + special request so review.js + order.js
-  // can display the request in cart/review and include it in the order payload.
+  // Store extras, special request, and (for groups) variant metadata so
+  // review.js can display "Frooti • 250 ml" and order.js can send
+  // parentName / variantName as separate fields to the billing panel.
   const specialRequest = (document.getElementById("itemSheetRequest")?.value || "").trim();
-  if (selectedExtras.length > 0 || specialRequest) {
-    cartExtras.set(cartId, { extras: selectedExtras, specialRequest });
+  if (_current.isGroup) {
+    const variant = _current.variants[_selectedVariantIdx];
+    cartExtras.set(cartId, {
+      extras:       selectedExtras,
+      specialRequest,
+      variantLabel: variant?.label   || "",
+      parentName:   _current.displayName || "",
+    });
   } else {
-    cartExtras.delete(cartId);
+    if (selectedExtras.length > 0 || specialRequest) {
+      cartExtras.set(cartId, { extras: selectedExtras, specialRequest });
+    } else {
+      cartExtras.delete(cartId);
+    }
   }
 
   closeItemSheet();
