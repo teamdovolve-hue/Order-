@@ -2228,21 +2228,9 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
    REVIEW SHEET — EXTRAS LIST  [AI UPDATE 2026-08-02]
 ══════════════════════════════════════════════════════════════ */
 
-.review-extras-list {
-  list-style: none;
-  margin: 3px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.review-extra-item {
-  font-size: 12px;
-  color: var(--text-3);
-  font-weight: 500;
-  line-height: 1.4;
-}
+/* Legacy extras list — replaced by .rv-chips in the premium redesign */
+.review-extras-list { display: none; }
+.review-extra-item  { display: none; }
 
 
 /* ══════════════════════════════════════════════════════════════
@@ -2706,6 +2694,13 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
    [AI UPDATE 2026-08-01] New: slides up when customer taps
    "View Details" in the cart bar. Mirrors the OTP modal pattern.
 ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   REVIEW SHEET — PREMIUM REDESIGN
+   [AI UPDATE 2026-08-04] Card-per-item layout, thumbnails,
+   chip extras, order summary card, sticky footer grand total.
+   All functionality preserved; only UI changed.
+══════════════════════════════════════════════════════════════ */
+
 .review-modal {
   position: fixed;
   inset: 0;
@@ -2719,28 +2714,28 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 .review-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
 }
 
 .review-sheet {
   position: relative;
   width: 100%;
-  max-width: 440px;
-  background: #1E2235;
-  border: 1px solid rgba(255,255,255,0.07);
+  max-width: 480px;
+  background: #141414;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 28px 28px 0 0;
   display: flex;
   flex-direction: column;
-  max-height: 88dvh;
-  animation: otpSlideUp 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-  box-shadow: 0 -20px 60px rgba(0,0,0,0.5);
+  max-height: 92dvh;
+  animation: otpSlideUp 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 -24px 80px rgba(0,0,0,0.6);
 }
 
 .review-drag-handle {
-  width: 36px;
+  width: 40px;
   height: 4px;
-  background: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.14);
   border-radius: 2px;
   margin: 14px auto 0;
   flex-shrink: 0;
@@ -2750,160 +2745,300 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px 24px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding: 16px 24px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   flex-shrink: 0;
 }
 
 .review-title {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-1);
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
 }
 
 /* ── Scrollable item list ─────────────────────────────────────── */
 .review-items-wrap {
   overflow-y: auto;
   flex: 1;
-  padding: 8px 20px 4px;
+  padding: 12px 16px 8px;
   overscroll-behavior: contain;
-}
-
-.review-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 0;
-}
-
-.review-item-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
+}
+
+/* ── Item list container ─────────────────────────────────────── */
+#reviewItems {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Item card ───────────────────────────────────────────────── */
+.rv-card {
+  background: #1c1c1c;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+  transition: border-color 0.15s;
+}
+
+.rv-card-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* ── Thumbnail ────────────────────────────────────────────────── */
+.rv-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rv-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 12px;
+  transition: opacity 0.2s;
+}
+
+.rv-thumb-placeholder {
+  font-size: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255,255,255,0.25);
+}
+
+/* ── Card body ───────────────────────────────────────────────── */
+.rv-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
-.review-item-name {
+.rv-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rv-name {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
 }
 
-/* Variant label displayed below the product name in the cart review */
-.review-variant-lbl {
+.rv-total {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--accent);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.rv-variant {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
-  white-space: nowrap;
 }
 
-.review-item-unit-price {
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.review-item-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.review-item-line-total {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.review-qty-ctrl {
+/* ── Mid row: unit price + qty controls ──────────────────────── */
+.rv-mid-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
-  padding: 4px 8px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
 }
 
-.review-qty-btn {
-  background: none;
+.rv-unit-price {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+/* ── Quantity controls: circular buttons ─────────────────────── */
+.rv-qty-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 100px;
+  padding: 3px 6px;
+}
+
+.rv-qty-btn {
+  background: rgba(255,255,255,0.08);
   border: none;
   color: var(--text-1);
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background 0.12s;
+  border-radius: 50%;
+  transition: background 0.12s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+  font-family: inherit;
+  flex-shrink: 0;
 }
-.review-qty-btn:hover  { background: rgba(255,255,255,0.1); }
-.review-qty-btn:active { background: rgba(255,255,255,0.18); }
+.rv-qty-btn:hover  { background: rgba(255,255,255,0.15); }
+.rv-qty-btn:active { background: rgba(255,255,255,0.22); transform: scale(0.9); }
 
-.review-qty-num {
+.rv-qty-num {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-1);
-  min-width: 18px;
+  min-width: 20px;
   text-align: center;
 }
 
-.review-divider {
-  border: none;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  margin: 0;
+/* ── Extras chips ─────────────────────────────────────────────── */
+.rv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 3px;
 }
 
-/* ── Totals ──────────────────────────────────────────────────── */
-.review-total-row {
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid rgba(245, 166, 35, 0.22);
+  border-radius: 100px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(245, 166, 35, 0.9);
+  white-space: nowrap;
+}
+
+/* ── Order Summary card ──────────────────────────────────────── */
+.rv-summary {
+  background: #1c1c1c;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.rv-summary-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-1);
+  letter-spacing: 0.1px;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: 0.8px;
+}
+
+.rv-summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
+  padding: 5px 0;
 }
 
-.review-total-row + .review-total-row {
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-
-.review-total-label {
+.rv-summary-label {
   font-size: 13px;
   color: var(--text-2);
   font-weight: 500;
 }
 
-.review-total-value {
+.rv-summary-value {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-1);
 }
 
-.review-grand-total {
-  margin-top: 4px;
+.rv-summary-divider {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  margin: 10px 0;
 }
 
-.review-grand-amount {
-  font-size: 17px;
+.rv-summary-grand {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rv-summary-grand-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.rv-summary-grand-value {
+  font-size: 18px;
+  font-weight: 800;
   color: var(--accent);
 }
 
-/* ── Action buttons ──────────────────────────────────────────── */
+/* ── Sticky footer ───────────────────────────────────────────── */
 .review-actions {
   display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding: 16px 20px 36px;
+  padding: 14px 16px 36px;
   border-top: 1px solid rgba(255,255,255,0.07);
   flex-shrink: 0;
+  background: #141414;
+}
+
+.review-footer-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+}
+
+.review-footer-total-label {
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.review-footer-total-amount {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+
+.review-footer-btns {
+  display: flex;
+  gap: 10px;
 }
 
 .btn-review-back {
@@ -2912,12 +3047,14 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   border: 1px solid rgba(255,255,255,0.1);
   color: var(--text-2);
   border-radius: var(--r-md);
-  padding: 12px 18px;
-  font-size: 14px;
+  padding: 13px 16px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn-review-back:hover  { background: rgba(255,255,255,0.1); color: var(--text-1); }
 .btn-review-back:active { background: rgba(255,255,255,0.14); }
@@ -2928,13 +3065,15 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   color: #000;
   border: none;
   border-radius: var(--r-md);
-  padding: 12px 22px;
+  padding: 13px 20px;
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, transform 0.1s;
   letter-spacing: 0.2px;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn-review-place:hover  { background: var(--accent-dark); }
 .btn-review-place:active { transform: scale(0.97); }
@@ -2946,7 +3085,7 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
 
 /* ── Responsive & safe-area ──────────────────────────────────── */
 @media (min-width: 600px) {
-  .review-sheet { border-radius: 28px; max-height: 82dvh; }
+  .review-sheet { border-radius: 28px; max-height: 84dvh; }
 }
 
 

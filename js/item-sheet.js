@@ -375,6 +375,12 @@ function _onAddToCart() {
   // review.js can display "Frooti • 250 ml" and order.js can send
   // parentName / variantName as separate fields to the billing panel.
   const specialRequest = (document.getElementById("itemSheetRequest")?.value || "").trim();
+
+  // Resolve the displayed image URL so review.js can show a thumbnail.
+  const _imgUrl = _current.isGroup
+    ? (_current.variants[_selectedVariantIdx]?.imageUrl || _current.imageUrl || "")
+    : (_current.imageUrl || "");
+
   if (_current.isGroup) {
     const variant = _current.variants[_selectedVariantIdx];
     cartExtras.set(cartId, {
@@ -382,13 +388,11 @@ function _onAddToCart() {
       specialRequest,
       variantLabel: variant?.label   || "",
       parentName:   _current.displayName || "",
+      imageUrl:     _imgUrl,
     });
   } else {
-    if (selectedExtras.length > 0 || specialRequest) {
-      cartExtras.set(cartId, { extras: selectedExtras, specialRequest });
-    } else {
-      cartExtras.delete(cartId);
-    }
+    // Always store at minimum imageUrl so review.js can show a thumbnail.
+    cartExtras.set(cartId, { extras: selectedExtras, specialRequest, imageUrl: _imgUrl });
   }
 
   closeItemSheet();

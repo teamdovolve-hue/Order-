@@ -15,11 +15,11 @@
  * cart bar "View Details" and the existing requireLogin / placeOrder flow.
  * No order-creation, auth, or cart logic was changed.
  *
- * [AI UPDATE 2026-08-03] Special request support:
- *   - Each cart item now shows its special request (if any) below the name.
- *   - Customers can add/edit/clear the request inline without removing the item.
- *   - Changes are written back to cartExtras immediately.
- *   - The updated specialRequest is included in the order payload via order.js.
+ * [AI UPDATE 2026-08-03] Special request support.
+ *
+ * [AI UPDATE 2026-08-04] Premium UI redesign — card-per-item layout,
+ * product thumbnails, chip-style extras, order summary card, sticky
+ * footer with grand total. Zero functional changes.
  */
 
 import { cart, addItem, removeItem, cartExtras } from "./cart.js";
@@ -29,7 +29,6 @@ let _onPlaceOrder = null;
 
 /**
  * Tracks which item ID is currently in "editing special request" mode.
- * When null, all items render in display mode.
  * @type {string|null}
  */
 let _editingRequestId = null;
@@ -101,7 +100,6 @@ function _onItemAction(e) {
   if (action === "edit-req" || action === "add-req") {
     _editingRequestId = id;
     _render();
-    // Focus the textarea on next frame
     requestAnimationFrame(() => {
       const ta = document.querySelector(`.review-req-textarea[data-req-id="${CSS.escape(id)}"]`);
       if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; }
@@ -145,31 +143,44 @@ function _render() {
 
   let totalQty = 0;
   let totalAmt = 0;
-  const rows   = [];
+  const cards  = [];
 
   for (const item of cart.values()) {
-    const lineTotal     = item.price * item.qty;
-    totalQty           += item.qty;
-    totalAmt           += lineTotal;
+    const lineTotal  = item.price * item.qty;
+    totalQty        += item.qty;
+    totalAmt        += lineTotal;
 
-    // Variant label (e.g. "250 ml") — shown as "• 250 ml" below the product name
+    const extras       = cartExtras.get(item.id)?.extras       || [];
     const variantLabel = cartExtras.get(item.id)?.variantLabel || "";
     const parentName   = cartExtras.get(item.id)?.parentName   || "";
+    const imageUrl     = cartExtras.get(item.id)?.imageUrl     || "";
+    const specialRequest = cartExtras.get(item.id)?.specialRequest || "";
 
-    // Extras
-    const extras        = cartExtras.get(item.id)?.extras || [];
-    const extrasHtml    = extras.length
-      ? `<ul class="review-extras-list">${extras.map(e =>
-          `<li class="review-extra-item">• ${_esc(e.name)}</li>`
-        ).join("")}</ul>`
+    const displayName = variantLabel
+      ? _esc(parentName || item.name)
+      : _esc(item.name);
+
+    // ── Thumbnail ──────────────────────────────────────────────
+    const thumbHtml = imageUrl
+      ? `<img
+           class="rv-thumb-img"
+           src="${_esc(imageUrl)}"
+           alt="${displayName}"
+           loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+         /><div class="rv-thumb-placeholder" style="display:none">🍽</div>`
+      : `<div class="rv-thumb-placeholder">🍽</div>`;
+
+    // ── Extras chips ───────────────────────────────────────────
+    const chipsHtml = extras.length
+      ? `<div class="rv-chips">${extras.map(e =>
+          `<span class="rv-chip">${_esc(e.name)}${e.price > 0 ? ` +₹${e.price}` : ""}</span>`
+        ).join("")}</div>`
       : "";
 
-    // Special request — inline edit or display
-    const specialRequest = cartExtras.get(item.id)?.specialRequest || "";
+    // ── Special request section ────────────────────────────────
     let specialReqHtml;
-
     if (_editingRequestId === item.id) {
-      // ── Editing state ───────────────────────────────────────
       specialReqHtml = `
         <div class="review-req-edit-wrap">
           <textarea
@@ -185,7 +196,6 @@ function _render() {
           </div>
         </div>`;
     } else if (specialRequest) {
-      // ── Display state with request ──────────────────────────
       specialReqHtml = `
         <div class="review-special-req">
           <span class="review-special-text">📝 ${_esc(specialRequest)}</span>
@@ -195,55 +205,80 @@ function _render() {
           </div>
         </div>`;
     } else {
-      // ── No request yet ──────────────────────────────────────
       specialReqHtml = `
-        <button class="review-add-req" data-review-action="add-req" data-id="${_esc(item.id)}">+ Special request</button>`;
+        <button class="review-add-req" data-review-action="add-req" data-id="${_esc(item.id)}">+ Add special request</button>`;
     }
 
-    rows.push(`
-      <div class="review-item">
-        <div class="review-item-info">
-          <span class="review-item-name">${variantLabel
-            ? `${_esc(parentName || item.name)}<br><span class="review-variant-lbl">• ${_esc(variantLabel)}</span>`
-            : _esc(item.name)}</span>
-          ${extrasHtml}
-          ${specialReqHtml}
-          <span class="review-item-unit-price">₹${item.price} × ${item.qty}</span>
-        </div>
-        <div class="review-item-right">
-          <span class="review-item-line-total">₹${lineTotal.toFixed(0)}</span>
-          <div class="review-qty-ctrl">
-            <button
-              class="review-qty-btn"
-              data-review-action="dec"
-              data-id="${_esc(item.id)}"
-              aria-label="Remove one ${_esc(item.name)}">−</button>
-            <span class="review-qty-num">${item.qty}</span>
-            <button
-              class="review-qty-btn"
-              data-review-action="inc"
-              data-id="${_esc(item.id)}"
-              aria-label="Add one ${_esc(item.name)}">+</button>
+    cards.push(`
+      <div class="rv-card">
+        <div class="rv-card-row">
+
+          <!-- Thumbnail -->
+          <div class="rv-thumb">${thumbHtml}</div>
+
+          <!-- Info -->
+          <div class="rv-body">
+            <div class="rv-top-row">
+              <span class="rv-name">${displayName}</span>
+              <span class="rv-total">₹${lineTotal.toFixed(0)}</span>
+            </div>
+
+            ${variantLabel
+              ? `<span class="rv-variant">● ${_esc(variantLabel)}</span>`
+              : ""}
+
+            <div class="rv-mid-row">
+              <span class="rv-unit-price">₹${item.price} × ${item.qty}</span>
+              <div class="rv-qty-ctrl">
+                <button
+                  class="rv-qty-btn rv-qty-dec"
+                  data-review-action="dec"
+                  data-id="${_esc(item.id)}"
+                  aria-label="Remove one ${displayName}">−</button>
+                <span class="rv-qty-num">${item.qty}</span>
+                <button
+                  class="rv-qty-btn rv-qty-inc"
+                  data-review-action="inc"
+                  data-id="${_esc(item.id)}"
+                  aria-label="Add one ${displayName}">+</button>
+              </div>
+            </div>
+
+            ${chipsHtml}
+            ${specialReqHtml}
           </div>
+
         </div>
-      </div>
-      <hr class="review-divider" />`);
+      </div>`);
   }
 
-  itemsEl.innerHTML = rows.join("");
+  itemsEl.innerHTML = cards.join("");
 
+  // ── Order Summary card ─────────────────────────────────────
   const fmt = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
   totalsEl.innerHTML = `
-    <div class="review-total-row">
-      <span class="review-total-label">Total Items</span>
-      <span class="review-total-value">${totalQty}</span>
-    </div>
-    <div class="review-total-row review-grand-total">
-      <span class="review-total-label">Grand Total</span>
-      <span class="review-total-value review-grand-amount">${fmt(totalAmt)}</span>
+    <div class="rv-summary">
+      <h3 class="rv-summary-title">Order Summary</h3>
+      <div class="rv-summary-row">
+        <span class="rv-summary-label">Items</span>
+        <span class="rv-summary-value">${totalQty}</span>
+      </div>
+      <div class="rv-summary-row">
+        <span class="rv-summary-label">Subtotal</span>
+        <span class="rv-summary-value">${fmt(totalAmt)}</span>
+      </div>
+      <div class="rv-summary-divider"></div>
+      <div class="rv-summary-grand">
+        <span class="rv-summary-grand-label">Grand Total</span>
+        <span class="rv-summary-grand-value">${fmt(totalAmt)}</span>
+      </div>
     </div>`;
+
+  // Update sticky footer grand total
+  const footerTotal = document.getElementById("reviewFooterTotal");
+  if (footerTotal) footerTotal.textContent = fmt(totalAmt);
 
   // Keep Place Order button in sync
   const placeBtn = document.getElementById("reviewPlaceBtn");

@@ -366,10 +366,16 @@
         <div id="reviewTotals"></div>
       </div>
 
-      <!-- Bottom action buttons -->
+      <!-- Sticky footer: grand total + action buttons -->
       <div class="review-actions">
-        <button class="btn-review-back" id="reviewBackBtn">← Back</button>
-        <button class="btn-review-place" id="reviewPlaceBtn">Place Order →</button>
+        <div class="review-footer-total">
+          <span class="review-footer-total-label">Grand Total</span>
+          <span class="review-footer-total-amount" id="reviewFooterTotal">₹0</span>
+        </div>
+        <div class="review-footer-btns">
+          <button class="btn-review-back" id="reviewBackBtn">← Continue Shopping</button>
+          <button class="btn-review-place" id="reviewPlaceBtn">Place Order →</button>
+        </div>
       </div>
     </div>
   </div>
