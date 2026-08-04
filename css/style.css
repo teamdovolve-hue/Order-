@@ -4282,3 +4282,388 @@ a:focus:not(:focus-visible) {
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   HOME SECTIONS — PREMIUM REDESIGN  [AI UPDATE 2026-08-04]
+   Portrait cards • Section subtitles • Stagger animations
+   Scope: ONLY the "All" tab home sections view.
+   Regular menu grid cards (#menuGrid) are completely untouched.
+══════════════════════════════════════════════════════════════ */
+
+/* ── Section container ───────────────────────────────────────── */
+.home-sections {
+  padding-bottom: 12px;
+}
+
+.home-section {
+  padding-bottom: 8px;
+}
+
+/* ── Section header: title + subtitle + "See All →" ─────────── */
+.home-section-header {
+  padding: 24px 16px 10px;
+  align-items: flex-start;
+}
+
+.home-section-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-section-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-1);
+  letter-spacing: -0.4px;
+  margin: 0 0 3px;
+  line-height: 1.18;
+}
+
+.home-section-subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.3;
+  letter-spacing: 0.05px;
+}
+
+.home-section-see-all {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 4px 0 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  align-self: flex-start;
+  margin-top: 4px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+.home-section-see-all:hover {
+  opacity: 0.72;
+  background: none;
+}
+
+/* ── Scroll track ────────────────────────────────────────────── */
+.home-section-scroll {
+  gap: 10px;
+  padding: 4px 16px 20px;
+}
+
+/* ── Portrait card shell ─────────────────────────────────────── */
+.home-section-scroll .menu-card {
+  flex: 0 0 162px;
+  width: 162px;
+  padding: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.34),
+    0 1px 5px  rgba(0, 0, 0, 0.18);
+  /* Override the generic cardFadeIn with our portrait entry */
+  animation: homeCardIn 0.28s cubic-bezier(0.25, 0.90, 0.45, 1.00) both;
+  transition:
+    box-shadow   0.20s ease,
+    border-color 0.20s ease,
+    transform    0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-bottom: 0;
+}
+
+.home-section-scroll .menu-card:hover {
+  border-color: rgba(255, 255, 255, 0.13);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.44),
+    0 2px  7px  rgba(0, 0, 0, 0.22);
+}
+
+.home-section-scroll .menu-card:active {
+  transform: scale(0.965);
+}
+
+.home-section-scroll .menu-card.in-cart {
+  border-color: rgba(245, 166, 35, 0.50);
+  box-shadow:
+    0 6px 22px rgba(245, 166, 35, 0.13),
+    0 1px 5px  rgba(0, 0, 0, 0.20);
+}
+
+/* Hero effect: first card in each row slightly wider */
+.home-section-scroll .menu-card:first-child {
+  flex: 0 0 178px;
+  width: 178px;
+}
+
+/* ── Portrait layout: column direction ───────────────────────── */
+.home-section-scroll .menu-card .card-body {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+/* ── Product image: full-width, fixed height ─────────────────── */
+.home-section-scroll .menu-card .card-img-wrap {
+  position: relative;        /* needed for NEW badge */
+  width: 100%;
+  height: 122px;
+  border-radius: 0;
+  flex-shrink: 0;
+  align-self: stretch;
+  background: #252525;
+  overflow: hidden;
+}
+
+.home-section-scroll .menu-card:first-child .card-img-wrap {
+  height: 136px;
+}
+
+.home-section-scroll .menu-card .card-img-wrap .card-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.20s ease;
+}
+
+.home-section-scroll .menu-card .card-img-wrap .card-img.card-img--loaded {
+  opacity: 1;
+}
+
+.home-section-scroll .menu-card .card-img-wrap--empty {
+  width: 100%;
+  height: 122px;
+  border-radius: 0;
+  background: linear-gradient(145deg, #222 0%, #2c2c2c 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-section-scroll .menu-card:first-child .card-img-wrap--empty {
+  height: 136px;
+}
+
+.home-section-scroll .menu-card .card-img-emoji {
+  font-size: 30px;
+  opacity: 0.45;
+}
+
+/* ── Info panel below image ──────────────────────────────────── */
+.home-section-scroll .menu-card .card-info {
+  flex: 1;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 88px;
+}
+
+/* ── Product name — 2 lines max ──────────────────────────────── */
+.home-section-scroll .menu-card .card-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  line-height: 1.36;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: unset;
+  color: var(--text-1);
+  margin: 0 0 2px;
+}
+
+/* ── Hide description & Read More — portrait cards too compact ── */
+.home-section-scroll .menu-card .card-desc,
+.home-section-scroll .menu-card .card-desc-more {
+  display: none !important;
+}
+
+/* ── OOS badge ───────────────────────────────────────────────── */
+.home-section-scroll .menu-card .oos-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  margin-top: 3px;
+  border-radius: 5px;
+  align-self: flex-start;
+}
+
+/* ── Price + ADD row ─────────────────────────────────────────── */
+.home-section-scroll .menu-card .card-footer-inline {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+/* ── Price ───────────────────────────────────────────────────── */
+.home-section-scroll .menu-card .card-price {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: var(--accent);
+  line-height: 1.1;
+}
+
+.home-section-scroll .menu-card .card-price-from {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  display: block;
+}
+
+/* ── ADD button — compact premium pill ───────────────────────── */
+.home-section-scroll .menu-card .btn-add {
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.home-section-scroll .menu-card .btn-add:hover {
+  background: var(--accent-dark);
+}
+
+.home-section-scroll .menu-card .btn-add:active {
+  animation: homeAddBtnPop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Qty controls — compact for portrait cards ───────────────── */
+.home-section-scroll .menu-card .qty-control,
+.home-section-scroll .menu-card .group-qty-control {
+  height: 30px;
+  border-radius: 9px;
+}
+
+.home-section-scroll .menu-card .qty-minus,
+.home-section-scroll .menu-card .qty-plus,
+.home-section-scroll .menu-card .qty-minus--group,
+.home-section-scroll .menu-card .qty-plus--group {
+  width: 28px;
+  font-size: 16px;
+}
+
+.home-section-scroll .menu-card .qty-num {
+  font-size: 13px;
+  min-width: 18px;
+}
+
+/* ── Factual "NEW" badge — only for items flagged isNew in Firestore ── */
+.home-card-new-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: var(--accent);
+  color: #000;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 5px;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.30);
+}
+
+/* ── Card entry animation (portrait) ────────────────────────── */
+@keyframes homeCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ADD button spring press */
+@keyframes homeAddBtnPop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(0.82); }
+  72%  { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+
+/* ── Card stagger: offset delay per card position ────────────── */
+.home-section-scroll .menu-card:nth-child(1) { animation-delay: 0.00s; }
+.home-section-scroll .menu-card:nth-child(2) { animation-delay: 0.04s; }
+.home-section-scroll .menu-card:nth-child(3) { animation-delay: 0.08s; }
+.home-section-scroll .menu-card:nth-child(4) { animation-delay: 0.12s; }
+.home-section-scroll .menu-card:nth-child(5) { animation-delay: 0.16s; }
+.home-section-scroll .menu-card:nth-child(6) { animation-delay: 0.20s; }
+.home-section-scroll .menu-card:nth-child(7) { animation-delay: 0.24s; }
+.home-section-scroll .menu-card:nth-child(8) { animation-delay: 0.28s; }
+
+/* ── Section-level stagger offsets the whole row's base delay ── */
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(1) { animation-delay: 0.04s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(2) { animation-delay: 0.08s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(3) { animation-delay: 0.12s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(4) { animation-delay: 0.16s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(5) { animation-delay: 0.20s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(6) { animation-delay: 0.24s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(7) { animation-delay: 0.28s; }
+#home-section-recommended   .home-section-scroll .menu-card:nth-child(8) { animation-delay: 0.32s; }
+
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(1) { animation-delay: 0.10s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(2) { animation-delay: 0.14s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(3) { animation-delay: 0.18s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(4) { animation-delay: 0.22s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(5) { animation-delay: 0.26s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(6) { animation-delay: 0.30s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(7) { animation-delay: 0.34s; }
+#home-section-most-ordered  .home-section-scroll .menu-card:nth-child(8) { animation-delay: 0.38s; }
+
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(1) { animation-delay: 0.16s; }
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(2) { animation-delay: 0.20s; }
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(3) { animation-delay: 0.24s; }
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(4) { animation-delay: 0.28s; }
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(5) { animation-delay: 0.32s; }
+#home-section-casual-snacks .home-section-scroll .menu-card:nth-child(6) { animation-delay: 0.36s; }
+
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(1) { animation-delay: 0.22s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(2) { animation-delay: 0.26s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(3) { animation-delay: 0.30s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(4) { animation-delay: 0.34s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(5) { animation-delay: 0.38s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(6) { animation-delay: 0.42s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(7) { animation-delay: 0.46s; }
+#home-section-chefs-picks   .home-section-scroll .menu-card:nth-child(8) { animation-delay: 0.50s; }
+
+/* ── Reduced motion — collapse all portrait card animations ─── */
+@media (prefers-reduced-motion: reduce) {
+  .home-section-scroll .menu-card,
+  .home-card-new-badge {
+    animation: none !important;
+  }
+  .home-section-scroll .menu-card:active,
+  .home-section-scroll .menu-card .btn-add:active {
+    transform: none !important;
+    animation: none !important;
+  }
+}

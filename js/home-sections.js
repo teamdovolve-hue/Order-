@@ -80,8 +80,11 @@ function _render(_allItems, grouped) {
       (s) => `
       <div class="home-section" id="home-section-${s.id}">
         <div class="home-section-header">
-          <h2 class="home-section-title">${s.title}</h2>
-          <button class="home-section-see-all" data-section="${s.id}">See All</button>
+          <div class="home-section-title-wrap">
+            <h2 class="home-section-title">${s.title}</h2>
+            ${s.subtitle ? `<p class="home-section-subtitle">${s.subtitle}</p>` : ""}
+          </div>
+          <button class="home-section-see-all" data-section="${s.id}">See All →</button>
         </div>
         <div class="home-section-scroll" id="home-scroll-${s.id}"></div>
       </div>`
@@ -94,7 +97,18 @@ function _render(_allItems, grouped) {
     if (!scrollEl) continue;
     const frag = document.createDocumentFragment();
     for (const entry of s.entries) {
-      frag.appendChild(buildCardElement(entry, ""));
+      const card = buildCardElement(entry, "");
+      // Inject "NEW" badge when item is genuinely new (admin-set flag from Firestore)
+      if (entry.isNew) {
+        const imgWrap = card.querySelector(".card-img-wrap");
+        if (imgWrap) {
+          const badge = document.createElement("div");
+          badge.className = "home-card-new-badge";
+          badge.textContent = "NEW";
+          imgWrap.appendChild(badge);
+        }
+      }
+      frag.appendChild(card);
     }
     scrollEl.appendChild(frag);
   }
@@ -386,9 +400,9 @@ function _computeSections(grouped) {
   chefsPicks.forEach((e) => used.add(_entryKey(e)));
 
   return [
-    { id: "recommended",   title: "⭐ Recommended",  entries: recommended  },
-    { id: "most-ordered",  title: "🔥 Most Ordered",  entries: mostOrdered  },
-    { id: "casual-snacks", title: "🍟 Casual Snacks", entries: casualSnacks },
-    { id: "chefs-picks",   title: "👨‍🍳 Chef's Picks", entries: chefsPicks  },
+    { id: "recommended",   title: "⭐ Recommended",  subtitle: "Picked for you",            entries: recommended  },
+    { id: "most-ordered",  title: "🔥 Most Ordered",  subtitle: "Customer favourites",       entries: mostOrdered  },
+    { id: "casual-snacks", title: "🍟 Casual Snacks", subtitle: "Perfect for quick bites",   entries: casualSnacks },
+    { id: "chefs-picks",   title: "👨‍🍳 Chef's Picks", subtitle: "Handpicked by our kitchen", entries: chefsPicks  },
   ].filter((s) => s.entries.length > 0);
 }
