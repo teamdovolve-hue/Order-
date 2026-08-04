@@ -3430,3 +3430,579 @@ body:not(:has(#cartBar:not(.hidden))) .category-fab {
   transition: background 0.15s;
 }
 .review-req-cancel:hover { background: rgba(255, 255, 255, 0.1); }
+
+
+/* ══════════════════════════════════════════════════════════════
+   PREMIUM NATIVE POLISH
+   ─────────────────────────────────────────────────────────────
+   Phase 2 — Remove browser touch effects
+   Phase 3 — Consistent touch feedback (scale / opacity)
+   Phase 4 — Smooth entry animations (180–250 ms)
+   Phase 5 — Momentum scrolling
+   Phase 6 — GPU-accelerated (transform + opacity only)
+   ─────────────────────────────────────────────────────────────
+   ❌ No layout changes  ❌ No color changes  ❌ No logic changes
+══════════════════════════════════════════════════════════════ */
+
+
+/* ─────────────────────────────────────────────────────────────
+   PHASE 2 — Global tap highlight removal
+   Single rule covers every element in the tree.
+   -webkit-tap-highlight-color is the blue/grey flash Android/iOS
+   WebView shows on tap. Zero it out universally.
+───────────────────────────────────────────────────────────── */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Remove the 300 ms tap delay on all interactive elements.
+   "manipulation" tells the browser the element won't be
+   double-tap-zoomed, so it can fire click immediately. */
+button,
+a,
+[role="button"],
+.menu-card,
+.half-full-side,
+.triple-side,
+.cat-btn,
+.category-fab-row,
+.is-variant-card,
+.is-extra-card,
+.home-section-see-all,
+.card-desc-more {
+  touch-action: manipulation;
+}
+
+/* Remove focus ring on mouse/touch clicks; keep it for keyboard nav */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   PHASE 3 — Premium touch feedback
+   All press animations use transform only (GPU composited).
+   Scale range: 0.86–0.98 depending on element size.
+   Larger elements get a subtler scale; small icons go lower.
+───────────────────────────────────────────────────────────── */
+
+/* ── Header icon buttons ─────────────────────────────────────── */
+.btn-history,
+.btn-icon-sm {
+  transition: border-color 0.2s, color 0.2s, transform 0.14s ease, opacity 0.14s;
+}
+.btn-history:active,
+.btn-icon-sm:active {
+  transform: scale(0.88);
+  opacity: 0.75;
+}
+
+/* ── Category chips ──────────────────────────────────────────── */
+.cat-btn {
+  transition: background 0.18s, color 0.18s, border-color 0.18s, transform 0.13s ease;
+}
+.cat-btn:active {
+  transform: scale(0.92);
+}
+
+/* ── Search clear (✕) button ─────────────────────────────────── */
+.search-clear {
+  transition: background 0.15s, color 0.15s, transform 0.11s ease;
+}
+.search-clear:active {
+  transform: scale(0.84);
+}
+
+/* ── Menu cards — subtle whole-card press ────────────────────── */
+.menu-card {
+  transition: border-color 0.2s, background 0.2s, transform 0.15s ease;
+  will-change: transform;
+}
+.menu-card:active {
+  transform: scale(0.989);
+  background: var(--surface-2);
+}
+
+/* ── ADD button on menu cards ────────────────────────────────── */
+.btn-add {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.btn-add:active {
+  transform: scale(0.90);
+}
+
+/* ── Qty +/− buttons on menu cards ──────────────────────────── */
+.qty-btn {
+  transition: background 0.15s, transform 0.10s ease;
+}
+.qty-btn:active {
+  transform: scale(0.84);
+}
+
+/* ── Retry button (error state) ──────────────────────────────── */
+.btn-retry {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.btn-retry:active {
+  transform: scale(0.95);
+}
+
+/* ── Overlay close buttons (success / error) ─────────────────── */
+.btn-overlay-close {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.btn-overlay-close:active {
+  transform: scale(0.97);
+}
+
+/* ── History panel close button ──────────────────────────────── */
+.history-close-btn {
+  transition: background 0.15s, color 0.15s, transform 0.11s ease;
+}
+.history-close-btn:active {
+  transform: scale(0.84);
+}
+
+/* ── OTP / login sheet buttons ───────────────────────────────── */
+.otp-btn-primary {
+  transition: background 0.15s, transform 0.12s ease;
+}
+/* :active already set above; reinforce tap highlight removal */
+.otp-btn-secondary {
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.12s ease;
+}
+.otp-btn-secondary:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+.otp-btn-toggle {
+  transition: background 0.15s, color 0.15s, transform 0.10s ease;
+}
+.otp-btn-toggle:active {
+  transform: scale(0.90);
+}
+
+.otp-btn-link {
+  transition: color 0.15s, transform 0.12s ease, opacity 0.12s;
+}
+.otp-btn-link:active {
+  transform: scale(0.94);
+  opacity: 0.65;
+}
+
+/* ── Cart bar "View Details" button ──────────────────────────── */
+.btn-place-order {
+  transition: background 0.15s, transform 0.12s ease;
+}
+
+/* ── Review sheet special-request controls ───────────────────── */
+.review-special-edit {
+  transition: background 0.15s, transform 0.10s ease;
+}
+.review-special-edit:active {
+  transform: scale(0.91);
+}
+
+.review-special-clear {
+  transition: color 0.15s, transform 0.10s ease, opacity 0.10s;
+}
+.review-special-clear:active {
+  transform: scale(0.84);
+  opacity: 0.6;
+}
+
+.review-add-req {
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.12s ease;
+}
+.review-add-req:active {
+  transform: scale(0.95);
+}
+
+.review-req-save {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.review-req-save:active {
+  transform: scale(0.97);
+}
+
+.review-req-cancel {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.review-req-cancel:active {
+  transform: scale(0.96);
+}
+
+/* ── "See All" section links ─────────────────────────────────── */
+.home-section-see-all {
+  transition: background 0.15s, color 0.15s, transform 0.12s ease;
+}
+.home-section-see-all:active {
+  transform: scale(0.92);
+}
+
+/* ── Card description "more" toggle ─────────────────────────── */
+.card-desc-more {
+  transition: color 0.12s, transform 0.10s ease, opacity 0.10s;
+}
+.card-desc-more:active {
+  transform: scale(0.90);
+  opacity: 0.7;
+}
+
+/* ── Forgot-password popup buttons (inline-styled in HTML) ───── */
+#otpForgotCloseBtn {
+  touch-action: manipulation;
+  transition: opacity 0.15s, transform 0.12s ease !important;
+  cursor: pointer;
+}
+#otpForgotCloseBtn:active {
+  transform: scale(0.97) !important;
+  opacity: 0.82 !important;
+}
+#otpForgotBtn {
+  touch-action: manipulation;
+  transition: opacity 0.15s !important;
+}
+#otpForgotBtn:active {
+  opacity: 0.6 !important;
+}
+
+/* ── Variant + extra cards in item sheet (reinforce) ────────────
+   These already had tap highlight removed; add a tighter press. */
+.is-variant-card {
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s, transform 0.13s ease;
+}
+.is-variant-card:not(.oos):active {
+  transform: scale(0.984);
+}
+
+.is-extra-card {
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s, transform 0.13s ease;
+}
+.is-extra-card:active {
+  transform: scale(0.984);
+}
+
+/* ── Half/Full and Triple card sides (reinforce) ─────────────── */
+.half-full-side {
+  transition: background 0.15s, transform 0.13s ease;
+}
+.half-full-side:not(.oos):active {
+  transform: scale(0.96);
+}
+
+.triple-side {
+  transition: background 0.15s, transform 0.13s ease;
+}
+.triple-side:not(.oos):active {
+  transform: scale(0.96);
+}
+
+/* ── Category FAB pill (reinforce) ──────────────────────────── */
+.category-fab {
+  transition: transform 0.18s ease, background 0.15s, box-shadow 0.18s, border-color 0.15s;
+}
+.category-fab:active {
+  transform: scale(0.93);
+}
+
+/* ── Category FAB row items ─────────────────────────────────── */
+.category-fab-row {
+  transition: background 0.15s, transform 0.12s ease;
+}
+.category-fab-row:active {
+  transform: scale(0.984);
+  background: rgba(255, 255, 255, 0.11);
+}
+
+/* ── Item sheet qty buttons (reinforce) ─────────────────────── */
+.item-sheet-qty-btn {
+  transition: background 0.12s, transform 0.09s ease;
+}
+
+/* ── Review sheet qty buttons (reinforce) ───────────────────── */
+.rv-qty-btn {
+  transition: background 0.12s, transform 0.09s ease;
+}
+
+/* ── Item sheet "Add to Cart" button (reinforce) ─────────────── */
+.item-sheet-add-btn {
+  transition: background 0.15s, transform 0.12s ease;
+}
+
+/* ── Review "Continue Shopping" + "Place Order" (reinforce) ─── */
+.btn-review-back {
+  transition: background 0.15s, color 0.15s, transform 0.12s ease;
+}
+.btn-review-back:active {
+  transform: scale(0.96);
+}
+
+.btn-review-place {
+  transition: background 0.15s, transform 0.12s ease;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   PHASE 4 — Smooth entry animations
+   All use opacity + translateY (GPU composited).
+   Duration: 200–240 ms; easing: ease or cubic-bezier spring.
+───────────────────────────────────────────────────────────── */
+
+/* ── Menu card: fade + slide up when entering the DOM ────────── */
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.menu-card {
+  animation: cardFadeIn 0.22s ease both;
+}
+
+/* ── Category chip: scale in when the nav is first populated ─── */
+@keyframes chipScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.cat-btn {
+  animation: chipScaleIn 0.20s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+/* ── Category FAB sheet rows: staggered slide-in ─────────────── */
+@keyframes fabRowSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.category-fab-row {
+  animation: fabRowSlideIn 0.20s ease both;
+}
+/* Stagger first 8 rows with small delays */
+.category-fab-row:nth-child(1)  { animation-delay: 0.02s; }
+.category-fab-row:nth-child(2)  { animation-delay: 0.04s; }
+.category-fab-row:nth-child(3)  { animation-delay: 0.06s; }
+.category-fab-row:nth-child(4)  { animation-delay: 0.08s; }
+.category-fab-row:nth-child(5)  { animation-delay: 0.10s; }
+.category-fab-row:nth-child(6)  { animation-delay: 0.12s; }
+.category-fab-row:nth-child(7)  { animation-delay: 0.14s; }
+.category-fab-row:nth-child(8)  { animation-delay: 0.16s; }
+
+/* ── Active order cards: already have fadeSlideIn; reinforce ─── */
+.aos-card {
+  animation: cardFadeIn 0.25s ease both;
+}
+
+/* ── Overlay cards: already have popIn; reinforce spring ─────── */
+/* (popIn already defined above — no change needed) */
+
+/* ── Home section rows: stagger the section headers ─────────── */
+@keyframes sectionFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.home-section {
+  animation: sectionFadeIn 0.24s ease both;
+}
+.home-section:nth-child(1) { animation-delay: 0.00s; }
+.home-section:nth-child(2) { animation-delay: 0.06s; }
+.home-section:nth-child(3) { animation-delay: 0.12s; }
+.home-section:nth-child(4) { animation-delay: 0.18s; }
+
+/* ── OTP / Review / Item sheet: slide-up already exists;
+   add a subtle spring to the sheet itself ──────────────────── */
+/* Sheet animations (otpSlideUp) are already defined and used.
+   We improve only the timing function for a more native feel. */
+.otp-sheet,
+.review-sheet,
+.item-sheet,
+.category-fab-sheet {
+  animation-timing-function: cubic-bezier(0.25, 0.90, 0.45, 1.00);
+}
+
+/* ── History panel: already uses slideUpDrawer ─────────────────
+   Improve timing for native feel. */
+.history-panel {
+  animation-timing-function: cubic-bezier(0.25, 0.90, 0.45, 1.00);
+}
+
+/* ── Variant / Extra cards: pop in when item sheet opens ─────── */
+@keyframes variantCardIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.is-variant-card,
+.is-extra-card {
+  animation: variantCardIn 0.20s cubic-bezier(0.34, 1.30, 0.64, 1) both;
+}
+.is-variant-card:nth-child(1),
+.is-extra-card:nth-child(1)  { animation-delay: 0.00s; }
+.is-variant-card:nth-child(2),
+.is-extra-card:nth-child(2)  { animation-delay: 0.04s; }
+.is-variant-card:nth-child(3),
+.is-extra-card:nth-child(3)  { animation-delay: 0.08s; }
+.is-variant-card:nth-child(4),
+.is-extra-card:nth-child(4)  { animation-delay: 0.12s; }
+.is-variant-card:nth-child(5),
+.is-extra-card:nth-child(5)  { animation-delay: 0.16s; }
+
+/* ── Review item cards: slide in from bottom ─────────────────── */
+@keyframes rvCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rv-card {
+  animation: rvCardIn 0.22s ease both;
+}
+.rv-card:nth-child(1) { animation-delay: 0.00s; }
+.rv-card:nth-child(2) { animation-delay: 0.05s; }
+.rv-card:nth-child(3) { animation-delay: 0.10s; }
+.rv-card:nth-child(4) { animation-delay: 0.14s; }
+.rv-card:nth-child(5) { animation-delay: 0.18s; }
+
+/* ── Qty change: pop the number when it updates ──────────────── */
+/* A utility class js can add/remove; CSS handles the animation. */
+@keyframes qtyNumPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.38); }
+  100% { transform: scale(1); }
+}
+.qty-pop {
+  animation: qtyNumPop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Cart bar entry: already has slideUp; reinforce timing ───── */
+.cart-bar {
+  animation-timing-function: cubic-bezier(0.25, 0.90, 0.45, 1.00);
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   PHASE 5 — Momentum scrolling
+   -webkit-overflow-scrolling: touch enables native rubber-band
+   momentum on iOS. Combined with overscroll-behavior: contain
+   (already set on most containers) this avoids pull-to-refresh
+   and prevents scroll chaining.
+───────────────────────────────────────────────────────────── */
+.category-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.home-section-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.category-fab-list {
+  -webkit-overflow-scrolling: touch;
+}
+
+.item-sheet-body {
+  -webkit-overflow-scrolling: touch;
+}
+
+.review-items-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+.history-list {
+  -webkit-overflow-scrolling: touch;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   PHASE 6 — Performance
+   will-change hints on elements that slide/scale frequently.
+   Only applied to the key animating surfaces to avoid excess
+   GPU layer allocation.
+───────────────────────────────────────────────────────────── */
+.otp-sheet,
+.review-sheet,
+.item-sheet,
+.history-panel,
+.category-fab-sheet {
+  will-change: transform;
+}
+
+/* FAB pill is always visible and frequently pressed */
+.category-fab {
+  will-change: transform;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   REDUCED MOTION — respect user accessibility preference.
+   When prefers-reduced-motion is set, collapse all custom
+   animations to instant fades only.
+───────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .menu-card,
+  .cat-btn,
+  .category-fab-row,
+  .home-section,
+  .is-variant-card,
+  .is-extra-card,
+  .rv-card,
+  .aos-card {
+    animation: none;
+  }
+
+  .menu-card:active,
+  .btn-add:active,
+  .qty-btn:active,
+  .cat-btn:active,
+  .btn-history:active,
+  .btn-icon-sm:active,
+  .btn-retry:active,
+  .btn-overlay-close:active,
+  .history-close-btn:active,
+  .otp-btn-secondary:active,
+  .otp-btn-toggle:active,
+  .review-special-edit:active,
+  .review-add-req:active,
+  .review-req-save:active,
+  .review-req-cancel:active,
+  .home-section-see-all:active,
+  .card-desc-more:active,
+  .is-variant-card:active,
+  .is-extra-card:active,
+  .half-full-side:active,
+  .triple-side:active,
+  .category-fab-row:active {
+    transform: none;
+  }
+}
+
