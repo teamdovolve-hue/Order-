@@ -169,20 +169,39 @@ export function updateCardUI(itemId) {
     }
   }
 
-  // ── Group card badge (variants share one card) ────────────────
-  // [AI UPDATE 2026-08-02] UX upgrade — find group cards that contain
-  // this variant ID and update their total-qty badge.
+  // ── Group card qty controls (variants share one card) ─────────
+  // When any variant of a group is added/removed, refresh the whole
+  // card-action area: show qty control when in-cart, ADD when empty.
   if (!card) {
     document.querySelectorAll(".menu-card[data-variant-ids]").forEach(groupCard => {
       const ids = groupCard.dataset.variantIds.split(",");
       if (!ids.includes(itemId)) return;
+
       const totalQty = ids.reduce((sum, vid) => sum + (cart.get(vid)?.qty || 0), 0);
-      const badge = groupCard.querySelector(".group-cart-badge");
-      if (badge) {
-        badge.textContent  = totalQty;
-        badge.style.display = totalQty > 0 ? "flex" : "none";
-      }
+      const groupKey = groupCard.dataset.groupKey || "";
+      const wrapper  = groupCard.querySelector(".card-action");
+
       groupCard.classList.toggle("in-cart", totalQty > 0);
+
+      if (wrapper) {
+        if (totalQty > 0) {
+          wrapper.innerHTML = `
+            <div class="qty-control">
+              <button class="qty-btn qty-minus qty-minus--group"
+                      data-group-key="${escHtml(groupKey)}"
+                      aria-label="Remove one">−</button>
+              <span class="qty-display">${totalQty}</span>
+              <button class="qty-btn qty-plus qty-plus--group"
+                      data-group-key="${escHtml(groupKey)}"
+                      aria-label="Add one">+</button>
+            </div>`;
+        } else {
+          wrapper.innerHTML = `
+            <div class="group-cart-badge" style="display:none">0</div>
+            <button class="btn-add"
+                    data-group-key="${escHtml(groupKey)}">ADD</button>`;
+        }
+      }
     });
   }
 }

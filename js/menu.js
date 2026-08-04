@@ -54,8 +54,9 @@ import { db } from "./firebase-config.js";
 import {
   collection, doc, onSnapshot, query, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { addItem, removeItem, restoreCartUI } from "./cart.js";
+import { addItem, removeItem, restoreCartUI, cart } from "./cart.js";
 import { openItemSheet } from "./item-sheet.js";
+import { openVariantPicker } from "./variant-picker.js";
 
 const MENU_COLLECTION  = "menu_items";
 const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
@@ -148,6 +149,38 @@ export function wireCardContainer(container) {
       addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
       return;
     }
+    // ── Group card qty controls — variant picker intercept ─────
+    const groupMinus2 = e.target.closest(".qty-minus--group");
+    if (groupMinus2) {
+      const groupKey = groupMinus2.dataset.groupKey;
+      const group    = _groupsById.get(groupKey);
+      if (group) {
+        const inCart = group.variants.filter(v => (cart.get(v.id)?.qty || 0) > 0);
+        if (inCart.length === 1) {
+          removeItem(inCart[0].id);
+        } else if (inCart.length > 1) {
+          openVariantPicker(group, "remove");
+        }
+      }
+      return;
+    }
+
+    const groupPlus2 = e.target.closest(".qty-plus--group");
+    if (groupPlus2) {
+      const groupKey = groupPlus2.dataset.groupKey;
+      const group    = _groupsById.get(groupKey);
+      if (group) {
+        const available = group.variants.filter(v => !v.oos);
+        if (available.length === 1) {
+          const v = available[0];
+          addItem(v.id, `${group.displayName} (${v.label})`, v.price);
+        } else if (available.length > 1) {
+          openVariantPicker(group, "add");
+        }
+      }
+      return;
+    }
+
     // Qty controls (regular in-cart items)
     const minus = e.target.closest(".qty-minus");
     if (minus) { removeItem(minus.dataset.id); return; }
@@ -977,7 +1010,7 @@ function _createGroupCard(group, query) {
         ${allOos ? '<span class="oos-badge">Out of Stock</span>' : ''}
         <div class="card-footer-inline">
           <div>
-            <span class="card-price-from">Starting from</span>
+            <span class="card-price-from">From</span>
             <span class="card-price">₹${lowestPrice}</span>
           </div>
           <div class="card-action">
@@ -1097,6 +1130,40 @@ function _wireCardEvents(grid) {
       if (item) { openItemSheet(item); return; }
       // Fallback
       addItem(addBtn.dataset.id, addBtn.dataset.name, Number(addBtn.dataset.price));
+      return;
+    }
+
+    // ── Group card qty controls — variant picker intercept ─────
+    // Must be checked BEFORE the generic .qty-minus / .qty-plus
+    // because group qty buttons carry both classes.
+    const groupMinus = e.target.closest(".qty-minus--group");
+    if (groupMinus) {
+      const groupKey = groupMinus.dataset.groupKey;
+      const group    = _groupsById.get(groupKey);
+      if (group) {
+        const inCart = group.variants.filter(v => (cart.get(v.id)?.qty || 0) > 0);
+        if (inCart.length === 1) {
+          removeItem(inCart[0].id);
+        } else if (inCart.length > 1) {
+          openVariantPicker(group, "remove");
+        }
+      }
+      return;
+    }
+
+    const groupPlus = e.target.closest(".qty-plus--group");
+    if (groupPlus) {
+      const groupKey = groupPlus.dataset.groupKey;
+      const group    = _groupsById.get(groupKey);
+      if (group) {
+        const available = group.variants.filter(v => !v.oos);
+        if (available.length === 1) {
+          const v = available[0];
+          addItem(v.id, `${group.displayName} (${v.label})`, v.price);
+        } else if (available.length > 1) {
+          openVariantPicker(group, "add");
+        }
+      }
       return;
     }
 

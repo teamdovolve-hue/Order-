@@ -38,6 +38,8 @@ import { initItemSheet }                    from "./item-sheet.js";
 import { initCategoryFab }                  from "./category-fab.js";
 // [AI UPDATE 2026-08-03] Phase 3 — Intelligent Home Screen
 import { initHomeSections }                 from "./home-sections.js";
+// Variant picker — intercepts +/- on group cards with multiple variants
+import { initVariantPicker }                from "./variant-picker.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -90,6 +92,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 5d. Home Sections ─────────────────────────────────────────
   // [AI UPDATE 2026-08-03] Phase 3 — registers renderer with menu.js
   initHomeSections();
+
+  // ── 5e. Variant Picker ────────────────────────────────────────
+  // Intercepts +/- on group cards; shows "add/remove which variant?" sheet
+  initVariantPicker();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
