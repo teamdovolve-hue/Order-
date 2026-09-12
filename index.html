@@ -240,8 +240,11 @@
         <span class="customer-chip hidden" id="customerChip"></span>
         <div class="table-badge" id="tableBadge">Table —</div>
         <!-- AI UPDATE [2026-09-12]: Offers button — opens the coupons drawer (offers.js) -->
+        <!-- AI UPDATE [2026-09-13]: Added #offersDot — red badge shown when the
+             customer has at least one available coupon (see offers.js / style.css). -->
         <button class="btn-history" id="offersBtn" aria-label="My Offers" title="My Offers">
           <span style="font-size:18px;line-height:1;">🎟️</span>
+          <span class="offer-dot hidden" id="offersDot" aria-hidden="true"></span>
         </button>
         <button class="btn-history" id="historyBtn" aria-label="My Orders">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
