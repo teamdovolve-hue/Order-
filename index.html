@@ -550,16 +550,51 @@
   <!-- ── Scripts ───────────────────────────────────────────── -->
   <script type="module" src="js/app.js"></script>
 
-<!-- FORGOT PASSWORD POPUP -->
+<!-- FORGOT PASSWORD POPUP — staff-assisted password recovery
+     [AI UPDATE 2026-09-12] Replaced the static "visit the billing counter" message
+     with the 3-step recovery flow (code entry → new password → success).
+     Logic lives in js/auth.js; styles in css/style.css (.rec-* classes). -->
 <div id="otpForgotOverlay" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:24px;">
-    <div style="background:#1a1d2e;border:1px solid #30363d;border-radius:20px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-        <div style="font-size:2.4rem;margin-bottom:14px;">🔒</div>
-        <h2 style="font-size:1.25rem;font-weight:800;color:#f1f5f9;margin-bottom:12px;">Forgot Password?</h2>
-        <p style="font-size:0.92rem;color:#c9d1d9;line-height:1.65;margin-bottom:24px;">
-            Please visit our billing counter. Our staff can verify your account and help you regain access to your account.
-        </p>
-        <button id="otpForgotCloseBtn" style="width:100%;padding:13px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;font-weight:700;font-size:0.95rem;border:none;border-radius:12px;cursor:pointer;">Got it</button>
+  <div class="rec-card">
+    <button type="button" id="otpForgotCloseBtn" class="rec-close" aria-label="Close">&times;</button>
+
+    <!-- Step 1 — instructions + recovery code entry -->
+    <div id="otpRecStep1">
+      <div class="rec-icon">&#128274;</div>
+      <h2 class="rec-title">Forgot Password?</h2>
+      <p class="rec-text">
+        Please contact the <strong>billing counter</strong> to get your temporary
+        recovery code. Our staff will verify your account and give you a 6-digit code.
+      </p>
+      <input class="rec-input" type="tel" id="otpRecPhoneInput" inputmode="numeric"
+             maxlength="10" placeholder="Your 10-digit mobile number" autocomplete="off" />
+      <input class="rec-input rec-code" type="text" id="otpRecCodeInput" inputmode="numeric"
+             maxlength="6" placeholder="6-digit code" autocomplete="one-time-code" />
+      <p id="otpRecError1" class="rec-error hidden"></p>
+      <button type="button" id="otpRecVerifyBtn" class="rec-btn">Verify Code</button>
     </div>
+
+    <!-- Step 2 — create a new password -->
+    <div id="otpRecStep2" class="hidden">
+      <div class="rec-icon">&#128273;</div>
+      <h2 class="rec-title">Create New Password</h2>
+      <p class="rec-text">Choose a new password for <span id="otpRecPhoneLabel"></span>.</p>
+      <input class="rec-input" type="password" id="otpRecPass1" placeholder="New password"
+             autocomplete="new-password" maxlength="64" />
+      <input class="rec-input" type="password" id="otpRecPass2" placeholder="Confirm new password"
+             autocomplete="new-password" maxlength="64" />
+      <p id="otpRecError2" class="rec-error hidden"></p>
+      <button type="button" id="otpRecSetBtn" class="rec-btn">Set New Password</button>
+    </div>
+
+    <!-- Step 3 — success -->
+    <div id="otpRecStep3" class="hidden">
+      <div class="rec-icon">&#9989;</div>
+      <h2 class="rec-title">Password Updated</h2>
+      <p class="rec-text">Your password has been changed. Please log in with your new password.</p>
+      <button type="button" id="otpRecDoneBtn" class="rec-btn">Back to Login</button>
+    </div>
+  </div>
 </div>
 
 </body>
