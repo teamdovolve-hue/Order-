@@ -239,6 +239,10 @@
       <div class="header-right">
         <span class="customer-chip hidden" id="customerChip"></span>
         <div class="table-badge" id="tableBadge">Table —</div>
+        <!-- AI UPDATE [2026-09-12]: Offers button — opens the coupons drawer (offers.js) -->
+        <button class="btn-history" id="offersBtn" aria-label="My Offers" title="My Offers">
+          <span style="font-size:18px;line-height:1;">🎟️</span>
+        </button>
         <button class="btn-history" id="historyBtn" aria-label="My Orders">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -412,6 +416,21 @@
     </div>
     <div class="history-list" id="historyList">
       <!-- Populated by history.js -->
+    </div>
+  </div>
+
+  <!-- ── Offers Backdrop (AI UPDATE [2026-09-12]) ──────────── -->
+  <div class="history-backdrop hidden" id="offersBackdrop"></div>
+
+  <!-- ── Offers Drawer ──────────────────────────────────────── -->
+  <div class="history-panel hidden" id="offersPanel">
+    <div class="history-drag-handle"></div>
+    <div class="history-header">
+      <h2 class="history-title">🎟️ My Offers</h2>
+      <button class="history-close-btn" id="offersCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="history-list" id="offersList">
+      <!-- Populated by offers.js -->
     </div>
   </div>
 

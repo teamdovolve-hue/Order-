@@ -26,6 +26,8 @@ import { updateGreeting, initAuth,
          requireLogin, isLoggedIn,
          waitForAuthReady }                 from "./auth.js";
 import { initHistory }                      from "./history.js";
+// [AI UPDATE 2026-09-12] "My Offers" drawer — customer's loyalty/personalized coupons
+import { initOffers }                       from "./offers.js";
 import { initSearch }                       from "./search.js";
 import { initOrderStatus, stopOrderStatus } from "./order-status.js";
 import { initRestaurantStatus,
@@ -77,6 +79,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── 4. History ────────────────────────────────────────────────
   initHistory();
+
+  // ── 4b. Offers ────────────────────────────────────────────────
+  // [AI UPDATE 2026-09-12] Wires the 🎟️ header button → coupons drawer
+  initOffers();
 
   // ── 5. Review sheet ───────────────────────────────────────────
   initReview();
