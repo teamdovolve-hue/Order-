@@ -4667,3 +4667,82 @@ a:focus:not(:focus-visible) {
     animation: none !important;
   }
 }
+
+
+/* ── Password recovery overlay (staff-assisted) ───────────────────────────────
+   [AI UPDATE 2026-09-12] Scoped to #otpForgotOverlay only. No global changes. */
+#otpForgotOverlay .rec-card {
+  position: relative;
+  background: #1a1d2e;
+  border: 1px solid #30363d;
+  border-radius: 20px;
+  padding: 32px 28px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+#otpForgotOverlay .rec-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: #8b949e;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-family: inherit;
+}
+#otpForgotOverlay .rec-icon { font-size: 2.4rem; margin-bottom: 14px; }
+#otpForgotOverlay .rec-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  margin-bottom: 12px;
+}
+#otpForgotOverlay .rec-text {
+  font-size: 0.92rem;
+  color: #c9d1d9;
+  line-height: 1.65;
+  margin-bottom: 18px;
+}
+#otpForgotOverlay .rec-input {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  color: #f1f5f9;
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+}
+#otpForgotOverlay .rec-input:focus { border-color: #f97316; }
+#otpForgotOverlay .rec-code {
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-weight: 700;
+}
+#otpForgotOverlay .rec-error {
+  color: #f87171;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 10px;
+  text-align: left;
+}
+#otpForgotOverlay .rec-btn {
+  width: 100%;
+  padding: 13px;
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-family: inherit;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+#otpForgotOverlay .rec-btn[disabled] { opacity: 0.6; cursor: default; }

@@ -1295,3 +1295,94 @@ Two lines changed inside the `try/catch` block in `placeOrder()` (`js/order.js`)
 - Auth flow
 - Any UI layout or CSS
 - All other files
+
+---
+
+# Customer Password Recovery — Customer Panel (AI UPDATE [2026-09-12])
+
+Implements the customer half of the staff-assisted recovery flow specified by the
+Billing Panel agent in `Arnavmishra142/Billing-system-Pizza-hut-` → `AI_HANDOFF.md`
+("Customer Password Recovery — Customer Panel Changes"). The billing panel + the
+Cloudflare Worker endpoints were already implemented and deployed there.
+
+## Audit performed before coding (handoff vs. actual code)
+
+| Handoff claim | Verified in this repo |
+|---|---|
+| Account = `customers/{+91XXXXXXXXXX}` | ✅ `js/auth.js` `_onPhoneSubmit` → `+91${phone}` doc lookup |
+| Password = hex SHA-256(`password + ":" + phone`) computed in browser | ✅ `_hashPassword()` |
+| Firebase Auth is anonymous/custom-token only, holds no password | ✅ `signInAnonymously` / `onAuthStateChanged` only |
+| Session in `localStorage["qrmenu_user"]` | ✅ `SESSION_KEY` |
+| "Forgot Password?" was a dead-end static overlay | ✅ `#otpForgotBtn` → `#otpForgotOverlay` |
+
+No discrepancies found. No new architecture introduced.
+
+## Files changed
+
+| File | Change |
+|---|---|
+| `index.html` | The `#otpForgotOverlay` popup body replaced with a 3-step recovery card (`#otpRecStep1/2/3`). `#otpForgotOverlay` and `#otpForgotCloseBtn` IDs kept. |
+| `js/auth.js` | Forgot-password listeners now call the new flow; added `_recoveryCall`, `_recoveryMessage`, `_recShowStep`, `_openRecovery`, `_closeRecovery`, `_onRecoveryVerify`, `_onRecoverySetPassword`, module state `_recResetToken` / `_recPhone`. Nothing existing modified apart from those two listeners. |
+| `css/style.css` | Appended a block of `.rec-*` rules scoped under `#otpForgotOverlay`. No global/base styles touched. |
+
+## New flow
+
+1. **Step 1** — "Please contact the billing counter to get your temporary recovery code."
+   Phone (prefilled from the login/phone step) + 6-digit code → **Verify Code**.
+2. **Step 2** — New Password + Confirm Password (min 6 chars, must match) → **Set New Password**.
+3. **Step 3** — Success message → **Back to Login**, login screen prefilled with the same number.
+
+## Backend dependency
+
+Worker base `https://pizza-billing-functions.mishrarnav142.workers.dev`, plain
+`fetch` POST, body `{ data: {...} }`, no auth header:
+
+- `verifyRecoveryCode` ← `{ phone, code }` → `{ verified, phone, name, resetToken, expiresInSeconds }`
+- `resetCustomerPassword` ← `{ phone, resetToken, passwordHash }` → `{ ok: true, phone }`
+
+`passwordHash` is computed locally with the existing `_hashPassword()`. Both
+endpoints must be deployed on the billing side; the customer panel needs no new
+collection, index, secret, or Firestore rule.
+
+## Authentication / security notes
+
+- No Firebase Auth change. No Email/Password auth, no OTP, no `sendPasswordResetEmail`.
+- `firestore.rules` untouched; the customer panel never reads or writes `customer_recovery`.
+- Code verification, expiry, attempt limits, one-time use and reset authorisation stay
+  entirely with the Worker — nothing is validated client-side beyond UX checks.
+- `resetToken` and the recovery code live in module variables only; both are wiped when
+  the overlay closes, on success, and on non-retryable errors. Never in
+  localStorage/sessionStorage/cookies/URL, never logged.
+- Plaintext passwords are never sent; only the SHA-256 hash leaves the browser.
+- The panel never writes `passwordHash` to Firestore directly.
+- Error copy is generic; raw backend/internal details are not surfaced.
+
+## Error handling map
+
+| Worker status / HTTP | UI |
+|---|---|
+| `PERMISSION_DENIED` / 403 | Stay on step 1, show the Worker's attempt message |
+| `DEADLINE_EXCEEDED` / 504 | Step 1: ask for a new code; step 2: back to step 1 |
+| `FAILED_PRECONDITION` | "Code already used — ask the counter for a new one" |
+| `NOT_FOUND` / 404 | "Contact the billing counter first" |
+| `RESOURCE_EXHAUSTED` / 429 | "Too many incorrect attempts — get a new code" |
+| `INVALID_ARGUMENT` / auth errors | Generic "Something went wrong" |
+| fetch throws | "Check your connection and try again"; entered values kept |
+
+Client-side pre-checks: 10-digit phone, 6-digit code, password ≥ 6 chars, passwords match.
+
+## Testing performed
+
+Static verification only in this environment (no Firebase/Worker credentials available):
+`js/auth.js` parses cleanly, markup IDs match every `getElementById` call, and no
+ordering/cart/menu/order-history/session code paths were touched.
+
+**Still to be tested against live backends:** existing login, valid code, wrong code,
+expired code, reused code, attempt lockout, new-password login, and that ordering /
+cart / order history are unaffected.
+
+## Notes for future agents
+
+- The recovery code is issued verbally by billing staff — do not add SMS/email/WhatsApp delivery.
+- Staff must never see the customer's new password; keep hashing on the customer side.
+- If the Worker base URL changes, update `RECOVERY_FN_BASE` in `js/auth.js` only.

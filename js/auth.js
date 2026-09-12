@@ -183,14 +183,26 @@ export function initAuth() {
       if (e.key === "Enter") { e.preventDefault(); _onLoginSubmit(); }
     });
 
-  // Forgot Password popup — open / close
+  // Forgot Password popup — staff-assisted recovery flow
+  // [AI UPDATE 2026-09-12] Was a static "visit the billing counter" message;
+  // now opens the 3-step recovery flow (see "Password recovery" section below).
   document.getElementById("otpForgotBtn")
-    ?.addEventListener("click", () => {
-      document.getElementById("otpForgotOverlay")?.classList.remove("hidden");
-    });
+    ?.addEventListener("click", _openRecovery);
   document.getElementById("otpForgotCloseBtn")
-    ?.addEventListener("click", () => {
-      document.getElementById("otpForgotOverlay")?.classList.add("hidden");
+    ?.addEventListener("click", _closeRecovery);
+  document.getElementById("otpRecVerifyBtn")
+    ?.addEventListener("click", _onRecoveryVerify);
+  document.getElementById("otpRecSetBtn")
+    ?.addEventListener("click", _onRecoverySetPassword);
+  document.getElementById("otpRecDoneBtn")
+    ?.addEventListener("click", _closeRecovery);
+  document.getElementById("otpRecCodeInput")
+    ?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); _onRecoveryVerify(); }
+    });
+  document.getElementById("otpRecPass2")
+    ?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); _onRecoverySetPassword(); }
     });
 
   onAuthStateChanged(auth, (user) => {
@@ -852,4 +864,230 @@ function _setLoadingBtn(id, loading, text) {
   if (!btn) return;
   btn.disabled    = loading;
   btn.textContent = text;
+}
+
+
+// ── Password recovery (staff-assisted) ───────────────────────────────────────
+// [AI UPDATE 2026-09-12] Customer-panel half of the staff-assisted recovery
+// flow documented in AI_HANDOFF.md (billing repo, section "Customer Password
+// Recovery"). Billing staff generate a 6-digit code in the billing panel and
+// read it out to the customer at the counter; the customer enters the code
+// here, the Worker verifies it and returns a short-lived reset token, and the
+// customer then sets their own password. Staff never see the new password.
+//
+// The Worker is the only authority for code verification, expiry, one-time
+// use and reset authorisation. Nothing here is validated client-side beyond
+// basic UX checks, and neither the code nor the reset token is ever written
+// to localStorage / sessionStorage / cookies / the URL — memory only.
+
+const RECOVERY_FN_BASE = "https://pizza-billing-functions.mishrarnav142.workers.dev";
+
+let _recResetToken = null;  // in-memory only, cleared when the overlay closes
+let _recPhone      = "";    // normalised +91… phone for the current recovery
+
+// Callable-style Worker call: POST /{fn} with { data }, returns result or throws
+// an Error carrying { status } from the Worker's error envelope.
+async function _recoveryCall(fn, data) {
+  let res, json;
+  try {
+    res  = await fetch(`${RECOVERY_FN_BASE}/${fn}`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ data }),
+    });
+    json = await res.json().catch(() => ({}));
+  } catch (_) {
+    const err = new Error("Check your connection and try again.");
+    err.status = "NETWORK";
+    throw err;
+  }
+  if (!res.ok || json?.error) {
+    const err = new Error(json?.error?.message || "Something went wrong. Please try again.");
+    err.status = json?.error?.status || String(res.status);
+    throw err;
+  }
+  return json?.result || {};
+}
+
+// Map Worker error statuses to customer-facing copy. Never surface raw
+// backend details; unknown statuses fall back to a generic message.
+function _recoveryMessage(err, step) {
+  const status = String(err?.status || "");
+  const safe   = typeof err?.message === "string" ? err.message : "";
+  switch (status) {
+    case "PERMISSION_DENIED":
+    case "403":
+      return safe || "That code is not correct. Please check and try again.";
+    case "DEADLINE_EXCEEDED":
+    case "504":
+      return step === 2
+        ? "This recovery session has expired. Please enter your code again."
+        : "That code has expired. Please ask the billing counter for a new one.";
+    case "FAILED_PRECONDITION":
+      return "That code has already been used. Please ask the counter for a new one.";
+    case "NOT_FOUND":
+    case "404":
+      return "No recovery code is active for this number. Please contact the billing counter first.";
+    case "RESOURCE_EXHAUSTED":
+    case "429":
+      return "Too many incorrect attempts. Please ask the billing counter for a new code.";
+    case "NETWORK":
+      return "Check your connection and try again.";
+    case "INVALID_ARGUMENT":
+    case "UNAUTHENTICATED":
+    case "401":
+      return "Something went wrong. Please try again.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
+}
+
+function _recShowStep(n) {
+  document.getElementById("otpRecStep1")?.classList.toggle("hidden", n !== 1);
+  document.getElementById("otpRecStep2")?.classList.toggle("hidden", n !== 2);
+  document.getElementById("otpRecStep3")?.classList.toggle("hidden", n !== 3);
+}
+
+function _openRecovery() {
+  _recResetToken = null;
+  _recPhone      = "";
+
+  const phoneInput = document.getElementById("otpRecPhoneInput");
+  if (phoneInput) {
+    // Prefill from whichever step the customer came from (login or phone step).
+    const typed = document.getElementById("otpPhoneInput")?.value || "";
+    phoneInput.value = (_pendingPhone || typed).replace(/^\+91/, "").replace(/\D/g, "").slice(0, 10);
+    phoneInput.disabled = false;
+  }
+  const codeInput = document.getElementById("otpRecCodeInput");
+  if (codeInput) codeInput.value = "";
+  const p1 = document.getElementById("otpRecPass1");
+  const p2 = document.getElementById("otpRecPass2");
+  if (p1) p1.value = "";
+  if (p2) p2.value = "";
+  _clearError("otpRecError1");
+  _clearError("otpRecError2");
+  _setLoadingBtn("otpRecVerifyBtn", false, "Verify Code");
+  _setLoadingBtn("otpRecSetBtn", false, "Set New Password");
+
+  _recShowStep(1);
+  document.getElementById("otpForgotOverlay")?.classList.remove("hidden");
+  codeInput?.focus();
+}
+
+function _closeRecovery() {
+  // Discard every recovery secret held in memory.
+  _recResetToken = null;
+  _recPhone      = "";
+  const codeInput = document.getElementById("otpRecCodeInput");
+  const p1 = document.getElementById("otpRecPass1");
+  const p2 = document.getElementById("otpRecPass2");
+  if (codeInput) codeInput.value = "";
+  if (p1) p1.value = "";
+  if (p2) p2.value = "";
+  _clearError("otpRecError1");
+  _clearError("otpRecError2");
+  _recShowStep(1);
+  document.getElementById("otpForgotOverlay")?.classList.add("hidden");
+}
+
+// Step 1 — verify the counter-issued code with the Worker.
+async function _onRecoveryVerify() {
+  _clearError("otpRecError1");
+
+  const digits = (document.getElementById("otpRecPhoneInput")?.value || "").replace(/\D/g, "");
+  const code   = (document.getElementById("otpRecCodeInput")?.value  || "").replace(/\D/g, "");
+
+  if (digits.length !== 10) {
+    _setError("otpRecError1", "Enter a valid 10-digit mobile number.");
+    return;
+  }
+  if (code.length !== 6) {
+    _setError("otpRecError1", "Enter the 6-digit code given by the billing counter.");
+    return;
+  }
+
+  const phone = `+91${digits}`;
+  _setLoadingBtn("otpRecVerifyBtn", true, "Verifying…");
+  try {
+    const result = await _recoveryCall("verifyRecoveryCode", { phone, code });
+    _recResetToken = result?.resetToken || null;
+    _recPhone      = phone;
+    if (!_recResetToken) throw Object.assign(new Error(""), { status: "INVALID_ARGUMENT" });
+
+    const label = document.getElementById("otpRecPhoneLabel");
+    if (label) label.textContent = _formatPhone(phone);
+    const codeInput = document.getElementById("otpRecCodeInput");
+    if (codeInput) codeInput.value = "";
+
+    _recShowStep(2);
+    document.getElementById("otpRecPass1")?.focus();
+  } catch (err) {
+    _recResetToken = null;
+    _setError("otpRecError1", _recoveryMessage(err, 1));
+  } finally {
+    _setLoadingBtn("otpRecVerifyBtn", false, "Verify Code");
+  }
+}
+
+// Step 2 — hash the new password locally and send it with the reset token.
+async function _onRecoverySetPassword() {
+  _clearError("otpRecError2");
+
+  const pass1 = document.getElementById("otpRecPass1")?.value || "";
+  const pass2 = document.getElementById("otpRecPass2")?.value || "";
+
+  if (pass1.length < 6) {
+    _setError("otpRecError2", "Password must be at least 6 characters.");
+    return;
+  }
+  if (pass1 !== pass2) {
+    _setError("otpRecError2", "Passwords do not match.");
+    return;
+  }
+  if (!_recResetToken || !_recPhone) {
+    _setError("otpRecError2", "This recovery session has expired. Please enter your code again.");
+    _recShowStep(1);
+    return;
+  }
+
+  _setLoadingBtn("otpRecSetBtn", true, "Saving…");
+  try {
+    // Same hashing scheme as login/registration: SHA-256(password + ":" + phone).
+    const passwordHash = await _hashPassword(pass1, _recPhone);
+    await _recoveryCall("resetCustomerPassword", {
+      phone:       _recPhone,
+      resetToken:  _recResetToken,
+      passwordHash,
+    });
+
+    const phone = _recPhone;
+    // Burn the recovery session client-side too.
+    _recResetToken = null;
+    _recPhone      = "";
+    const p1 = document.getElementById("otpRecPass1");
+    const p2 = document.getElementById("otpRecPass2");
+    if (p1) p1.value = "";
+    if (p2) p2.value = "";
+
+    // Prefill the login screen with the same number so the customer can log in.
+    const phoneInput = document.getElementById("otpPhoneInput");
+    if (phoneInput) phoneInput.value = phone.replace(/^\+91/, "");
+
+    _recShowStep(3);
+    document.getElementById("otpRecDoneBtn")?.focus();
+  } catch (err) {
+    const status = String(err?.status || "");
+    if (status === "DEADLINE_EXCEEDED" || status === "504" ||
+        status === "PERMISSION_DENIED" || status === "403" ||
+        status === "FAILED_PRECONDITION" || status === "NOT_FOUND" || status === "404") {
+      _recResetToken = null;
+      _setError("otpRecError1", _recoveryMessage(err, 2));
+      _recShowStep(1);
+    } else {
+      _setError("otpRecError2", _recoveryMessage(err, 2));
+    }
+  } finally {
+    _setLoadingBtn("otpRecSetBtn", false, "Set New Password");
+  }
 }
