@@ -1386,3 +1386,24 @@ cart / order history are unaffected.
 - The recovery code is issued verbally by billing staff — do not add SMS/email/WhatsApp delivery.
 - Staff must never see the customer's new password; keep hashing on the customer side.
 - If the Worker base URL changes, update `RECOVERY_FN_BASE` in `js/auth.js` only.
+
+---
+
+# Customer Password Recovery — Code Simplification (AI UPDATE [2026-09-13b])
+
+Full detail lives in the billing repo's `AI_HANDOFF.md` (same section title).
+Summary for this repo:
+
+- The recovery code is **no longer a random OTP**. It is the last 4 digits of
+  the customer's own registered phone number (`9876543210` → `3210`), computed
+  server-side in the Worker's `generateRecoveryCode` / checked in
+  `verifyRecoveryCode`.
+- **Files changed here:** `js/auth.js` — `_onRecoveryVerify`'s client-side
+  pre-check changed from `code.length !== 6` to `code.length !== 4` (error copy
+  updated to match); header comment above the recovery flow updated.
+  `index.html` — `#otpRecCodeInput` `maxlength` 6→4, placeholder and step-1
+  instruction text updated from "6-digit" to "4-digit". `css/style.css` was
+  **not** touched.
+- Everything else in this file's original recovery section above (flow steps,
+  Worker endpoints/request-response shapes, error-handling map, security notes,
+  memory-only `resetToken`/code handling) is unchanged and still accurate.
