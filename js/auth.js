@@ -870,10 +870,15 @@ function _setLoadingBtn(id, loading, text) {
 // ── Password recovery (staff-assisted) ───────────────────────────────────────
 // [AI UPDATE 2026-09-12] Customer-panel half of the staff-assisted recovery
 // flow documented in AI_HANDOFF.md (billing repo, section "Customer Password
-// Recovery"). Billing staff generate a 6-digit code in the billing panel and
-// read it out to the customer at the counter; the customer enters the code
-// here, the Worker verifies it and returns a short-lived reset token, and the
-// customer then sets their own password. Staff never see the new password.
+// Recovery"). Billing staff generate a code in the billing panel and read it
+// out to the customer at the counter; the customer enters the code here, the
+// Worker verifies it and returns a short-lived reset token, and the customer
+// then sets their own password. Staff never see the new password.
+//
+// AI UPDATE [recovery-code simplification]: the code is now simply the last
+// 4 digits of the customer's own registered phone number (e.g. 9876543210 →
+// 3210) — no random OTP generation. The Worker is still the sole authority
+// for verification, expiry, one-time use, and reset authorisation.
 //
 // The Worker is the only authority for code verification, expiry, one-time
 // use and reset authorisation. Nothing here is validated client-side beyond
@@ -1002,8 +1007,8 @@ async function _onRecoveryVerify() {
     _setError("otpRecError1", "Enter a valid 10-digit mobile number.");
     return;
   }
-  if (code.length !== 6) {
-    _setError("otpRecError1", "Enter the 6-digit code given by the billing counter.");
+  if (code.length !== 4) {
+    _setError("otpRecError1", "Enter the 4-digit code given by the billing counter.");
     return;
   }
 
