@@ -8,7 +8,7 @@
  * Flow (session 21 — password + username):
  *   Phone → lookup customers/{+91…} in Firestore
  *     found + passwordHash  → login step (password verification)
- *     found + no passwordHash → registration step (password migration)
+ *     found + no passwordHash → ACTIVATION step (see 2026-09-14 update below)
  *     not found             → registration step (new account)
  *
  * Registration collects: Full Name, @username (auto-generated, editable),
@@ -61,6 +61,35 @@
  *           "username-status hidden" (not just empty text) so no blank gap
  *           is left when the registration form is shown fresh.
  * ─────────────────────────────────────────────────────────────
+ * [AI UPDATE 2026-09-14] Fix: POS-created customers (name + phone only, no
+ * password — see Billing Panel js/cart.js syncManualCustomerProfile) were
+ * being routed into the full registration step (_showProfileStep /
+ * _onCreateAccount) when they later opened the Customer Panel. That step's
+ * _onCreateAccount() does a FULL setDoc (no merge), which:
+ *   1. Reset totalOrders/lifetimeSpend/lastOrderAt to 0/0/null, wiping the
+ *      customer's existing history stats.
+ *   2. Reset createdAt to "now".
+ *   3. Assigned a brand-new anonymous auth uid instead of the POS
+ *      convention (uid === phone), which orphaned their existing
+ *      customer_order_history/{phone}/orders subcollection — the customer's
+ *      order history became invisible even though the documents still existed.
+ * In short: same phone, but a second "shadow" identity was effectively created.
+ *
+ * FIX: A dedicated activation step (new otpActivateStep in index.html +
+ * _showActivateStep / _onActivateSubmit here) now handles "profile exists,
+ * no password yet". It only ever collects a password, and writes it with
+ * setDoc(..., { merge: true }) touching ONLY passwordHash/updatedAt/
+ * lastLoginAt — every other existing field (uid, createdAt, totalOrders,
+ * lifetimeSpend, lastOrderAt, source) is left completely untouched. The
+ * existing uid (which for POS customers === phone) is preserved and reused
+ * for the session, so customer_order_history keeps resolving to the same
+ * subcollection. No second customer document or uid is ever created.
+ *
+ * A brand-new phone number (no existing customers/{phone} doc at all) is
+ * completely unaffected — it still goes through _showProfileStep() /
+ * _onCreateAccount() exactly as before.
+ * Files changed: js/auth.js (this file), index.html (new otpActivateStep).
+ * ─────────────────────────────────────────────────────────────
  */
 
 import { auth, db }      from "./firebase-config.js";
@@ -91,6 +120,7 @@ let _pendingCb           = null;            // callback to run after login
 let _pendingPhone        = "";              // normalised +91… phone across steps
 let _pendingName         = "";
 let _pendingLoginProfile = null;            // Firestore profile for login step
+let _pendingActivationProfile = null;       // AI UPDATE [2026-09-14]: existing (no-password) profile for activation step
 let _usernameCheckTimer  = null;
 let _usernameAvailable   = false;
 let _changingDetails     = false;           // true when user clicked "Change Details"
@@ -140,6 +170,13 @@ export function initAuth() {
   // Profile form (registration step) — includes username + password now
   document.getElementById("otpProfileForm")
     ?.addEventListener("submit", _onProfileSubmit);
+
+  // [AI UPDATE 2026-09-14] Activation step — POS-created customer setting
+  // their first password. See _onActivateSubmit for the merge-only write.
+  document.getElementById("otpActivateForm")
+    ?.addEventListener("submit", _onActivateSubmit);
+  document.getElementById("otpActivateBackBtn")
+    ?.addEventListener("click", _showPhoneStep);
 
   // [AI UPDATE 2026-07-29 v2] Task 7 — wire to _onChangeDetails (new) instead of
   // _showProfileStep so name + username are restored, not cleared.
@@ -243,6 +280,7 @@ function _showPhoneStep() {
   document.getElementById("otpProfileStep")?.classList.add("hidden");
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   document.getElementById("otpLoginStep")?.classList.add("hidden");
+  document.getElementById("otpActivateStep")?.classList.add("hidden"); // AI UPDATE [2026-09-14]
   _clearError("otpNameError");
   _clearError("otpPhoneError");
   _clearError("otpLoginError");
@@ -254,6 +292,7 @@ function _showLoginStep() {
   document.getElementById("otpProfileStep")?.classList.add("hidden");
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   document.getElementById("otpLoginStep")?.classList.remove("hidden");
+  document.getElementById("otpActivateStep")?.classList.add("hidden"); // AI UPDATE [2026-09-14]
   _clearError("otpLoginError");
 
   // Show customer's name so they know whose account this is
@@ -266,11 +305,37 @@ function _showLoginStep() {
   if (passInput) { passInput.value = ""; passInput.focus(); }
 }
 
+// [AI UPDATE 2026-09-14] Activation step — shown when customers/{phone} already
+// exists (e.g. created at the POS with just name + phone — see Billing Panel
+// js/cart.js syncManualCustomerProfile) but has no passwordHash yet. Only a
+// password is collected here; name/phone are already known and are never
+// re-entered or overwritten. See _onActivateSubmit for the Firestore write.
+function _showActivateStep() {
+  document.getElementById("otpPhoneStep")?.classList.add("hidden");
+  document.getElementById("otpProfileStep")?.classList.add("hidden");
+  document.getElementById("otpConfirmStep")?.classList.add("hidden");
+  document.getElementById("otpLoginStep")?.classList.add("hidden");
+  document.getElementById("otpActivateStep")?.classList.remove("hidden");
+  _clearError("otpActivateError");
+
+  const welcomeEl = document.getElementById("otpActivateWelcome");
+  if (welcomeEl) {
+    welcomeEl.textContent = `Welcome back, ${_pendingActivationProfile?.name || "there"}! 👋`;
+  }
+
+  const p1 = document.getElementById("otpActivatePassword");
+  const p2 = document.getElementById("otpActivatePasswordConfirm");
+  if (p1) p1.value = "";
+  if (p2) p2.value = "";
+  p1?.focus();
+}
+
 function _showProfileStep() {
   document.getElementById("otpPhoneStep")?.classList.add("hidden");
   document.getElementById("otpProfileStep")?.classList.remove("hidden");
   document.getElementById("otpConfirmStep")?.classList.add("hidden");
   document.getElementById("otpLoginStep")?.classList.add("hidden");
+  document.getElementById("otpActivateStep")?.classList.add("hidden"); // AI UPDATE [2026-09-14]
   _clearError("otpNameError");
 
   const nameInput     = document.getElementById("otpNameInput");
@@ -376,18 +441,24 @@ async function _onPhoneSubmit(e) {
       const profile = snap.data();
 
       if (!profile.passwordHash) {
-        // Old account without password (pre-session-21) — treat as new registration.
-        // This migrates old accounts into the new password-based system.
-        _pendingLoginProfile = null;
-        _showProfileStep();
+        // AI UPDATE [2026-09-14]: Existing profile (commonly POS-created —
+        // name + phone only, no password yet) — activate it IN PLACE.
+        // Previously this fell through to _showProfileStep()/_onCreateAccount(),
+        // which overwrote the whole document and reset history/stats/uid.
+        // Never treat this as a brand-new registration.
+        _pendingLoginProfile      = null;
+        _pendingActivationProfile = profile;
+        _showActivateStep();
       } else {
         // Returning customer with password → login step
-        _pendingLoginProfile = profile;
+        _pendingLoginProfile      = profile;
+        _pendingActivationProfile = null;
         _showLoginStep();
       }
     } else {
       // New customer → registration
-      _pendingLoginProfile = null;
+      _pendingLoginProfile      = null;
+      _pendingActivationProfile = null;
       _showProfileStep();
     }
   } catch (err) {
@@ -436,6 +507,84 @@ async function _onLoginSubmit() {
     _setError("otpLoginError", "Login failed. Please check your connection.");
   } finally {
     _setLoadingBtn("otpLoginBtn", false, "Login");
+  }
+}
+
+// ── Step 2c: Activate an existing (no-password) profile ───────────────────────
+// AI UPDATE [2026-09-14]: Handles the "POS created this customer, they've never
+// set an online password" case. Collects ONLY a password — name/phone are
+// already known from the existing document and are never re-entered.
+//
+// Critically, this writes with { merge: true } and touches ONLY passwordHash /
+// phoneVerified / updatedAt / lastLoginAt. Every other field on the existing
+// customers/{phone} document — uid, createdAt, totalOrders, lifetimeSpend,
+// lastOrderAt, source — is left completely untouched, so order history and
+// lifetime spend stay attached to the same customer. The existing uid (for
+// POS-created customers, uid === phone) is preserved and reused for the new
+// session instead of being replaced with a fresh anonymous auth uid.
+async function _onActivateSubmit(e) {
+  e.preventDefault();
+  _clearError("otpActivateError");
+
+  const pass1 = document.getElementById("otpActivatePassword")?.value || "";
+  const pass2 = document.getElementById("otpActivatePasswordConfirm")?.value || "";
+
+  if (pass1.length < 6) {
+    _setError("otpActivateError", "Password must be at least 6 characters.");
+    return;
+  }
+  if (pass1 !== pass2) {
+    _setError("otpActivateError", "Passwords do not match.");
+    const p2 = document.getElementById("otpActivatePasswordConfirm");
+    if (p2) { p2.value = ""; p2.focus(); }
+    return;
+  }
+  if (!_pendingPhone || !_pendingActivationProfile) {
+    _setError("otpActivateError", "Session expired. Please enter your phone again.");
+    _showPhoneStep();
+    return;
+  }
+
+  _setLoadingBtn("otpActivateBtn", true, "Activating…");
+
+  try {
+    if (!_firebaseUser) {
+      await signInAnonymously(auth);
+    }
+
+    const existing      = _pendingActivationProfile;
+    const passwordHash  = await _hashPassword(pass1, _pendingPhone);
+
+    // Merge-only write — see function docblock above for why this must never
+    // be a full setDoc (that was the root cause of the duplicate/lost-history bug).
+    await setDoc(doc(db, "customers", _pendingPhone), {
+      passwordHash,
+      phoneVerified: existing.phoneVerified ?? false,
+      updatedAt:     serverTimestamp(),
+      lastLoginAt:   serverTimestamp(),
+    }, { merge: true });
+
+    // Preserve the existing uid (phone, for POS-created profiles) so
+    // customer_order_history/{uid}/orders keeps resolving to the same
+    // subcollection this customer's history already lives under.
+    const preservedUid = existing.uid || existing.authUid || _pendingPhone;
+
+    await _completeLogin(
+      existing.name || _pendingName || "Customer",
+      _pendingPhone,
+      preservedUid,
+      existing.username || ""
+    );
+  } catch (err) {
+    console.error("[auth] Account activation failed:", err);
+    _setError(
+      "otpActivateError",
+      err.code === "permission-denied"
+        ? "Activation failed: server permissions not configured. Please ask restaurant staff for help."
+        : "Activation failed. Please check your connection and try again."
+    );
+  } finally {
+    _setLoadingBtn("otpActivateBtn", false, "Activate Account");
   }
 }
 
@@ -759,6 +908,7 @@ async function _completeLogin(name, phone, profileUid = "", username = "") {
   _pendingPhone        = "";
   _pendingName         = "";
   _pendingLoginProfile = null;
+  _pendingActivationProfile = null; // AI UPDATE [2026-09-14]
   _usernameAvailable   = false;
   if (cb) cb();
 }
@@ -780,6 +930,7 @@ async function _onLogout() {
   _pendingPhone        = "";
   _pendingName         = "";
   _pendingLoginProfile = null;
+  _pendingActivationProfile = null; // AI UPDATE [2026-09-14]
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem("qrmenu_history");
   localStorage.removeItem("qrmenu_moved_to_history");
