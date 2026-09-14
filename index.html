@@ -150,6 +150,40 @@
         </form>
       </div>
 
+      <!-- [AI UPDATE 2026-09-14] Activation step: distinct from otpProfileStep.
+           Shown when phone lookup finds an EXISTING customers/{phone} profile
+           (e.g. created at the POS with just name + phone) that has no
+           passwordHash yet. Only collects a password — name/phone are already
+           known and must never be re-entered or overwritten. See auth.js
+           _onActivateSubmit() for the merge-only Firestore write that keeps
+           the existing uid/createdAt/totalOrders/lifetimeSpend/order history
+           intact instead of creating a second profile. -->
+      <div id="otpActivateStep" class="hidden">
+        <p class="otp-login-welcome" id="otpActivateWelcome"></p>
+        <p class="otp-code-subtitle">Your customer profile already exists.<br/>Set a password to activate your online account.</p>
+        <p class="otp-error hidden" id="otpActivateError"></p>
+        <form id="otpActivateForm" novalidate autocomplete="off">
+          <!-- Hidden username field for password-manager accessibility only. -->
+          <input type="text" id="otpActivateUsernameHidden" autocomplete="username" style="display:none;" aria-hidden="true" tabindex="-1" />
+          <input
+            class="otp-field-input otp-password-input"
+            type="password"
+            id="otpActivatePassword"
+            placeholder="Create a password (min 6 chars)"
+            autocomplete="new-password"
+          />
+          <input
+            class="otp-field-input otp-password-input"
+            type="password"
+            id="otpActivatePasswordConfirm"
+            placeholder="Confirm password"
+            autocomplete="new-password"
+          />
+          <button type="submit" class="otp-btn-primary" id="otpActivateBtn">Activate Account</button>
+          <button type="button" id="otpActivateBackBtn" style="display:block;width:100%;margin-top:10px;background:none;border:none;cursor:pointer;color:#6b7280;font-size:0.85rem;text-decoration:underline;text-underline-offset:2px;padding:6px 0;text-align:center;font-family:inherit;">Wrong number? Go back</button>
+        </form>
+      </div>
+
       <!-- Registration: collect name, username, and password for new customers.
            [AI UPDATE 2026-07-29] Added username + password fields required by auth.js session 21. -->
       <div id="otpProfileStep" class="hidden">

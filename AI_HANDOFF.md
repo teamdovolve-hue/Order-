@@ -4,6 +4,115 @@
 
 ---
 
+## [AI UPDATE 2026-09-14] — Fix: POS-created customer + Customer Panel account activation
+
+### Problem
+
+A customer can be created at the Billing Panel counter with just **Name + Phone**
+(Billing Panel `js/cart.js` → `syncManualCustomerProfile()`), before ever opening
+the Customer Panel. That profile has no `passwordHash`, and its `uid` field is
+set to the phone number itself (the POS convention, so
+`customer_order_history/{phone}/orders` resolves correctly without any
+Customer Panel changes).
+
+When that same customer later opened the Customer Panel and entered their phone
+number, `js/auth.js` treated "profile exists but no passwordHash" exactly like
+a brand-new registration: it showed the full "Create your account" form, and on
+submit `_onCreateAccount()` did a **full, non-merge `setDoc`** on
+`customers/{phone}`. That:
+
+1. Reset `totalOrders` / `lifetimeSpend` / `lastOrderAt` to `0` / `0` / `null`,
+   silently wiping the customer's existing stats.
+2. Reset `createdAt` to "now".
+3. Assigned a **brand-new anonymous Firebase Auth uid**, replacing the POS
+   convention (`uid === phone`). This orphaned the existing
+   `customer_order_history/{phone}/orders` subcollection — the order history
+   documents still existed in Firestore, but the customer's session now
+   pointed at a different (empty) `uid`, so their history appeared to vanish.
+
+Net effect: same phone number, but a second "shadow" identity was effectively
+created every time a POS-created customer activated their account.
+
+### Fix
+
+Added a dedicated **activation step**, separate from the registration step,
+for the specific case "profile exists, no password yet":
+
+- `_onPhoneSubmit()` now branches into three cases instead of two:
+  1. `snap.exists() && profile.passwordHash` → **login step** (unchanged).
+  2. `snap.exists() && !profile.passwordHash` → **NEW: activation step**
+     (`_showActivateStep()`).
+  3. `!snap.exists()` → **registration step** (unchanged — brand-new phone
+     numbers are completely unaffected).
+- The activation step (new `otpActivateStep` markup in `index.html`) shows
+  *only* a password + confirm-password field, with the message:
+  > Welcome back, {name}!
+  > Your customer profile already exists.
+  > Set a password to activate your online account.
+
+  Name and phone are never re-entered or shown as editable — they come from
+  the existing document.
+- `_onActivateSubmit()` writes with `setDoc(..., { merge: true })`, touching
+  **only** `passwordHash`, `phoneVerified` (kept as-is), `updatedAt`,
+  `lastLoginAt`. Every other existing field — `uid`, `createdAt`,
+  `totalOrders`, `lifetimeSpend`, `lastOrderAt`, `source` — is left completely
+  untouched.
+- The session is completed with the **existing** `uid` (`existing.uid ||
+  existing.authUid || phone`), never a freshly-generated anonymous auth uid.
+  For POS-created customers this means the session continues to use
+  `uid === phone`, so `customer_order_history/{phone}/orders` keeps resolving
+  to the same data it always did.
+- No second `customers/{phone}` document, no second uid, no duplicate history
+  bucket is ever created.
+
+### What was verified unaffected
+
+- **Existing online customers (have a `passwordHash`)** — `_onPhoneSubmit()`
+  still routes them to the unchanged login step / `_onLoginSubmit()`.
+- **Completely new phone numbers** — still go through the unchanged
+  `_showProfileStep()` → `_onProfileSubmit()` → confirm →
+  `_onCreateAccount()` full registration flow.
+- **Forgot Password / staff recovery-code flow** — untouched; it's a separate
+  `otpForgotBtn` / `_openRecovery()` flow with its own Cloudflare Worker calls
+  and only applies to accounts that already have a `passwordHash`.
+- **Firestore rules** — no change needed. `customers/{phone}` already allows
+  `update: if isOperator()`, and `isOperator()` accepts *any* anonymous
+  Firebase Auth session (which is what both the Billing Panel and Customer
+  Panel use) — this is the same rule `_completeLogin()` already relies on for
+  its existing `lastLoginAt` merge-write on every login.
+- Ordering, billing, and coupon logic — not touched.
+
+### Files changed
+
+- `js/auth.js` — new `_pendingActivationProfile` state, new
+  `_showActivateStep()`, new `_onActivateSubmit()`, updated `_onPhoneSubmit()`
+  branch logic, updated step-switch functions (`_showPhoneStep`,
+  `_showLoginStep`, `_showProfileStep`) to also hide the new step, updated
+  reset points (`_completeLogin`, `_onLogout`) to clear the new state var.
+- `index.html` — new `otpActivateStep` markup (welcome message + password +
+  confirm-password fields + "Wrong number? Go back" link), placed between the
+  existing login step and registration step in the auth modal.
+
+### Manual test checklist
+
+1. POS creates "Arnav" + `9876543210` (no password) → `customers/+919876543210`
+   exists with `uid: "+919876543210"`, no `passwordHash`.
+2. Customer Panel: enter `9876543210` → activation step appears:
+   "Welcome back, Arnav! ... Set a password to activate your online account."
+3. Set password → logged in immediately, no duplicate `customers` doc created,
+   `uid` on the document is still `"+919876543210"`.
+4. Existing order history / lifetime spend from the POS-created profile is
+   still visible in "My Orders".
+5. Log out, log back in with phone + the new password → works (normal login step).
+6. A phone number that already had a password before this change → still logs
+   in exactly as before.
+7. A completely new phone number → still shows the full
+   name/username/password registration + confirm flow, unaffected.
+8. Forgot Password (for an account that already has a password) → unaffected,
+   still works via the counter recovery-code flow.
+
+---
+
 ## [AI UPDATE 2026-08-03] — Bug Fix: Variant Card Badge Overlap + Phase 3 Intelligent Home Screen
 
 ### Branch
