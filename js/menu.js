@@ -259,6 +259,30 @@ let _extraToppings = [];
 export function getAllExtraToppings() { return _extraToppings; }
 
 /**
+ * [AI UPDATE 2026-09-18] Read-only menu index for the Smart Assistant
+ * (js/smart-assistant.js — customer-facing chat widget, text-based cart
+ * control). Returns the current flat item list plus the exact same
+ * variant-grouped entries _groupItems() already produces for card
+ * rendering (isGroup, groupKey, displayName, variants[{id,label,price,oos}]).
+ * Reusing _groupItems() here (instead of writing separate matching logic)
+ * means the assistant's product/variant/availability understanding can
+ * never drift from what's actually rendered in the menu grid — same
+ * source of truth, zero duplicated grouping/OOS rules. Read-only: does not
+ * touch _groupsById or any other rendering state.
+ */
+export function getMenuIndex() {
+  return { items: allItems, groups: _groupItems(allItems) };
+}
+
+/**
+ * [AI UPDATE 2026-09-18] Exposes the existing _isItemOos() availability
+ * check to js/smart-assistant.js for standalone (non-grouped) items —
+ * grouped items already carry their own `oos` flag per variant via
+ * getMenuIndex() above.
+ */
+export function isItemOos(item) { return _isItemOos(item); }
+
+/**
  * Categories permanently hidden from the menu UI.
  * Items in these categories are used internally (e.g. as extra-option prices)
  * but never displayed as menu cards or category tabs.

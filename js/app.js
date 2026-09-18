@@ -42,6 +42,8 @@ import { initCategoryFab }                  from "./category-fab.js";
 import { initHomeSections }                 from "./home-sections.js";
 // Variant picker — intercepts +/- on group cards with multiple variants
 import { initVariantPicker }                from "./variant-picker.js";
+// [AI UPDATE 2026-09-18] Smart Assistant — rule-based customer chat widget
+import { initSmartAssistant }               from "./smart-assistant.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -102,6 +104,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 5e. Variant Picker ────────────────────────────────────────
   // Intercepts +/- on group cards; shows "add/remove which variant?" sheet
   initVariantPicker();
+
+  // ── 5f. Smart Assistant ───────────────────────────────────────
+  // [AI UPDATE 2026-09-18] Wires the 🤖 floating button → chat panel
+  initSmartAssistant();
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {

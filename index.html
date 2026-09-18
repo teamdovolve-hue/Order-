@@ -603,6 +603,56 @@
     </div>
   </div>
 
+  <!-- ── Smart Assistant ──────────────────────────────────────
+       [AI UPDATE 2026-09-18] New: 100% rule-based customer chat widget
+       (js/smart-assistant.js — no external AI API of any kind). Floating
+       button (bottom-left, mirrors #categoryFab which sits bottom-right)
+       opens the chat sheet. Reads the existing logged-in customer, menu,
+       cart, order-history and coupon data; writes only through the
+       existing cart.js addItem/removeItem/clearCart functions.
+  ──────────────────────────────────────────────────────────── -->
+  <button class="sa-fab" id="saFab" aria-label="Smart Assistant">
+    <span aria-hidden="true">🤖</span>
+  </button>
+
+  <div class="sa-modal hidden" id="saModal" role="dialog" aria-modal="true" aria-label="Smart Assistant">
+    <div class="sa-backdrop" id="saBackdrop"></div>
+    <div class="sa-sheet">
+      <div class="sa-drag-handle"></div>
+
+      <div class="sa-header">
+        <div class="sa-header-left">
+          <span class="sa-header-icon" aria-hidden="true">🤖</span>
+          <div>
+            <div class="sa-title">Smart Assistant</div>
+            <div class="sa-subtitle">Online</div>
+          </div>
+        </div>
+        <button class="sa-close-btn" id="saCloseBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="sa-messages" id="saMessages">
+        <!-- Populated by smart-assistant.js -->
+      </div>
+
+      <div class="sa-quick-actions" id="saQuickActions">
+        <button type="button" class="sa-chip" data-sa-action="trackOrder">📦 Track Order</button>
+        <button type="button" class="sa-chip" data-sa-action="repeatOrder">🔁 Repeat Last Order</button>
+        <button type="button" class="sa-chip" data-sa-action="myCoupons">🎟️ My Coupons</button>
+        <button type="button" class="sa-chip" data-sa-action="loyaltyPoints">🎖️ Loyalty Points</button>
+        <button type="button" class="sa-chip" data-sa-action="myOrders">🧾 My Orders</button>
+        <button type="button" class="sa-chip" data-sa-action="viewCart">🛒 View Cart</button>
+      </div>
+
+      <form class="sa-input-bar" id="saInputForm">
+        <input type="text" id="saInput" class="sa-input"
+               placeholder="e.g. add 2 medium paneer pizza"
+               autocomplete="off" autocorrect="off" spellcheck="false" />
+        <button type="submit" class="sa-send-btn" id="saSendBtn" aria-label="Send">➤</button>
+      </form>
+    </div>
+  </div>
+
   <!-- ── Scripts ───────────────────────────────────────────── -->
   <script type="module" src="js/app.js"></script>
 
