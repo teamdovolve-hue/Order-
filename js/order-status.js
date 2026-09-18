@@ -125,6 +125,19 @@ const STATUS_COLOR = {
   dismissed: "#ef4444",
 };
 
+// [AI UPDATE 2026-09-18] Smart Assistant support — last-known active-orders
+// snapshot, kept in sync below (see _renderActiveOrders). Read-only cache,
+// no new listener: js/smart-assistant.js calls getActiveOrdersSnapshot()
+// for "track my order" instead of starting its own onSnapshot subscription.
+let _lastActiveOrders = [];
+
+/** Returns the most recent active-orders array from the existing listener
+ *  (same shape as startOrderTracking's onActiveOrders callback), or []
+ *  if tracking hasn't started / there are no active orders. Never null. */
+export function getActiveOrdersSnapshot() {
+  return _lastActiveOrders;
+}
+
 export function getStatusLabel(status) {
   return STATUS_LABEL[(status || "").toLowerCase()] || status || "Unknown";
 }
@@ -391,6 +404,12 @@ function _esc(s = "") {
  * intentionally kept there for potential future use.
  */
 function _renderActiveOrders(orders) {
+  // [AI UPDATE 2026-09-18] Smart Assistant support — cache the raw snapshot
+  // regardless of whether the DOM elements below exist, so getActiveOrdersSnapshot()
+  // stays correct even if this fires before/without the Active Orders section
+  // being in the DOM.
+  _lastActiveOrders = orders || [];
+
   const section = document.getElementById("activeOrdersSection");
   const list    = document.getElementById("activeOrdersList");
   if (!section || !list) return;
