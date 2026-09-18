@@ -1516,3 +1516,194 @@ Summary for this repo:
 - Everything else in this file's original recovery section above (flow steps,
   Worker endpoints/request-response shapes, error-handling map, security notes,
   memory-only `resetToken`/code handling) is unchanged and still accurate.
+
+---
+
+# Smart Assistant — customer-facing rule-based chat widget (AI UPDATE [2026-09-18])
+
+## Task
+
+Add a "Smart Assistant" chat widget to the Customer Panel: floating button →
+chat panel, quick-action chips, and free-text (English/Hindi/Hinglish)
+understanding of cart control, order tracking, order history, coupons, and
+the loyalty/reward milestone — using only the customer's own real data.
+
+**Hard requirement: 100% rule-based JavaScript.** No OpenAI/Gemini/Claude/Groq/
+any external or paid AI API, no server-side AI model. Verified: this file
+contains zero `fetch()` calls of any kind — every response comes from
+deterministic string matching against data already loaded by this app.
+
+## Audit performed before writing any code
+
+Read `ARCHITECTURE_LOCK.md` (frozen systems §2, database contract §5, public
+interfaces §6) and this file, then read in full: `js/auth.js` (login/session —
+`getLoginInfo()`, `requireLogin()`, `customAuthStateChanged` event),
+`js/cart.js` (in-memory `cart` Map, `addItem`/`removeItem`/`clearCart` —
+`addItem` always adds exactly 1 unit), `js/menu.js` (variant grouping —
+`_groupItems()`, `_isItemOos()`, out-of-stock rules, the products/categories
+vs legacy `menu_items` schema split), `js/history.js` (`getHistory()` —
+localStorage, kept in sync from Firestore by order-status.js),
+`js/order-status.js` (active-order tracking, `getStatusLabel()`),
+`js/offers.js` (the existing `coupons` collection query shape and loyalty
+badge pattern), `js/restaurant-status.js` (`isOrderingEnabled()`), and the
+Billing Panel's `js/cart.js` (cross-repo, read-only inspection) to find the
+loyalty reward rule's actual source of truth (`LOYALTY_MIN_ORDERS = 10`,
+`LOYALTY_MIN_SPEND = 1000`, `LOYALTY_AMOUNT = 100`).
+
+## Files changed
+
+- **`js/smart-assistant.js`** (new) — all chat logic: rule-based NLU, cart
+  control, order/coupon/loyalty queries, DOM wiring. Exports
+  `initSmartAssistant()`.
+- **`js/menu.js`** — two small additive exports only, no other change:
+  - `getMenuIndex()` → `{ items: allItems, groups: _groupItems(allItems) }`.
+    Reuses the exact same (previously unexported) `_groupItems()` the menu
+    grid renders from, so the assistant's product/variant/availability
+    understanding can never drift from what customers actually see on the
+    cards. Read-only — does not touch `_groupsById` or any rendering state.
+  - `isItemOos(item)` → thin wrapper around the existing `_isItemOos()`.
+- **`js/order-status.js`** — added a module-level `_lastActiveOrders` cache,
+  populated inside the **existing** `_renderActiveOrders(orders)` callback
+  (one new line — no behavioural change to that function), plus a new
+  export `getActiveOrdersSnapshot()`. No second Firestore listener is
+  started; the assistant reads the same listener's last-known result.
+- **`js/app.js`** — imports `initSmartAssistant` and calls it in the boot
+  sequence (step 5f), same pattern as `initOffers()`/`initHistory()`.
+- **`index.html`** — new markup block (floating button `#saFab` + chat sheet
+  `#saModal`/`#saMessages`/`#saQuickActions`/`#saInputForm`), inserted right
+  before the `<script type="module" src="js/app.js">` tag. Follows the exact
+  same modal/backdrop/sheet structure as the existing item-sheet/variant-
+  picker modals.
+- **`css/style.css`** — new `.sa-*` block appended at the end of the file.
+  Uses only existing CSS custom properties (`--bg`, `--surface`, `--accent`,
+  `--blue`, etc.) and the existing `otpFadeIn`/`otpSlideUp` keyframes — no
+  new design tokens. FAB sits bottom-left (mirrors `.category-fab`, which
+  sits bottom-right) so the two floating buttons never overlap. Modal
+  z-index 230 (above the variant picker's 220, the highest z-index that
+  existed before this change).
+
+**Nothing else was touched.** `js/cart.js`, `js/history.js`, `js/auth.js`,
+`js/order.js`, `js/review.js`, `js/item-sheet.js`, `js/variant-picker.js`,
+and the entire order lifecycle are byte-for-byte unchanged — the assistant
+is purely an additional consumer of their existing public interfaces.
+
+## How cart control actually works (no second cart)
+
+Every cart mutation goes through the existing `cart.js` functions:
+`addItem(id, name, price)` (called once per unit — `addItem` only ever adds
+exactly 1, so "add 2 X" calls it twice) and `removeItem(id)`. The assistant
+never reads or writes `cart`'s Map directly except to *inspect* it
+(`[...cart.values()]`) for "show my cart" / "remove X" / "set quantity"
+commands. Products are matched via `getMenuIndex()` (see above); variant
+availability comes from the `oos` flag `_groupItems()` already computes per
+variant — the assistant duplicates zero availability logic of its own.
+
+## Rule-based NLU — how it works, and its known limits
+
+Token-overlap product matching (`_matchProduct` in `js/smart-assistant.js`):
+every word of the customer's (filler/verb/qty/variant-stripped) text that
+also appears in a menu group/item's name counts as a point; the highest-
+scoring candidate(s) win. A single top match resolves automatically; a tie
+is treated as genuine ambiguity and the customer is asked to pick (never
+guesses — requirement #8 in the task spec). Verb/filler stripping uses an
+explicit phrase list (`kar do`, `daal do`, `hata do`, `chahiye`, `add`,
+`remove`, …) covering the English/Hindi/Hinglish phrasing given in the task
+spec, plus the reverse: if **no** verb is found at all, the whole message is
+still tried as a bare product mention (covers `"medium margherita pizza 2"`
+with no verb, per the spec's own example).
+
+**Known, documented gaps** (deterministic rule-based parsing, not a full
+language model — matches the task spec's own "keep it practical and
+deterministic" instruction):
+- The Hindi word **"do" (= 2) is deliberately NOT recognised as a quantity.**
+  It collides with the extremely common verb phrases "kar do" / "de do"
+  ("please do it" / "give it"); treating it as a number would misread the
+  quantity on nearly every plain Hinglish add command. Digits (`2`) and the
+  English word "two" both work correctly. This is called out at the
+  `NUM_WORDS` map in `js/smart-assistant.js`.
+- Extras/add-ons (`item-sheet.js`'s "Add Extras" step) and the special-
+  request text field are **not** settable through chat — the assistant adds
+  the base item only. Customers can still add extras/notes afterwards via
+  the normal Item Details Sheet on any cart item. Out of scope for this
+  pass; flagged here for a future session if wanted.
+- Multi-turn context (`_ctx.pending`) is a single slot — asking about a
+  second product while a variant question is still pending will abandon
+  the first pending question rather than stacking two. Matches the task
+  spec's own scope ("simple session state/context variables").
+- "Track order" identifies an order by its table tag (`o.tableId`, e.g.
+  "Table 4") since there's no customer-facing numeric order ID field in
+  `pending_table_orders` — the task spec's own example ("Your order #26…")
+  assumes an order-number field that doesn't exist in this schema.
+
+## Loyalty / reward rule — cross-repo source-of-truth note
+
+`LOYALTY_MIN_ORDERS`/`LOYALTY_MIN_SPEND`/`LOYALTY_AMOUNT` are hardcoded in
+`js/smart-assistant.js` as a **documented mirror** of the Billing Panel's
+own single source of truth (`js/cart.js` in
+`https://github.com/Arnavmishra142/Billing-system-Pizza-hut-`). The Customer
+Panel and Billing Panel are separate repositories (`ARCHITECTURE_LOCK.md`
+§1) — this file cannot `import` Billing Panel source, so per the task
+spec's own instruction ("If the rule is currently hardcoded elsewhere, reuse
+the same source of truth... there must be ONE source of truth") the closest
+achievable thing across a repo boundary is one clearly labeled, correctly-
+valued mirror rather than a second independent guess. **If the Billing
+Panel's `LOYALTY_*` constants ever change, this block must be updated to
+match.** There is no separate "loyalty points balance" anywhere in either
+repo — only this order-count+spend milestone — so the assistant says so
+explicitly rather than inventing a points number (task spec §18).
+
+## Security / privacy
+
+No Firestore rules changed — verified against the Billing Panel's
+`firestore.rules` (shared database): `customers/{phone}` read is already
+`if request.auth != null` (bridge mode — any authenticated session, same as
+every other Customer Panel read), and `coupons` read is already
+`if request.auth != null` — both already used elsewhere (`js/auth.js`,
+`js/offers.js`) with the exact same query shape this file reuses. The
+assistant only ever reads the **currently logged-in customer's own**
+`customers/{phone}` doc and `coupons where phone==` query — it has no path
+to another customer's data, admin data, or staff data.
+
+## Performance
+
+Customer profile and coupons are fetched from Firestore **at most once per
+60 seconds per phone number** (`_profileCache`/`_couponsCache` in
+`js/smart-assistant.js`), not on every chat message. Menu/cart/order-history
+lookups used by every other intent are pure in-memory reads (`getMenuIndex()`,
+the `cart` Map, `getHistory()`, `getActiveOrdersSnapshot()`) — zero
+additional Firestore cost. No new `onSnapshot` listeners are started by this
+file.
+
+## Testing performed
+
+Static verification only in this environment (no live Firebase project
+available): `node --check` passes on every modified/new `.js` file. The
+rule-based tokenizer/quantity/variant-extraction/verb-stripping functions
+were unit-tested standalone (12 representative phrases from the task spec,
+including Hinglish variants) and produced the expected isolated product
+queries and extracted quantity/variant values.
+
+**Still to be tested against the live app** (regression checklist items ✓
+below assumed unaffected since their files were untouched, but the new
+feature itself needs a real browser + logged-in test account):
+- Assistant opens/closes; quick actions fire the same handlers as typed text
+- Customer name detected correctly in the greeting
+- "add 2 medium paneer pizza" → item actually appears in the real cart/cart
+  bar, not just a chat confirmation
+- Ambiguous product ("pizza add kar do") lists real menu items, doesn't guess
+- Unavailable item → correct "currently unavailable" message, nothing added
+- "repeat my last order" with one item no longer on the menu → adds the
+  valid items, names the unavailable one, doesn't silently substitute
+- Coupon / loyalty responses match what "My Offers" (`offers.js`) already
+  shows for the same test account
+- Existing regression checklist (§8 of `ARCHITECTURE_LOCK.md`) — login,
+  menu, search, cart, place order, active orders, history — unaffected
+  (no touched file is in that list except the two additive exports, which
+  add new functions without modifying any existing function's behaviour)
+
+## Billing Panel changes required
+
+**None.** This feature reads collections the Customer Panel already reads
+(`customers`, `coupons`, `pending_table_orders`, `customer_order_history`,
+`menu_items`/`products`/`categories`) and writes nothing new. No Billing
+Panel file, rule, or schema change is needed.

@@ -50,7 +50,9 @@ Customer's phone (this repo)
   │     ├── order.js                     — order submission to Firestore
   │     ├── order-status.js              — live order tracking
   │     ├── search.js                    — real-time menu search
-  │     └── history.js                   — localStorage order history
+  │     ├── history.js                   — localStorage order history
+  │     └── smart-assistant.js           — [AI UPDATE 2026-09-18] rule-based
+  │                                         chat widget (no external AI API)
   │
   └── Firebase SDK v10 (CDN, ES modules) — Firestore + Auth + Functions
         └── Firestore region: asia-south1
@@ -88,6 +90,7 @@ The following systems are **production-stable**. Future AI agents **MUST NOT** m
 | Active Orders | `js/order-status.js` (`startOrderTracking`) |
 | Order Tracking | `js/order-status.js` |
 | Order History | `js/history.js` (localStorage key: `qrmenu_history`) |
+| Smart Assistant | `js/smart-assistant.js` — [AI UPDATE 2026-09-18] NOT a frozen system yet (brand new); reuses every frozen system above through their public interfaces only, never bypasses them |
 | Out of Stock UI | `js/menu.js` |
 | Realtime Synchronization | `js/menu.js`, `js/order-status.js` (`onSnapshot`) |
 | Firebase Integration | `js/firebase-config.js` |
@@ -316,6 +319,9 @@ export function updateGreeting()     // Delegates to auth.js updateGreeting
 ```js
 export function initMenu()           // Start real-time Firestore listener; render menu
 export function filterBySearch(term) // Filter rendered menu items by search term
+// [AI UPDATE 2026-09-18] — added for js/smart-assistant.js:
+export function getMenuIndex()       // → { items: [...flat items], groups: [...variant-grouped entries] }
+export function isItemOos(item)      // → boolean — same availability check the menu grid uses
 ```
 
 ### `js/cart.js`
@@ -344,6 +350,8 @@ export function initOrderStatus()          // Wire Active Orders panel (called o
 export function stopOrderStatus()          // Stop all listeners and clear panel
 export async function startOrderTracking(callbacks)  // Start onSnapshot for active orders + history
 export function stopOrderTracking()        // Unsubscribe all order tracking listeners
+// [AI UPDATE 2026-09-18] — added for js/smart-assistant.js:
+export function getActiveOrdersSnapshot()  // → last-known array from the existing onActiveOrders listener (no new listener)
 ```
 
 `startOrderTracking` callbacks shape:
@@ -366,6 +374,17 @@ export function openHistory()              // Open drawer and render history lis
 ```js
 export function initSearch(onSearch)  // Wire search input; calls onSearch(query) on every keystroke
 ```
+
+### `js/smart-assistant.js`
+```js
+// [AI UPDATE 2026-09-18] New file.
+export function initSmartAssistant()  // Wire the 🤖 floating button + chat panel — call once on boot
+```
+100% rule-based (no external/paid AI API — see AI_HANDOFF.md for the full
+write-up). Reads customer/menu/cart/order-history/coupon data through the
+public interfaces listed above; writes only through `js/cart.js`'s
+`addItem`/`removeItem`/`clearCart`. Do not add a second cart, customer, or
+order-history data path to this file — extend the existing ones instead.
 
 ---
 
@@ -410,6 +429,7 @@ Before considering any task complete, verify that the following still work end-t
 - ✓ Out of Stock (unavailable items show badge; Add button disabled)
 - ✓ Realtime Updates (status changes from Billing Panel appear without page refresh)
 - ✓ Billing Panel Compatibility (no Firestore field, collection, or status changes that break the Billing Panel)
+- ✓ Smart Assistant (AI UPDATE [2026-09-18]) — floating button opens/closes; quick actions and typed commands add real items to the real cart; unavailable items are correctly refused; no external AI API call is ever made
 
 **If any item fails, the implementation is NOT complete.**
 
