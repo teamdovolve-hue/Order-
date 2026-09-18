@@ -4833,6 +4833,15 @@ a:focus:not(:focus-visible) {
 .sa-fab:active { transform: scale(0.93); }
 .sa-fab.hidden { display: none !important; }
 
+.sa-icon-svg { width: 26px; height: 26px; color: #fff; filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+.sa-header-icon .sa-icon-svg { width: 20px; height: 20px; }
+
+@keyframes saSparklePulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255,255,255,0.45)); transform: scale(1); }
+  50%      { filter: drop-shadow(0 0 10px rgba(255,255,255,0.85)); transform: scale(1.08); }
+}
+.sa-fab .sa-icon-svg { animation: saSparklePulse 2.6s ease-in-out infinite; }
+
 @supports (bottom: env(safe-area-inset-bottom)) {
   .sa-fab { bottom: calc(90px + env(safe-area-inset-bottom)); }
 }
