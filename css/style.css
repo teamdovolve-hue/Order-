@@ -5051,3 +5051,41 @@ body:not(:has(#cartBar:not(.hidden))) .sa-fab { bottom: 24px; }
   .sa-modal { align-items: center; padding: 24px; }
   .sa-sheet { border-radius: 24px; height: 78dvh; max-height: 640px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   [AI UPDATE 2026-09-19] Coupon + Loyalty rebuild — "My Coupons" drawer
+   (js/offers.js). Uses the existing dark-theme variables only.
+   ══════════════════════════════════════════════════════════════════ */
+.cp-progress { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; margin-bottom: 12px; }
+.cp-progress-title { font-size: .72rem; font-weight: 800; letter-spacing: .6px; color: var(--accent); margin-bottom: 8px; }
+.cp-progress-row { font-size: .82rem; color: var(--text-1); margin: 6px 0 4px; font-weight: 600; }
+.cp-bar { height: 8px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+.cp-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-dark), var(--accent)); border-radius: 99px; transition: width .4s; }
+.cp-progress-msg { font-size: .8rem; color: var(--text-2); margin: 10px 0 0; line-height: 1.4; }
+.cp-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.cp-tab { flex: 1; padding: 9px 4px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); font-size: .78rem; font-weight: 700; cursor: pointer; }
+.cp-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.cp-flash { font-size: .82rem; border-radius: var(--r-md); padding: 9px 12px; margin-bottom: 10px; }
+.cp-flash.ok  { background: var(--green-soft); color: var(--green); }
+.cp-flash.bad { background: rgba(231,76,60,.14); color: var(--red); }
+.cp-card { position: relative; background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: var(--r-lg); padding: 14px; margin-bottom: 10px; }
+.cp-card-off { border-left-color: var(--text-3); opacity: .7; }
+.cp-unlocked { font-size: .72rem; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
+.cp-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.cp-title { font-size: .92rem; font-weight: 700; color: var(--text-1); }
+.cp-disc { font-size: 1.05rem; font-weight: 800; color: var(--green); white-space: nowrap; }
+.cp-card-off .cp-disc { color: var(--text-2); }
+.cp-msg { font-size: .8rem; color: var(--text-2); margin: 6px 0 0; line-height: 1.4; }
+.cp-meta { font-size: .76rem; color: var(--text-2); margin-top: 8px; }
+.cp-card-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+.cp-code { font-family: monospace; font-weight: 800; letter-spacing: .5px; color: var(--text-1); background: var(--surface-3); border: 1px dashed var(--border); padding: 5px 9px; border-radius: 8px; font-size: .8rem; }
+.cp-actions { text-align: right; }
+.cp-apply { background: var(--accent); color: #111; border: 0; border-radius: 99px; padding: 8px 18px; font-weight: 800; font-size: .82rem; cursor: pointer; }
+.cp-apply:disabled { background: var(--surface-3); color: var(--text-3); cursor: not-allowed; }
+.cp-apply.cp-applied { background: var(--green-soft); color: var(--green); }
+.cp-hint { font-size: .7rem; color: var(--text-3); margin-top: 4px; max-width: 170px; margin-left: auto; }
+.rv-coupon-row .rv-summary-value { color: var(--green); }
+.rv-coupon-box { margin: 10px 0 2px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--r-md); background: var(--surface-2); font-size: .82rem; color: var(--text-2); }
+.rv-coupon-box b { color: var(--text-1); }
+.rv-coupon-box button { background: none; border: 0; color: var(--accent); font-weight: 800; cursor: pointer; padding: 0 0 0 6px; font-size: .82rem; }
+.rv-coupon-warn { color: var(--red); }
