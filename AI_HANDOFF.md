@@ -4,6 +4,42 @@
 
 ---
 
+## [AI UPDATE 2026-09-19] — COUPON + LOYALTY SYSTEM REBUILD (Customer Panel side)
+
+Companion to the Billing Panel repo's AI_HANDOFF.md of the same date (full architecture, Firestore schema, lifecycle, rules, tests live there — read it first).
+This repo is **read-only toward coupons**: it never writes/marks-used/issues a coupon. Issuing + redemption are Billing-Panel-only.
+
+### What the customer gets
+* 🎟️ header button → **My Coupons** drawer (`js/offers.js`): loyalty progress card ("🎯 NEXT REWARD", orders bar, spend bar, "2 more orders + ₹80 qualifying spend to unlock ₹100 OFF"),
+  tabs **Available / Used / Expired** (expired tab also holds cancelled), cards with title, discount, minimum order, expiry, code, **Apply**; "🎉 Reward Unlocked" ribbon on loyalty
+  coupons issued in the last 3 days; the existing red dot (now = ≥1 AVAILABLE coupon) and one-time "new coupon" toast are kept.
+* **Self-apply** on the EXISTING cart: Apply in the drawer, or from the coupon box inside the review sheet (`js/review.js`) which shows the discount row and the discounted **Grand Total**
+  (and footer total). ONE coupon per order; Apply replaces the previous selection. Eligibility is re-run against the LIVE cart on every render: ₹550 cart + ₹499-min coupon applies; remove an
+  item → ₹450 → discount disappears and the review shows a warning (selection is kept so it re-applies if items are added back).
+* Applying does NOT consume the coupon. At Place Order (`js/order.js`) the coupon summary is added to `pending_table_orders.coupon` (re-validated at that moment); `totalPrice` stays the
+  pre-coupon subtotal. The POS re-reads the coupon doc and only imports it if active and owned by this customer; it is marked USED only when the POS settles the order.
+* **Smart Assistant** (`js/smart-assistant.js`) now uses the same engine/state: "mere coupons kitne hain", "mere coupons dikhao", "kaunsa/konsa coupon laga sakta hai", "best coupon", "coupon apply kar do" (or a typed code),
+  "coupon hata do", and loyalty/progress questions — all real eligibility against the real cart. No LLM, no external API. Coupon intents are matched BEFORE the add/remove-item verbs ("kar do"/"hata").
+
+### Files
+NEW `js/coupon-engine.js` (**byte-identical to the Billing Panel copy — edit both or neither**), `js/coupons.js` (live state: `coupons where phone==me`, `customer_order_history/{uid}/orders` →
+qualifying stats; applied-coupon selection in `localStorage qrmenu_applied_coupon` = `{phone, code}`, scoped to the logged-in phone; `getAppliedState`, `applyCoupon`, `eligibleCoupons`, `bestCoupon`,
+`getCouponForOrder`), `tests/run-coupon-tests.mjs`. REWRITTEN `js/offers.js`. EDITED `js/review.js`, `js/order.js` (import + `coupon` field + clear selection after order), `js/smart-assistant.js`, `css/style.css` (appended `.cp-*` / `.rv-coupon-*`, dark-theme variables only).
+`js/app.js` unchanged (`initOffers()` already runs `initCoupons()`).
+
+### Qualifying vs lifetime
+Progress uses **qualifying** stats derived from the customer's own history docs (settled orders, final post-coupon totals, edits never double count, cancelled never counted) — identical maths to the POS issuer.
+`customers.lifetimeSpend/totalOrders` are unrelated display counters. No customer statistics are hard-coded.
+
+### Security / limitations
+No new writes, no new collections from this repo. Reads: own `coupons` (query by phone) and own `customer_order_history` (already allowed). Same pre-existing limitation as the POS doc: Firestore rules cannot isolate reads per
+anonymous customer; the app only ever queries its own phone. Minimum order is capped at ₹500 in the engine (and in the POS rules that create coupons).
+
+### Tests / status
+`node tests/run-coupon-tests.mjs` → 54 pass (pure engine). Syntax-checked all edited modules. NOT tested in a browser or against live Firestore — QA checklist is in the Billing Panel handoff (section 9).
+Pre-deploy note: Billing Panel `firestore.rules` must be deployed; deploy both repos together (the Customer Panel `coupon` order field is ignored by an old POS, and old Customer Panels simply show fixed coupons).
+
+
 ## [AI UPDATE 2026-09-14] — Fix: POS-created customer + Customer Panel account activation
 
 ### Problem

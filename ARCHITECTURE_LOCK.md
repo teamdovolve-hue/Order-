@@ -463,3 +463,11 @@ After every implementation, the agent **must**:
 This document is the **permanent source of truth** for the architectural constraints of the Customer Panel. Its goal is to keep the architecture stable while allowing small, isolated, backward-compatible improvements without breaking existing functionality.
 
 **When in doubt: make the smallest possible change. Preserve all existing behaviour. Document everything.**
+
+
+---
+## [2026-09-19] Coupon + Loyalty system — locked decisions
+- `coupons/{code}` is the ONLY coupon state; `coupon_issuance/*` is the create-only issuance ledger. Only `js/coupon-service.js` (Billing Panel) writes them.
+- `js/coupon-engine.js` exists in BOTH repos and must stay byte-identical. Loyalty is derived from `customer_order_history`, never from increment counters.
+- Max minimum order is ₹500 everywhere (engine, admin form, firestore.rules). One coupon per order. A coupon is marked USED only when the order is settled/saved.
+- Customer Panel is read-only toward coupons. See AI_HANDOFF.md (2026-09-19) for details.
