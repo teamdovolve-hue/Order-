@@ -20,6 +20,9 @@
  * to ms integers before passing them here. renderHistory() also has a _toDate()
  * guard that handles ms numbers, Firestore Timestamp objects, ISO strings, and
  * null — so "Invalid Date" can never appear.
+ *
+ * [AI UPDATE 2026-09-20] Shows the POS "Custom Discount" line (customDiscount field, only when > 0)
+ * between the item list and the status/total footer — see discountRow(). Total is never recomputed.
  */
 
 const HISTORY_KEY = "qrmenu_history";   // clean key (old "qrmenu_orders" is gone)
@@ -169,7 +172,7 @@ function renderHistory() {
               <span class="history-item-detail">×${it.quantity}&nbsp;&nbsp;${fmt(it.subtotal || 0)}</span>
             </li>`).join("")}
         </ul>
-
+        ${discountRow(order)}
         <div class="history-order-footer">
           <div class="history-footer-left">
             <span class="history-status-badge">Completed</span>
@@ -179,6 +182,21 @@ function renderHistory() {
         </div>
       </div>`;
   }).join("");
+}
+
+// [AI UPDATE 2026-09-20] Custom Instant Discount row, shown directly below the item list and above
+// the status/total footer. Display only: `customDiscount` is the flat ₹ amount the Billing Panel (POS)
+// already saved on customer_order_history/{uid}/orders/{orderId}; the final total in the footer is the
+// saved `totalPrice` and is never recalculated here. Renders nothing when there is no discount
+// (absent / 0 / non-numeric), so old and no-discount orders look exactly as before.
+function discountRow(order) {
+  const d = Number(order.customDiscount);
+  if (!Number.isFinite(d) || d <= 0) return "";
+  return `
+        <div class="history-discount-row">
+          <span class="history-discount-label">Custom Discount</span>
+          <span class="history-discount-amount">-${fmt(d)}</span>
+        </div>`;
 }
 
 function esc(s = "") {

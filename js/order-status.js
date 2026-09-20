@@ -333,6 +333,11 @@ export async function startOrderTracking(callbacks = {}) {
         tableId:          d.data().tableId          || "",
         items:            d.data().items            || [],
         total:            d.data().total            || 0,
+        // [AI UPDATE 2026-09-20] Pass through the POS-saved Custom Instant Discount (flat ₹ off,
+        // 0/absent = none) so history.js can display it. Read-only copy of the existing
+        // customer_order_history.customDiscount field — `total` above is already the FINAL payable
+        // and is never recalculated here.
+        customDiscount:   Number(d.data().customDiscount) || 0,
         completedAt:      d.data().completedAt      || null,
         orderedAt:        d.data().orderedAt        || "",
         completionReason: d.data().completionReason || "",
@@ -528,6 +533,8 @@ function _syncHistoryToLocalStorage(orders) {
     tableId:          order.tableId,
     items:            order.items,
     totalPrice:       order.total,        // history.js reads .totalPrice
+    // [AI UPDATE 2026-09-20] carry the saved Custom Instant Discount through to history.js (display only).
+    customDiscount:   order.customDiscount || 0,
     placedAt:         order.orderedAt || null,
     completedAt:      order.completedAt,
     completionReason: order.completionReason || "",
