@@ -4,6 +4,54 @@
 
 ---
 
+## [AI UPDATE 2026-09-20] — Fix: My Orders (order history) now shows the POS "Custom Discount" line
+
+### Problem
+An order billed with a Custom Instant Discount (e.g. Oreo ₹10 + Candle ₹10, discount −₹5, paid ₹15) showed the
+items and the final ₹15 in Customer Panel → My Orders, but not the discount, so the numbers looked like they
+didn't add up.
+
+### Trace of the existing data path (nothing new was invented)
+- The Billing Panel (POS) already saves the discount on the history doc:
+  `customer_order_history/{uid}/orders/{orderId}` → `customDiscount` (flat ₹, `0` = none) and `subtotal`
+  (pre-discount). `total` on that doc is already the FINAL payable. Written by BOTH `syncCustomerOrderCompletion()`
+  (online/QR customers) and `syncManualCustomerProfile()` (manually attached customers), and re-written on every
+  Edit History re-settle (removing the discount during an edit resets it to `0`). Absent on older docs.
+- Customer Panel read path: `js/order-status.js` Listener 2 (`onSnapshot` on that subcollection) → maps each doc →
+  `_syncHistoryToLocalStorage()` maps again (`total → totalPrice`) → `updateFromFirestore()` → `js/history.js`
+  `renderHistory()`. Both mapping steps dropped every field they did not list, so `customDiscount` never reached
+  the renderer.
+
+### Files / functions changed (Customer Panel repo only)
+| File | Function | Change |
+|---|---|---|
+| `js/order-status.js` | `startOrderTracking()` Listener 2 mapper | added `customDiscount: Number(d.data().customDiscount) \|\| 0` (pass-through of the existing field) |
+| `js/order-status.js` | `_syncHistoryToLocalStorage()` | added `customDiscount: order.customDiscount \|\| 0` to the mapped object |
+| `js/history.js` | new `discountRow(order)`; `renderHistory()` | renders `Custom Discount  −₹X` between the item `<ul>` and `.history-order-footer`, only when `Number(customDiscount) > 0` |
+| `css/style.css` | new `.history-discount-row` / `-label` / `-amount` (just above `.history-order-footer`) | same 13px row style as an item row; amount in `var(--green)` |
+No new field, no new collection, no Firestore/rules change, no Billing Panel change required (the field is already written).
+
+### Behaviour
+- `totalPrice` (footer) is still the saved final `total` — never recalculated, never `items − discount` in this panel.
+- Amount is formatted with the panel's existing `fmt()` (Intl INR), so it reads `-₹5.00`, same style as every other amount in the drawer (items show `₹10.00`).
+- No row when `customDiscount` is `0`, absent (old orders) or non-numeric. Works for online orders, manually attached customers, edited orders, and repeated edits (the Billing Panel updates the SAME doc, the live snapshot re-renders the drawer — confirmed below).
+
+### Tests performed (headless Chromium, real `index.html` + real `auth.js`/`order-status.js`/`history.js`; Firebase stubbed with an in-memory Firestore that re-fires `onSnapshot` on writes — real Firestore NOT available)
+16/16 pass on the fixed code; the same script on the untouched code fails the 7 discount checks (rows never rendered) while all total checks pass.
+- Online order: Oreo/Candle, discount −₹5.00, total ₹15.00; row is directly below the list and directly above the footer (DOM sibling order checked, plus a visual screenshot).
+- Manually attached customer doc (`billNumber`, `customerPhone`), edited order (`isEdited`), decimal discount (₹12.50, total ₹87.49), `customDiscount: 0`, field absent (legacy doc), edit that removed the discount → no row.
+- Displayed totals equal the saved `total` for all 7 orders.
+- Three live edits of one order (₹15 → ₹115 → ₹125 → discount removed, ₹120): drawer updated without reopening, no duplicate cards, row appears/disappears correctly.
+- NOT tested: real Firestore, a real phone/browser theme other than the default dark theme.
+
+### Known limitation (pre-existing, deliberately not changed)
+`qrmenu_history` (localStorage) is only an offline fallback used before the first Firestore snapshot, and `saveOrderToHistory()` skips an order whose `firestoreId` is already cached — so a cached copy of an order billed/edited earlier is not refreshed and would not show the discount until the live snapshot arrives. Once online, `renderHistory()` uses the live snapshot (`_firestoreOrders`), which is correct.
+
+### Billing Panel changes required
+None. (The Billing Panel handoff already noted this panel only showed `total`; the fields it writes are used as-is.)
+
+---
+
 ## [AI UPDATE 2026-09-14] — Fix: POS-created customer + Customer Panel account activation
 
 ### Problem
