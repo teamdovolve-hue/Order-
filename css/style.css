@@ -1603,6 +1603,18 @@ mark.search-highlight {
   font-size: 12px;
 }
 
+/* [AI UPDATE 2026-09-20] Custom Instant Discount row (js/history.js discountRow()) —
+   sits between .history-items and .history-order-footer. Same type scale as an item row. */
+.history-discount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.history-discount-label  { color: var(--text-2); flex: 1; }
+.history-discount-amount { color: var(--green); font-weight: 700; flex-shrink: 0; font-size: 12px; }
+
 .history-order-footer {
   display: flex;
   align-items: center;
