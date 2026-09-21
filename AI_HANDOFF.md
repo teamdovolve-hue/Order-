@@ -4,6 +4,45 @@
 
 ---
 
+## [AI UPDATE 2026-09-21] — Menu cards: tap anywhere on the card opens the Item Details sheet
+
+### Change
+Previously only the ADD button opened the Item Details sheet (`js/item-sheet.js` → `openItemSheet`). Now tapping the product
+image, name, description, price or the card background opens the SAME sheet. The ADD button behaves exactly as before.
+No second modal, no new listener, no change inside the sheet or to any cart / add-to-cart logic.
+
+### How (js/menu.js)
+- New helper `_openItemSheetFromCardTap(e)` (next to `_groupsById`). It looks up the item / group with the same maps the ADD branch uses
+  (`_itemsById`, `_groupsById`) and calls the existing `openItemSheet()`.
+- It is called as the LAST step of both existing delegated click handlers — `_wireCardEvents()` (main menu grid / search results)
+  and `wireCardContainer()` (home-section cards). Every control branch above it (Read More, ADD, group qty − / +, regular qty − / +)
+  already `return`s, so the card-tap only runs for a click no control claimed → **ADD can never open the sheet twice**.
+  (`wireCardContainer`'s qty-plus branch got an explicit `return` for the same reason.)
+- Ignored on purpose: anything inside `.card-action` (ADD / Unavailable / qty − + / qty number / group badge), `.card-desc-more`, and any
+  button/link/input; out-of-stock cards (`.oos`) stay inert, matching their disabled "Unavailable" button.
+- `css/style.css`: `.menu-card:not(.oos) { cursor:pointer; -webkit-tap-highlight-color:transparent }` — marks the card tappable and is
+  needed for iOS Safari to deliver delegated clicks on non-button elements; transparent highlight keeps the look unchanged.
+
+### Behaviour notes
+- A card already in the cart shows qty − / + instead of ADD; those still change quantity without opening the sheet. Tapping the card body
+  now opens the sheet, which (as before) adds more units with any chosen extras / variant.
+- Not changed: `half-full-card` and `triple-card` (Half/Full, Small/Medium/Large side-by-side cards). They are not `.menu-card`s and each
+  half has its own ADD, so "whole card" is ambiguous there.
+
+### Files changed
+`js/menu.js`, `css/style.css`, `AI_HANDOFF.md`. Untouched: `js/item-sheet.js`, `js/cart.js`, `js/order.js`, all Firestore code.
+
+### Checked (headless Chromium, Firebase stubbed — real Firestore not available)
+16/16: image / name / description / price / card background / ADD each open the sheet exactly once on a single-item card; group (variant) card
+name + ADD open it once; out-of-stock card does nothing; sheet shows the tapped item; after adding, qty +, qty number and qty − do NOT open the
+sheet while tapping the name does; no JS errors. Against the code before the change the same checks fail (only ADD opened the sheet).
+Not tested on a real phone / iOS Safari.
+
+### Billing Panel changes required
+None.
+
+---
+
 ## [AI UPDATE 2026-09-20] — Fix: My Orders (order history) now shows the POS "Custom Discount" line
 
 ### Problem
