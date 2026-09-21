@@ -234,7 +234,12 @@ export function wireCardContainer(container) {
     if (plus) {
       const card = plus.closest(".menu-card");
       if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
+      return; // [AI UPDATE 2026-09-21] handled — must not fall through to the card-tap below
     }
+
+    // [AI UPDATE 2026-09-21] Tap anywhere else on the card (image, name, description, price,
+    // background) → same Item Details sheet as ADD.
+    _openItemSheetFromCardTap(e);
   });
 }
 
@@ -249,6 +254,32 @@ let _itemsById = new Map();
  * Looked up by _wireCardEvents when the ADD button on a group card is clicked.
  */
 let _groupsById = new Map();
+
+/**
+ * [AI UPDATE 2026-09-21] Whole-card tap → the SAME Item Details sheet the ADD button opens.
+ * Called as the LAST step of both delegated click handlers (_wireCardEvents for the menu grid,
+ * wireCardContainer for home-section cards), i.e. only for a click that no other control claimed —
+ * the ADD button, qty − / +, Read More and group qty controls all `return` before this runs, so
+ * tapping ADD can never open the sheet twice. No new listener, no new modal: it just calls
+ * openItemSheet() with the same item/group object the ADD branch looks up (_itemsById / _groupsById).
+ * Out-of-stock cards stay inert, exactly like their disabled "Unavailable" button.
+ * Returns true if it opened the sheet.
+ */
+function _openItemSheetFromCardTap(e) {
+  // Anything inside the action cell (ADD / qty − + / badge / Unavailable) or any button/link belongs
+  // to that control, not to the card body.
+  if (e.target.closest(".card-action, .card-desc-more, button, a, input, select, textarea")) return false;
+  const card = e.target.closest(".menu-card");
+  if (!card || card.classList.contains("oos")) return false;
+  if (card.dataset.groupKey) {
+    const group = _groupsById.get(card.dataset.groupKey);
+    if (group) { openItemSheet(group); return true; }
+    return false;
+  }
+  const item = _itemsById.get(card.dataset.id);
+  if (item) { openItemSheet(item); return true; }
+  return false;
+}
 
 /**
  * [AI UPDATE 2026-08-02] UX upgrade — items from the "Extra Topping" Firestore
@@ -1259,6 +1290,11 @@ function _wireCardEvents(grid) {
       if (card) addItem(card.dataset.id, card.dataset.name, Number(card.dataset.price));
       return;
     }
+
+    // ── [AI UPDATE 2026-09-21] Tap anywhere else on the card → same Item Details sheet as ADD ──
+    // Image, name, description, price, card background. Reached only when none of the controls
+    // above claimed the click (they all `return`), so ADD never fires this a second time.
+    _openItemSheetFromCardTap(e);
   });
 }
 
