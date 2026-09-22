@@ -34,6 +34,13 @@
  *   • Closing the panel (or starting a new request) invalidates in-flight work through a
  *     session counter, so a late reply can never add to the cart after the panel was closed.
  *
+ * VOICE REPLIES (Siya)
+ *   The assistant is named "Siya" (see the panel header + the model's system prompt in
+ *   api/voice/interpret.js). Every reply shown in the panel is also spoken aloud using the
+ *   browser's built-in Web Speech API (SpeechSynthesisUtterance) — no extra API key, no
+ *   server round-trip. Speech is cancelled whenever the panel closes or a new listen/request
+ *   starts, so replies never pile up or talk over each other.
+ *
  * PUBLIC API
  *   initVoiceAssistant() — wire the mic button + panel. Call once on boot (app.js).
  */
@@ -53,6 +60,9 @@ const MIN_RECORD_MS         = 500;   // shorter than this is an accidental tap
 const FETCH_TIMEOUT_MS      = 20000;
 const SNAPSHOT_TIMEOUT_MS   = 4000;  // never let a slow Firestore read block a voice request
 const HISTORY_KEEP          = 6;
+
+const ASSISTANT_NAME = "Siya";
+const TTS_LANG_PREF  = ["en-IN", "hi-IN"]; // preferred voice languages, in order
 
 const EXAMPLES = [
   "Add Paneer Pizza Regular to cart",
@@ -106,6 +116,52 @@ let _level = 0;
 
 let _abort = null;         // AbortController for the request in flight
 let _lastTranscript = "";
+
+// ── Speech (Siya talks back) ──────────────────────────────────────────────────
+const _tts = window.speechSynthesis || null;
+let _ttsVoice = null;
+let _ttsVoiceReady = false;
+
+function _pickTtsVoice() {
+  if (!_tts) return null;
+  const voices = _tts.getVoices();
+  if (!voices.length) return null;
+  for (const lang of TTS_LANG_PREF) {
+    const exact = voices.find((v) => v.lang === lang);
+    if (exact) return exact;
+    const partial = voices.find((v) => v.lang?.startsWith(lang.split("-")[0]));
+    if (partial) return partial;
+  }
+  return voices[0];
+}
+
+if (_tts) {
+  // Voice list loads async in most browsers.
+  _tts.addEventListener?.("voiceschanged", () => {
+    _ttsVoice = _pickTtsVoice();
+    _ttsVoiceReady = true;
+  });
+}
+
+/** Cancel anything Siya is currently saying (panel close / new request / new listen). */
+function _stopSpeaking() {
+  try { _tts?.cancel(); } catch (_) {}
+}
+
+/** Speak a reply out loud. Silently does nothing if the browser can't do TTS. */
+function _speak(text) {
+  if (!_tts || !text) return;
+  _stopSpeaking();
+  if (!_ttsVoiceReady) _ttsVoice = _pickTtsVoice();
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    if (_ttsVoice) u.voice = _ttsVoice;
+    u.lang = _ttsVoice?.lang || "en-IN";
+    u.rate = 1;
+    u.pitch = 1;
+    _tts.speak(u);
+  } catch (_) {}
+}
 
 // ── Public ────────────────────────────────────────────────────────────────────
 
@@ -179,6 +235,7 @@ function _closePanel() {
   _open = false;
   _session++;                 // orphan anything still in flight
   _cancelListening();
+  _stopSpeaking();
   _abort?.abort();
   _abort = null;
   if (_audioCtx) { try { _audioCtx.close(); } catch (_) {} _audioCtx = null; }
@@ -278,6 +335,8 @@ function _showResult({ text, tone = "info", facts = [], actions = [] }) {
   box.classList.remove("hidden");
   const scroller = $("vaScroll");
   if (scroller) scroller.scrollTop = 0;
+
+  _speak(text);
 }
 
 function _clearResult() {
@@ -337,6 +396,7 @@ async function _startListening() {
   }
 
   const session = ++_session;
+  _stopSpeaking();
   _clearResult();
   _setState("requesting");
 
