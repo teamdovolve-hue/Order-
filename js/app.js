@@ -44,6 +44,8 @@ import { initHomeSections }                 from "./home-sections.js";
 import { initVariantPicker }                from "./variant-picker.js";
 // [AI UPDATE 2026-09-18] Smart Assistant — rule-based customer chat widget
 import { initSmartAssistant }               from "./smart-assistant.js";
+// [AI UPDATE 2026-09-21] Voice Assistant — mic button beside Search (Deepgram STT + Groq NLU via /api/voice/*)
+import { initVoiceAssistant }               from "./voice-assistant.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -108,6 +110,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ── 5f. Smart Assistant ───────────────────────────────────────
   // [AI UPDATE 2026-09-18] Wires the 🤖 floating button → chat panel
   initSmartAssistant();
+
+  // ── 5g. Voice Assistant ───────────────────────────────────────
+  // [AI UPDATE 2026-09-21] Wires the mic button beside Search → voice panel. Reuses the
+  // cart / offers / history code above through their existing entry points.
+  // Guarded: an add-on feature must never be able to stop the core panel's boot sequence below.
+  try { initVoiceAssistant(); } catch (err) { console.warn("[voice] init failed:", err); }
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
