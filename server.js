@@ -134,6 +134,16 @@ app.get("/", (req, res) => {
   }
 });
 
+// ── [AI UPDATE 2026-09-21] Voice Assistant API — dev-server parity with Vercel ─
+//   In production these two files are Vercel Serverless Functions
+//   (/api/voice/transcribe, /api/voice/interpret). They are plain (req, res)
+//   handlers, so the SAME files are mounted here for the Replit preview.
+//   Keys come from environment variables (DEEPGRAM_API_KEY, GROQ_API_KEY) —
+//   set them as Replit Secrets. No body parser is used on purpose: the handlers
+//   read the raw request stream themselves.
+app.all("/api/voice/transcribe", require("./api/voice/transcribe.js"));
+app.all("/api/voice/interpret",  require("./api/voice/interpret.js"));
+
 // ── Serve static assets (js/, css/, images, etc.) ────────────────────────────
 app.use(express.static(path.join(__dirname), { index: false }));
 

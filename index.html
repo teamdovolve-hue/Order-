@@ -303,7 +303,11 @@
   </header>
 
   <!-- ── Search Bar ─────────────────────────────────────────── -->
+  <!-- [AI UPDATE 2026-09-21] Voice Assistant: .search-inner is now wrapped in .search-row so the
+       mic button (#vaMicBtn, js/voice-assistant.js) can sit beside it. .search-inner itself, the
+       input (#searchInput), the clear button and search.js are unchanged. -->
   <div class="search-wrap" id="searchWrap">
+   <div class="search-row">
     <div class="search-inner">
       <svg class="search-icon" width="17" height="17" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
@@ -323,6 +327,15 @@
       />
       <button class="search-clear hidden" id="searchClear" aria-label="Clear search">✕</button>
     </div>
+    <button type="button" class="va-mic-btn" id="vaMicBtn" aria-label="Voice assistant" aria-haspopup="dialog" title="Voice assistant">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="2.5" width="6" height="12" rx="3"/>
+        <path d="M5 11.5a7 7 0 0 0 14 0"/>
+        <line x1="12" y1="18.5" x2="12" y2="21.5"/>
+      </svg>
+    </button>
+   </div>
   </div>
 
   <!-- ── Category Tabs ──────────────────────────────────────── -->
@@ -658,6 +671,63 @@
                autocomplete="off" autocorrect="off" spellcheck="false" />
         <button type="submit" class="sa-send-btn" id="saSendBtn" aria-label="Send">➤</button>
       </form>
+    </div>
+  </div>
+
+  <!-- ── Voice Assistant ──────────────────────────────────────
+       [AI UPDATE 2026-09-21] New: opened by the mic button beside the Search bar
+       (#vaMicBtn). Blurs the page, expands this panel, shows example commands and the
+       listening / processing states. All logic in js/voice-assistant.js; speech-to-text
+       (Deepgram) and language understanding (Groq) run through /api/voice/* so no key
+       is ever in the browser. Styles: .va-* block at the end of css/style.css.
+  ──────────────────────────────────────────────────────────── -->
+  <div class="va-overlay hidden" id="vaOverlay" data-state="idle" role="dialog" aria-modal="true" aria-label="Voice assistant">
+    <div class="va-backdrop" id="vaBackdrop"></div>
+    <div class="va-panel" id="vaPanel">
+
+      <div class="va-panel-head">
+        <div class="va-title">
+          <span class="va-title-dot" aria-hidden="true"></span>
+          Voice Assistant
+        </div>
+        <button type="button" class="va-close-btn" id="vaCloseBtn" aria-label="Close voice assistant">✕</button>
+      </div>
+
+      <div class="va-stage">
+        <button type="button" class="va-orb" id="vaOrb" aria-label="Start listening">
+          <span class="va-orb-ring" aria-hidden="true"></span>
+          <span class="va-orb-ring" aria-hidden="true"></span>
+          <span class="va-orb-ring" aria-hidden="true"></span>
+          <span class="va-orb-spin" aria-hidden="true"></span>
+          <span class="va-orb-core" aria-hidden="true">
+            <svg class="va-ico-mic" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2.5" width="6" height="12" rx="3"/>
+              <path d="M5 11.5a7 7 0 0 0 14 0"/>
+              <line x1="12" y1="18.5" x2="12" y2="21.5"/>
+            </svg>
+            <svg class="va-ico-stop" width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="3"/>
+            </svg>
+          </span>
+        </button>
+        <p class="va-status" id="vaStatus" role="status" aria-live="polite">Tap the mic and speak</p>
+        <p class="va-hint" id="vaHint">Or tap one of the examples below</p>
+      </div>
+
+      <div class="va-scroll" id="vaScroll">
+        <p class="va-transcript hidden" id="vaTranscript"></p>
+
+        <div class="va-response hidden" id="vaResponse">
+          <p class="va-response-text" id="vaResponseText"></p>
+          <div class="va-facts hidden" id="vaFacts"></div>
+          <div class="va-actions hidden" id="vaActions"></div>
+        </div>
+
+        <h3 class="va-examples-title">Try saying</h3>
+        <div class="va-examples" id="vaExamples"><!-- Populated by voice-assistant.js --></div>
+      </div>
+
     </div>
   </div>
 
