@@ -5063,3 +5063,396 @@ body:not(:has(#cartBar:not(.hidden))) .sa-fab { bottom: 24px; }
   .sa-modal { align-items: center; padding: 24px; }
   .sa-sheet { border-radius: 24px; height: 78dvh; max-height: 640px; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   VOICE ASSISTANT — mic button beside Search + focus panel
+   [AI UPDATE 2026-09-21] New feature (js/voice-assistant.js). Purely additive:
+   no existing rule above was edited. Uses only the existing design tokens
+   (--accent, --surface*, --border, --green, --text-*) so it matches the
+   dark + orange customer panel, and the same overlay z-layer approach as the
+   Smart Assistant (.sa-modal = 230; this panel = 240 so it always sits on top
+   while open). Mobile-first; desktop just centres the same panel.
+══════════════════════════════════════════════════════════════ */
+
+/* ── Mic button beside the search bar ────────────────────────── */
+/* .search-inner (unchanged) is wrapped by .search-row. The mic is stretched to the
+   input's exact height so the search bar keeps the height the sticky offsets
+   (.search-wrap top:57px / .category-nav top:104px) were built around. */
+.search-row {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.search-row > .search-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.va-mic-btn {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: stretch;
+  aspect-ratio: 1 / 1;
+  min-width: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 166, 35, 0.6);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(245, 166, 35, 0.28), rgba(245, 166, 35, 0.07) 62%),
+    var(--surface-3);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 10px rgba(245, 166, 35, 0.28), inset 0 0 8px rgba(245, 166, 35, 0.12);
+  animation: vaMicGlow 2.8s ease-in-out infinite;
+  transition: transform 0.14s ease, border-color 0.2s;
+}
+.va-mic-btn::after {                 /* soft sonar ring */
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 166, 35, 0.65);
+  opacity: 0;
+  pointer-events: none;
+  animation: vaMicPulse 2.8s ease-out infinite;
+}
+.va-mic-btn:hover { border-color: var(--accent); }
+.va-mic-btn:active { transform: scale(0.91); }
+.va-mic-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@keyframes vaMicGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(245, 166, 35, 0.22), inset 0 0 8px rgba(245, 166, 35, 0.10); }
+  50%      { box-shadow: 0 0 17px rgba(245, 166, 35, 0.55), inset 0 0 10px rgba(245, 166, 35, 0.22); }
+}
+@keyframes vaMicPulse {
+  0%        { transform: scale(1);    opacity: 0.7; }
+  65%, 100% { transform: scale(1.42); opacity: 0; }
+}
+
+/* ── Overlay: blurs the whole page behind the panel ──────────── */
+.va-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  animation: vaFade 0.22s ease;
+}
+.va-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 10, 0.55);
+  -webkit-backdrop-filter: blur(14px) saturate(0.85);
+  backdrop-filter: blur(14px) saturate(0.85);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .va-backdrop { background: rgba(8, 8, 10, 0.9); }   /* no blur support → just dim harder */
+}
+@keyframes vaFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Panel (expands out of the mic button — origin set from JS) ─ */
+.va-panel {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 55% at 50% 0%, rgba(245, 166, 35, 0.13), transparent 62%),
+    linear-gradient(180deg, #1c1a16 0%, var(--surface) 46%);
+  border: 1px solid rgba(245, 166, 35, 0.28);
+  border-radius: 26px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 28px 90px rgba(0, 0, 0, 0.72),
+    0 0 70px rgba(245, 166, 35, 0.10);
+  animation: vaExpand 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes vaExpand {
+  from { transform: scale(0.25); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.va-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 0 18px;
+  flex-shrink: 0;
+}
+.va-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.va-title-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: vaDot 1.8s ease-in-out infinite;
+}
+@keyframes vaDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.va-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.va-close-btn:hover { background: var(--surface-3); }
+
+/* ── Orb + status ────────────────────────────────────────────── */
+.va-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 20px 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.va-orb {
+  --va-level: 0;                       /* 0…1, driven by the live mic level from JS */
+  position: relative;
+  width: 128px;
+  height: 128px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.va-orb[aria-disabled="true"] { cursor: default; }
+.va-orb:focus-visible .va-orb-core { outline: 2px solid #fff; outline-offset: 5px; }
+
+.va-orb-core {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #1a1000;
+  background: radial-gradient(circle at 34% 28%, #ffe0a3 0%, var(--accent) 48%, #b26a0a 100%);
+  box-shadow:
+    0 0 26px rgba(245, 166, 35, 0.55),
+    0 0 60px rgba(245, 166, 35, 0.22),
+    inset 0 -6px 14px rgba(120, 60, 0, 0.35),
+    inset 0 3px 8px rgba(255, 255, 255, 0.35);
+  transform: scale(calc(1 + var(--va-level) * 0.28));
+  transition: transform 0.09s linear;
+  animation: vaBreathe 3.4s ease-in-out infinite;
+}
+@keyframes vaBreathe {
+  0%, 100% { box-shadow: 0 0 22px rgba(245, 166, 35, 0.45), 0 0 50px rgba(245, 166, 35, 0.16), inset 0 -6px 14px rgba(120, 60, 0, 0.35), inset 0 3px 8px rgba(255, 255, 255, 0.35); }
+  50%      { box-shadow: 0 0 34px rgba(245, 166, 35, 0.72), 0 0 76px rgba(245, 166, 35, 0.30), inset 0 -6px 14px rgba(120, 60, 0, 0.35), inset 0 3px 8px rgba(255, 255, 255, 0.35); }
+}
+.va-ico-stop { display: none; }
+
+.va-orb-ring {                          /* expanding sound rings while listening */
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(245, 166, 35, 0.6);
+  opacity: 0;
+  pointer-events: none;
+}
+.va-orb-ring:nth-child(2) { animation-delay: 0.8s !important; }
+.va-orb-ring:nth-child(3) { animation-delay: 1.6s !important; }
+@keyframes vaRing {
+  0%   { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.va-orb-spin {                          /* rotating arc while transcribing / thinking */
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0deg 210deg, rgba(245, 166, 35, 0.15) 210deg, var(--accent) 330deg, #ffe0a3 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+@keyframes vaSpin  { to { transform: rotate(360deg); } }
+@keyframes vaThink { 0%, 100% { transform: scale(0.96); } 50% { transform: scale(1.04); } }
+
+/* state → look */
+.va-overlay[data-state="requesting"] .va-orb-spin { opacity: 0.55; animation: vaSpin 2.2s linear infinite; }
+.va-overlay[data-state="listening"] .va-orb-ring { animation: vaRing 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
+.va-overlay[data-state="listening"] .va-orb-core { animation: none; }   /* level-driven scale takes over */
+.va-overlay[data-state="listening"] .va-ico-mic  { display: none; }
+.va-overlay[data-state="listening"] .va-ico-stop { display: block; }
+.va-overlay[data-state="transcribing"] .va-orb-spin,
+.va-overlay[data-state="thinking"]     .va-orb-spin { opacity: 1; animation: vaSpin 1.05s linear infinite; }
+.va-overlay[data-state="transcribing"] .va-orb-core,
+.va-overlay[data-state="thinking"]     .va-orb-core { animation: vaThink 1.2s ease-in-out infinite; transition: none; }
+.va-overlay[data-state="error"] .va-orb-core {
+  background: radial-gradient(circle at 34% 28%, #ffc0b5 0%, var(--red) 50%, #8c2116 100%);
+  box-shadow: 0 0 26px rgba(231, 76, 60, 0.5), 0 0 60px rgba(231, 76, 60, 0.2), inset 0 -6px 14px rgba(80, 10, 5, 0.4), inset 0 3px 8px rgba(255, 255, 255, 0.3);
+  animation: none;
+}
+
+.va-status {
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-1);
+  letter-spacing: 0.01em;
+}
+.va-hint {
+  margin-top: 3px;
+  min-height: 16px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* ── Scrollable body: transcript, result, examples ───────────── */
+.va-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 16px 18px;
+}
+.va-transcript {
+  margin: 0 6px 10px;
+  text-align: center;
+  font-size: 13.5px;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.va-response {
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+}
+.va-response--info,
+.va-response--ask     { border-left-color: var(--accent); background: linear-gradient(90deg, var(--accent-soft), var(--surface-2) 62%); }
+.va-response--success { border-left-color: var(--green);  background: linear-gradient(90deg, var(--green-soft),  var(--surface-2) 62%); }
+.va-response--warn    { border-left-color: #d97706;       background: linear-gradient(90deg, rgba(217, 119, 6, 0.14), var(--surface-2) 62%); }
+.va-response--error   { border-left-color: var(--red);    background: linear-gradient(90deg, rgba(231, 76, 60, 0.14), var(--surface-2) 62%); }
+.va-response-text {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.va-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.va-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(245, 166, 35, 0.10);
+  border: 1px solid rgba(245, 166, 35, 0.30);
+}
+.va-fact-label { color: var(--text-2); }
+.va-fact-value { color: var(--accent); font-weight: 800; }
+
+.va-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.va-action-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 15px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.12s ease;
+}
+.va-action-btn:hover  { background: var(--accent-dark); }
+.va-action-btn:active { transform: scale(0.96); }
+
+/* ── Example commands ────────────────────────────────────────── */
+.va-examples-title {
+  margin: 4px 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.va-examples { display: flex; flex-direction: column; gap: 7px; }
+.va-example {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 13px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, background 0.15s, transform 0.12s ease;
+}
+.va-example:hover,
+.va-example:focus-visible { border-color: rgba(245, 166, 35, 0.6); background: var(--surface-3); outline: none; }
+.va-example:active { transform: scale(0.985); }
+.va-example-quote {
+  flex-shrink: 0;
+  margin-top: 8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  line-height: 0.5;
+  color: var(--accent);
+}
+
+@media (max-height: 640px) {            /* short phones: shrink the orb so the result stays in view */
+  .va-orb { width: 104px; height: 104px; }
+  .va-orb-core { width: 68px; height: 68px; }
+  .va-orb-ring { inset: 12px; }
+  .va-stage { padding-bottom: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .va-mic-btn, .va-mic-btn::after, .va-overlay, .va-panel,
+  .va-title-dot, .va-orb-core, .va-orb-ring { animation: none !important; }
+  .va-orb-spin { animation-duration: 3s !important; }   /* keep a slow spinner: it signals "working" */
+}

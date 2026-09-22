@@ -51,8 +51,17 @@ Customer's phone (this repo)
   │     ├── order-status.js              — live order tracking
   │     ├── search.js                    — real-time menu search
   │     ├── history.js                   — localStorage order history
-  │     └── smart-assistant.js           — [AI UPDATE 2026-09-18] rule-based
-  │                                         chat widget (no external AI API)
+  │     ├── smart-assistant.js           — [AI UPDATE 2026-09-18] rule-based
+  │     │                                   chat widget (no external AI API)
+  │     └── voice-assistant.js           — [AI UPDATE 2026-09-21] mic button +
+  │                                         voice panel; calls api/voice/* below
+  │
+  ├── api/voice/*.js  (Vercel Serverless Functions — also mounted in server.js
+  │     for local/Replit dev, so behaviour is identical in both places)
+  │     ├── transcribe.js                — proxies one recorded clip to Deepgram
+  │     └── interpret.js                 — proxies transcript+context to Groq
+  │           DEEPGRAM_API_KEY / GROQ_API_KEY read from process.env on the
+  │           server only — never sent to the browser (Section 6, Section 7 rule 15)
   │
   └── Firebase SDK v10 (CDN, ES modules) — Firestore + Auth + Functions
         └── Firestore region: asia-south1
@@ -91,6 +100,7 @@ The following systems are **production-stable**. Future AI agents **MUST NOT** m
 | Order Tracking | `js/order-status.js` |
 | Order History | `js/history.js` (localStorage key: `qrmenu_history`) |
 | Smart Assistant | `js/smart-assistant.js` — [AI UPDATE 2026-09-18] NOT a frozen system yet (brand new); reuses every frozen system above through their public interfaces only, never bypasses them |
+| Voice Assistant | `js/voice-assistant.js`, `api/voice/transcribe.js`, `api/voice/interpret.js` — [AI UPDATE 2026-09-21] NOT a frozen system yet (brand new); calls Deepgram + Groq through a private server-side proxy (Section 6, Section 7 rule 15), but performs every actual action (cart add, opening coupons/history, reading account data) through the frozen systems above and `js/smart-assistant.js`'s public interface only — never a second data path |
 | Out of Stock UI | `js/menu.js` |
 | Realtime Synchronization | `js/menu.js`, `js/order-status.js` (`onSnapshot`) |
 | Firebase Integration | `js/firebase-config.js` |
@@ -379,12 +389,45 @@ export function initSearch(onSearch)  // Wire search input; calls onSearch(query
 ```js
 // [AI UPDATE 2026-09-18] New file.
 export function initSmartAssistant()  // Wire the 🤖 floating button + chat panel — call once on boot
+// [AI UPDATE 2026-09-21] — added for js/voice-assistant.js (additive; nothing above changed):
+export function getAssistantMenu()      // → [{ name, variants: string[] }] — real menu names/sizes only
+export async function getAssistantSnapshot()  // → { loggedIn, customer: {...}|null, cart: {...} } — read-only, cached
+export async function addToCartByName({ item, variant, quantity })
+  // → { status: "added"|"clarify"|"failed", message, added? } — re-validates against the live
+  //   menu and adds through the SAME _resolveAndAdd()/cart.js addItem() path as the text chat and
+  //   the Item Details sheet; never guesses an ambiguous item/size — returns "clarify" instead
 ```
 100% rule-based (no external/paid AI API — see AI_HANDOFF.md for the full
 write-up). Reads customer/menu/cart/order-history/coupon data through the
 public interfaces listed above; writes only through `js/cart.js`'s
 `addItem`/`removeItem`/`clearCart`. Do not add a second cart, customer, or
 order-history data path to this file — extend the existing ones instead.
+
+### `js/voice-assistant.js`
+```js
+// [AI UPDATE 2026-09-21] New file.
+export function initVoiceAssistant()  // Wire the mic button (#vaMicBtn) + voice panel — call once on boot
+```
+Calls `POST /api/voice/transcribe` and `POST /api/voice/interpret` (below),
+then performs the returned action ONLY by calling
+`js/smart-assistant.js`'s exports above or by clicking the existing
+`#offersBtn` / `#historyBtn` / `#placeOrderBtn` header buttons — it has no
+direct Firestore access and holds no API key.
+
+### `api/voice/transcribe.js`, `api/voice/interpret.js`
+```js
+// [AI UPDATE 2026-09-21] New files. Plain (req, res) handlers — Vercel Serverless Functions,
+// also mounted directly in server.js for local/Replit dev parity.
+POST /api/voice/transcribe   // body: raw audio bytes  → { transcript, confidence }
+POST /api/voice/interpret    // body: JSON { transcript, history, context } → { action, items?, topic?, reply }
+```
+Read `DEEPGRAM_API_KEY` / `GROQ_API_KEY` (+ optional `DEEPGRAM_MODEL`,
+`DEEPGRAM_LANGUAGE`, `GROQ_MODEL`) from `process.env` only. These two files
+are the **only** place in either repository that calls an external, paid AI
+API — see Section 7 rule 15. They touch no Firestore collection and hold no
+cart/customer/coupon logic of their own; `api/voice/interpret.js`'s output is
+whitelisted (`normalizeResult()`) before being returned, so a malformed or
+adversarial model response can never reach the browser un-validated.
 
 ---
 
@@ -406,6 +449,7 @@ Every future AI agent working in this repository **MUST** follow these rules:
 12. **If a Billing Panel change is required:** document the exact file, reason, and modification needed. Do not guess or assume it already exists.
 13. **Do not commit a regenerated `package-lock.json`** from inside Replit. It contains Replit-internal package-firewall URLs that break `npm install` on Vercel. Vercel is configured to skip install entirely (`"installCommand": "echo 'skip install'"`).
 14. **The BRIDGE BUILD is intentional.** `auth.js` and `order.js` bypass Cloud Functions and write directly to Firestore while Fast2SMS DLT approval is pending. This is documented in both files. Do not remove or "fix" the bridge without explicit instruction.
+15. **External/paid AI API calls (Deepgram, Groq) are allowed ONLY inside `api/voice/transcribe.js` and `api/voice/interpret.js`, and their API keys ONLY as server-side environment variables** (`DEEPGRAM_API_KEY`, `GROQ_API_KEY`) **read via `process.env`.** [AI UPDATE 2026-09-21] Never hardcode a key in any frontend file, never call Deepgram/Groq (or any other paid AI API) directly from `js/*.js`, and never widen what these two functions return to the browser beyond the whitelisted `{ action, items?, topic?, reply }` / `{ transcript, confidence }` shapes documented in Section 6 — the model's raw output must always be re-validated (`normalizeResult()`), never trusted or forwarded as-is. This does not apply to `js/smart-assistant.js`'s own text chat, which remains 100% rule-based per its Section 6 entry.
 
 ---
 
@@ -430,6 +474,7 @@ Before considering any task complete, verify that the following still work end-t
 - ✓ Realtime Updates (status changes from Billing Panel appear without page refresh)
 - ✓ Billing Panel Compatibility (no Firestore field, collection, or status changes that break the Billing Panel)
 - ✓ Smart Assistant (AI UPDATE [2026-09-18]) — floating button opens/closes; quick actions and typed commands add real items to the real cart; unavailable items are correctly refused; no external AI API call is ever made
+- ✓ Voice Assistant (AI UPDATE [2026-09-21]) — mic button opens/closes the panel with the page blurred behind it; add-to-cart/coupons/history/account-question voice commands drive the SAME cart/offers/history/Smart-Assistant code the text/manual paths use (never a second data path); an unresolvable item or size asks instead of guessing; `DEEPGRAM_API_KEY`/`GROQ_API_KEY` are read only inside `api/voice/*.js` and never appear in any browser-visible response
 
 **If any item fails, the implementation is NOT complete.**
 
