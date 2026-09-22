@@ -1415,12 +1415,41 @@ mark.search-highlight {
 
 
 /* ══════════════════════════════════════════════════════════════
-   HISTORY DRAWER
+   HISTORY DRAWER (also used by offers.js's "My Offers" panel —
+   see js/offers.js header comment: it reuses these exact classes)
+
+   [AI UPDATE 2026-09-22] FIX — floating AI assistant (.sa-fab,
+   z-index 70) and the "Menu" pill (.category-fab, z-index 60) sat
+   ABOVE this panel (old z-index 60/55 — a tie with .category-fab is
+   broken by DOM order, and .sa-fab's 70 beat both outright), and the
+   panel was pinned flush to the literal viewport bottom (bottom:0),
+   the exact same screen region those two floating buttons occupy.
+   Result: both floating buttons visually sat on top of / overlapped
+   the bottom of "My Orders" / "My Offers".
+
+   Fix has two parts:
+   1. Re-anchor the panel to the vertical center of the viewport
+      (position:fixed + top/left 50% + translate(-50%,-50%), the same
+      centered-overlay technique already used elsewhere in this file
+      for #successOverlay/#errorOverlay's .overlay/.overlay-card) with
+      a safe max-height derived from the viewport height, instead of
+      pinning it to the bottom edge. This alone keeps it clear of the
+      bottom-docked FABs in the normal case.
+   2. Raise its z-index (55→175 backdrop, 60→180 panel) to the same
+      tier as the other header/FAB-launched utility sheet already in
+      this file (.category-fab-modal, 180) — above BOTH .category-fab
+      (60) and .sa-fab (70), and below the product/review/chat sheets
+      (200-230) — so even where the dimmed backdrop still geometrically
+      overlaps the FABs underneath, the panel is never covered BY them.
+      Neither FAB is hidden, removed, or disabled — same pattern this
+      codebase already relies on for its other sheets (item-sheet,
+      review-modal, otp-modal, category-fab-modal all already sit above
+      both FABs the same way; only history/offers had been left behind).
 ══════════════════════════════════════════════════════════════ */
 .history-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 55;
+  z-index: 175;          /* was 55 — now above both FABs (60/70), see note above */
   background: rgba(0,0,0,0.6);
   backdrop-filter: blur(2px);
   animation: fadeIn 0.2s ease;
@@ -1428,24 +1457,38 @@ mark.search-highlight {
 
 .history-panel {
   position: fixed;
-  bottom: 0;
-  z-index: 60;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 180;          /* was 60 — now above both FABs (60/70), see note above */
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  border-radius: 20px 20px 0 0;
-  max-height: 82dvh;
+  border: 1px solid var(--border);
+  border-radius: 20px;   /* was 20px 20px 0 0 (bottom-sheet look) — all 4 corners now that it floats centered rather than sitting flush against the bottom edge */
+  /* Safe max-height, derived from viewport height — vh first as a fallback
+     for browsers without dvh, then overridden by the dvh-based rule (which
+     browsers that don't understand `dvh` simply ignore, leaving the vh
+     fallback in place). `dvh` tracks the browser chrome / on-screen keyboard
+     in real time on modern mobile browsers, so this also keeps the panel
+     correctly sized while a keyboard is open elsewhere on the page.
+     "- 64px" always leaves ≥32px clear above AND below the panel so it can
+     never butt up against the very top/bottom edges (status bar, home
+     indicator, or the floating FABs) even on very short viewports. */
+  max-height: 82vh;
+  max-height: min(82dvh, calc(100dvh - 64px));
+  overflow: hidden;      /* keeps the rounded corners crisp; internal scrolling is still handled by .history-list below */
   display: flex;
   flex-direction: column;
-  animation: slideUpDrawer 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: historyPanelIn 0.3s cubic-bezier(0.32, 0.72, 0, 1);
   max-width: 600px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
+  /* was width:100% (edge-to-edge bottom sheet) — a floating centered card
+     needs a small side margin so its now fully-rounded corners are visible
+     on every screen width, not just ones wider than 600px. */
+  width: calc(100% - 32px);
 }
 
-@keyframes slideUpDrawer {
-  from { transform: translateX(-50%) translateY(100%); }
-  to   { transform: translateX(-50%) translateY(0); }
+@keyframes historyPanelIn {
+  from { transform: translate(-50%, -50%) scale(0.94); opacity: 0; }
+  to   { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
 }
 
 .history-drag-handle {
@@ -1491,6 +1534,7 @@ mark.search-highlight {
 .history-list {
   overflow-y: auto;
   flex: 1;
+  min-height: 0;   /* required so this flex child can actually shrink and scroll instead of forcing the panel to grow past max-height */
   padding: 12px 16px 24px;
   overscroll-behavior: contain;
 }
@@ -1655,7 +1699,10 @@ mark.search-highlight {
 ══════════════════════════════════════════════════════════════ */
 @media (min-width: 600px) {
   .menu-grid { gap: 0; }
-  .history-panel { bottom: 24px; border-radius: 20px; }
+  /* [AI UPDATE 2026-09-22] .history-panel's old bottom:24px/border-radius:20px
+     override (from its previous bottom-sheet layout) was removed — the panel
+     is centered with border-radius:20px on all screen sizes now, so no
+     width-specific override is needed here any more. */
 }
 
 /* ── Safe-area insets (notched phones) ──────────────────────── */
@@ -3904,7 +3951,8 @@ a:focus:not(:focus-visible) {
   animation-timing-function: cubic-bezier(0.25, 0.90, 0.45, 1.00);
 }
 
-/* ── History panel: already uses slideUpDrawer ─────────────────
+/* ── History panel: uses historyPanelIn (was slideUpDrawer before the
+   [AI UPDATE 2026-09-22] centered-modal fix) ────────────────────────
    Improve timing for native feel. */
 .history-panel {
   animation-timing-function: cubic-bezier(0.25, 0.90, 0.45, 1.00);
