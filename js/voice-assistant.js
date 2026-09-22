@@ -41,8 +41,18 @@
  *   server round-trip. Speech is cancelled whenever the panel closes or a new listen/request
  *   starts, so replies never pile up or talk over each other.
  *
+ * WAKE WORD ("Hey Siya") — [AI UPDATE 2026-09-22]
+ *   While the customer is on the HOME/MENU screen (panel closed, tab visible, no other
+ *   drawer/modal/sheet open — see _isHomeScreenActive()), the browser's own built-in
+ *   speech recognizer (Web Speech API — NOT Deepgram/Groq) listens locally for "Hey/Hi/Hello
+ *   Siya". On a match it stops that recognizer and calls the SAME _openPanel() a mic-button
+ *   tap calls, which then runs the EXISTING unchanged listening flow (record → Deepgram →
+ *   Groq). No second assistant UI, no new network calls for the wake phrase itself — only the
+ *   real command afterward goes through Deepgram/Groq, exactly as a manual tap always did.
+ *   See "── Wake word" below and AI_HANDOFF.md for details/limitations.
+ *
  * PUBLIC API
- *   initVoiceAssistant() — wire the mic button + panel. Call once on boot (app.js).
+ *   initVoiceAssistant() — wire the mic button + panel + wake word. Call once on boot (app.js).
  */
 
 import { getLoginInfo } from "./auth.js";
@@ -163,6 +173,139 @@ function _speak(text) {
   } catch (_) {}
 }
 
+// ── Wake word ("Hey Siya") ───────────────────────────────────────────────────
+
+const _SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const WAKE_PHRASE_RE          = /\b(hey|hi|hello)[,]?\s+siya\b/i;
+const WAKE_RESTART_DELAY_MS   = 300;   // normal restart right after the recognizer ends
+const WAKE_ERROR_BACKOFF_MS   = 4000;  // backoff after a recoverable recognition error
+const WAKE_MAX_ERROR_STREAK   = 6;     // give up for this page load after this many in a row
+const WAKE_RESUME_COOLDOWN_MS = 800;   // pause after the panel/another overlay closes
+
+let _wakeRecognizer  = null;
+let _wakeWanted      = false;  // true once initVoiceAssistant() has enabled wake word
+let _wakeActive      = false;  // true while the recognizer instance is actually running
+let _wakeDisabled    = false;  // unsupported / denied / too many errors — stop trying
+let _wakeGestureSeen = false;  // has the customer interacted with the page yet?
+let _wakeErrorStreak = 0;
+let _wakeRestartTimer = 0;
+let _wakeResumeTimer  = 0;
+let _wakeBodyObserver = null;
+
+function _wakeWordSupported() {
+  return !!_SpeechRecognitionCtor && !!window.isSecureContext;
+}
+
+/**
+ * "HOME/MENU screen": the Siya panel itself is closed, the tab is visible, and no other
+ * drawer/modal/sheet is open. Every existing overlay (history, offers, item sheet, variant
+ * picker, review, smart-assistant chat, login) sets `document.body.style.overflow = "hidden"`
+ * while open — the same signal this file already uses for its own panel — so this reads that
+ * one shared, already-existing convention instead of importing/duplicating per-module state.
+ */
+function _isHomeScreenActive() {
+  return !_open && document.visibilityState === "visible" && document.body.style.overflow !== "hidden";
+}
+
+/** Watches for other overlays opening/closing so the wake recognizer pauses/resumes with them. */
+function _watchHomeScreenState() {
+  if (_wakeBodyObserver || typeof MutationObserver === "undefined") return;
+  _wakeBodyObserver = new MutationObserver(() => {
+    if (_isHomeScreenActive()) _scheduleWakeResume();
+    else _pauseWakeListening();
+  });
+  try { _wakeBodyObserver.observe(document.body, { attributes: true, attributeFilter: ["style"] }); }
+  catch (_) {}
+}
+
+function _setupWakeWord() {
+  if (!_wakeWordSupported()) return; // unsupported browser: manual mic button is unaffected
+  _wakeWanted = true;
+  _watchHomeScreenState();
+  _armWakeListening(); // try right away — works in many desktop browsers with no gesture needed
+  // Some browsers withhold the mic permission prompt until a user gesture. Retry once on the
+  // customer's first tap/key/touch anywhere on the page so that case doesn't look like a denial.
+  const onGesture = () => { _wakeGestureSeen = true; _wakeErrorStreak = 0; _armWakeListening(); };
+  ["pointerdown", "keydown", "touchstart"].forEach((ev) =>
+    document.addEventListener(ev, onGesture, { once: true, passive: true })
+  );
+}
+
+/** Start the wake-word recognizer now, if wanted, allowed, on the home screen, and not already running. */
+function _armWakeListening() {
+  if (!_wakeWanted || _wakeDisabled || _wakeActive) return;
+  if (!_isHomeScreenActive()) return;
+  window.clearTimeout(_wakeResumeTimer);
+
+  if (!_wakeRecognizer) {
+    let rec;
+    try { rec = new _SpeechRecognitionCtor(); } catch (_) { _wakeDisabled = true; return; }
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.lang = _ttsVoice?.lang || TTS_LANG_PREF[0];
+
+    rec.onresult = (e) => {
+      if (!_isHomeScreenActive()) return; // an overlay opened between speaking and this callback
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i]?.[0]?.transcript || "";
+        if (WAKE_PHRASE_RE.test(transcript)) { _onWakeDetected(); return; }
+      }
+    };
+    rec.onerror = (e) => _onWakeError(e?.error);
+    rec.onend = () => {
+      _wakeActive = false;
+      if (!_wakeWanted || _wakeDisabled) return;
+      window.clearTimeout(_wakeRestartTimer);
+      _wakeRestartTimer = window.setTimeout(_armWakeListening, WAKE_RESTART_DELAY_MS);
+    };
+    _wakeRecognizer = rec;
+  }
+
+  try {
+    _wakeRecognizer.start();
+    _wakeActive = true;
+  } catch (_) {
+    _wakeActive = false; // already starting / transient — onend or the next check retries
+  }
+}
+
+function _onWakeError(code) {
+  _wakeActive = false;
+  if (code === "not-allowed" || code === "service-not-allowed") {
+    if (!_wakeGestureSeen) return; // likely just the browser's gesture requirement — wait for a tap
+    _wakeDisabled = true;          // denied after a real interaction: stop asking for this session
+    return;
+  }
+  if (code === "no-speech" || code === "aborted") return; // routine — onend already restarts it
+  _wakeErrorStreak++;
+  if (_wakeErrorStreak >= WAKE_MAX_ERROR_STREAK) { _wakeDisabled = true; return; }
+  window.clearTimeout(_wakeRestartTimer);
+  _wakeRestartTimer = window.setTimeout(_armWakeListening, WAKE_ERROR_BACKOFF_MS);
+}
+
+/** Stop the wake recognizer (panel opening, tab hidden, another overlay opened, page leaving). */
+function _pauseWakeListening() {
+  window.clearTimeout(_wakeRestartTimer);
+  window.clearTimeout(_wakeResumeTimer);
+  if (_wakeRecognizer && _wakeActive) { try { _wakeRecognizer.abort(); } catch (_) {} }
+  _wakeActive = false;
+}
+
+/** Resume listening after a short cooldown once we're back on the home screen. */
+function _scheduleWakeResume() {
+  if (!_wakeWanted || _wakeDisabled) return;
+  window.clearTimeout(_wakeResumeTimer);
+  _wakeResumeTimer = window.setTimeout(_armWakeListening, WAKE_RESUME_COOLDOWN_MS);
+}
+
+function _onWakeDetected() {
+  if (_open) return;      // already open — prevents a duplicate assistant opening
+  _wakeErrorStreak = 0;
+  _pauseWakeListening();  // never run wake recognition and the command recorder at the same time
+  _openPanel();           // EXISTING modal, then EXISTING record → Deepgram → Groq flow
+}
+
 // ── Public ────────────────────────────────────────────────────────────────────
 
 export function initVoiceAssistant() {
@@ -195,8 +338,13 @@ export function initVoiceAssistant() {
   // Never keep the microphone running in the background.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && _state === "listening") _cancelListening();
+    if (document.hidden) _pauseWakeListening(); else _scheduleWakeResume();
   });
-  window.addEventListener("pagehide", () => { _cancelListening(); });
+  window.addEventListener("pagehide", () => { _cancelListening(); _pauseWakeListening(); });
+
+  // [AI UPDATE 2026-09-22] "Hey Siya" wake word — home/menu screen only. Additive: guarded so
+  // an unsupported browser or a setup error can never affect the manual mic button above.
+  try { _setupWakeWord(); } catch (err) { console.warn("[voice] wake word init failed:", err); }
 }
 
 // ── Open / close ──────────────────────────────────────────────────────────────
@@ -246,6 +394,7 @@ function _closePanel() {
   _clearResult();
   _history = [];
   $("vaMicBtn")?.focus({ preventScroll: true });
+  _scheduleWakeResume(); // back on the home screen — listen for "Hey Siya" again
 }
 
 // ── State + UI helpers ────────────────────────────────────────────────────────
