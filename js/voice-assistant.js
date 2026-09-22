@@ -342,9 +342,10 @@ export function initVoiceAssistant() {
   });
   window.addEventListener("pagehide", () => { _cancelListening(); _pauseWakeListening(); });
 
-  // [AI UPDATE 2026-09-22] "Hey Siya" wake word — home/menu screen only. Additive: guarded so
-  // an unsupported browser or a setup error can never affect the manual mic button above.
-  try { _setupWakeWord(); } catch (err) { console.warn("[voice] wake word init failed:", err); }
+  // [AI UPDATE 2026-09-22] "Hey Siya" wake word — DISABLED (was constantly re-arming the
+  // background mic in a loop, causing the mic indicator to keep activating on its own).
+  // The manual mic button above is unaffected. To re-enable, uncomment the line below.
+  // try { _setupWakeWord(); } catch (err) { console.warn("[voice] wake word init failed:", err); }
 }
 
 // ── Open / close ──────────────────────────────────────────────────────────────
