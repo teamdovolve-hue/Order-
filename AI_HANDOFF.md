@@ -4,6 +4,78 @@
 
 ---
 
+## [AI UPDATE 2026-09-22] — Fix: floating AI assistant / Menu button overlapping "My Offers" and "My Orders"
+
+### Symptom
+The floating AI assistant button (`.sa-fab`, "Siya", bottom-left) and the floating "Menu" pill (`.category-fab`, bottom-right)
+visually sat on top of / hid the bottom portion of the "My Orders" (`#historyPanel`) and "My Offers" (`#offersPanel`) drawers.
+
+### Root cause
+Both drawers share the same CSS (`.history-backdrop` / `.history-panel` — `offers.js` deliberately reuses these classes,
+see its own header comment). That shared panel was:
+1. **Pinned to the literal viewport bottom** (`bottom: 0`, sliding up from below) — the exact screen region `.sa-fab`
+   (`bottom: 90px`/`24px`) and `.category-fab` (`bottom: 90px`/`24px`) are docked in.
+2. **Stacked below both FABs**: `.history-panel`/`.history-backdrop` were `z-index: 60`/`55`; `.category-fab` is `60`
+   (a tie broken by DOM order, since the FAB markup comes after the panel markup in `index.html`) and `.sa-fab` is `70`
+   (beats the panel outright). Every OTHER sheet in this app (`.item-sheet` 210, `.review-modal` 200, `.otp-modal` 200,
+   `.category-fab-modal` 180) already sits above both FABs at 180+ — only history/offers had been left behind.
+
+### Fix (CSS-only for the layout; two 1-line JS additions for the keyboard case)
+
+**`css/style.css`** — `.history-backdrop` / `.history-panel` rule block (used by both `#historyPanel` and `#offersPanel`):
+- **Centered vertically**: panel re-anchored with `position:fixed; top:50%; left:50%; transform:translate(-50%,-50%)` —
+  the same centered-overlay technique this file already uses for `#successOverlay`/`#errorOverlay` (`.overlay`/`.overlay-card`) —
+  instead of `bottom:0`. New entrance animation `historyPanelIn` (scale+fade, same easing curve as before) replaces the old
+  `slideUpDrawer` (bottom-anchored translateY), matching the new anchor point.
+- **Safe max-height**: `max-height: 82vh;` (fallback) then `max-height: min(82dvh, calc(100dvh - 64px));` (overrides on
+  browsers that support `dvh`; ignored as invalid on ones that don't, so the `vh` line stands as the fallback). `dvh`
+  (dynamic viewport height) tracks the real visible viewport on mobile browsers, including when the on-screen keyboard is
+  open elsewhere on the page — this is what keeps the modal correctly sized/usable in that case. The `-64px` guarantees
+  ≥32px of clear space above AND below the panel on any viewport height, so it can never butt up against the status bar,
+  home indicator, or the floating FABs.
+- **Independently scrollable content, fixed header**: unchanged structurally — `.history-header` was already
+  `flex-shrink:0` (stays fixed) and `.history-list` was already `flex:1; overflow-y:auto` (scrolls internally). Added
+  `min-height: 0` to `.history-list` (a flex-scroll fix — without it a flex child can refuse to shrink below its content
+  size, which would let the list push the panel taller than `max-height` instead of scrolling). Added `overflow: hidden`
+  on `.history-panel` itself so the now fully-rounded corners (`border-radius: 20px` on all 4 sides, was `20px 20px 0 0`
+  when it was a bottom sheet) stay crisp.
+- **FABs never covered / never disabled**: `.history-backdrop` z-index `55→175`, `.history-panel` z-index `60→180` — the
+  same tier as `.category-fab-modal` (180), above both `.category-fab` (60) and `.sa-fab` (70). Neither FAB was touched,
+  hidden, or disabled; they're simply beneath the panel/backdrop's stacking order while a drawer is open, exactly like
+  every other sheet in this app already behaves.
+- **Bottom safe-area padding**: unchanged — `.history-list` already got `padding-bottom: calc(24px + env(safe-area-inset-bottom))`
+  in the existing `@supports (padding-bottom: env(safe-area-inset-bottom))` block; left as-is, still ensures the last
+  list item clears the panel's bottom edge on notched/home-indicator devices.
+- Removed the now-dead `@media (min-width:600px) { .history-panel { bottom:24px; border-radius:20px; } }` override (a
+  leftover from the old bottom-sheet layout — the panel is centered with `border-radius:20px` at every width now).
+- Minor, necessary side-effect: the panel is `width: calc(100% - 32px)` (was `width:100%`, edge-to-edge) so its now
+  fully-rounded corners are visible with a small margin on narrow/mobile screens too, instead of touching the left/right
+  edges. Colors, fonts, header/close-button/drag-handle styling, list-item styling, and all functionality are unchanged.
+
+**`js/history.js`** (`openHistory()`) **and `js/offers.js`** (`openOffers()`) — one line added to each: `document.activeElement?.blur?.()`
+right when the drawer opens, so any keyboard left open from the search box (or elsewhere) is dismissed before the panel's
+centered layout/max-height math runs, keeping the modal fully usable rather than fighting a keyboard-shrunk viewport.
+Neither function's data-loading/render/backdrop logic was touched.
+
+### Not touched
+`index.html` (no markup changes needed — same elements, same classes/ids), the FABs' own CSS (`.category-fab`, `.sa-fab` —
+positions/sizes/z-index of the buttons themselves are unchanged, only the panel's z-index moved above them), any other
+modal/sheet (`.item-sheet`, `.review-modal`, `.otp-modal`, `.category-fab-modal` — already correctly layered, untouched),
+cart/menu/order logic, and the Billing/Admin Panel (separate repo).
+
+### Final modal layout behavior (My Orders / My Offers)
+- Opens centered vertically in the viewport (fixed position, `top/left:50%` + `translate(-50%,-50%)`), fading/scaling in.
+- Height is capped at a safe `max-height` derived from `dvh` (falls back to `vh`), always leaving clearance above and
+  below — so it can't be clipped by, or grow into, the top status bar, bottom home indicator, or either floating button.
+- Header (title + ✕ close button) stays fixed at the top of the card; only the offers/order list scrolls beneath it.
+- The floating AI assistant (bottom-left) and "Menu" button (bottom-right) stay fully visible, functional, and
+  un-hidden/un-removed everywhere else in the app — they're just layered beneath the drawer/backdrop while a drawer is open.
+- The last item in the list always has full bottom padding (plus safe-area inset) before the panel's rounded edge.
+- Any open on-screen keyboard is dismissed the instant either drawer opens, so `dvh`-based sizing reflects the true
+  available viewport immediately.
+
+---
+
 ## [AI UPDATE 2026-09-21] — Menu cards: tap anywhere on the card opens the Item Details sheet
 
 ### Change
