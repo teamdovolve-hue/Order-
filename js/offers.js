@@ -81,6 +81,10 @@ export function initOffers() {
 
 async function openOffers() {
   _drawerOpen = true;
+  // [AI UPDATE 2026-09-22] Modal-overlap fix: see matching comment in
+  // js/history.js's openHistory() — dismiss any open on-screen keyboard so
+  // the panel's centered layout/max-height gets the full viewport height.
+  document.activeElement?.blur?.();
   document.getElementById("offersPanel")?.classList.remove("hidden");
   document.getElementById("offersBackdrop")?.classList.remove("hidden");
   document.body.style.overflow = "hidden";

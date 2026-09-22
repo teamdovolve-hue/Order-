@@ -90,6 +90,11 @@ export function initHistory() {
 /** Open drawer and re-render from Firestore data (or localStorage if not yet loaded). */
 export function openHistory() {
   _drawerOpen = true;
+  // [AI UPDATE 2026-09-22] Modal-overlap fix: dismiss any open on-screen
+  // keyboard (e.g. the customer tapped "My Orders" right after typing in
+  // the search box without dismissing it) so the panel gets the full
+  // viewport height its centered layout/max-height math expects.
+  document.activeElement?.blur?.();
   renderHistory();
   document.getElementById("historyPanel")?.classList.remove("hidden");
   document.getElementById("historyBackdrop")?.classList.remove("hidden");
