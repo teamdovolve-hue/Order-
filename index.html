@@ -616,22 +616,35 @@
     </div>
   </div>
 
-  <!-- ── Smart Assistant ──────────────────────────────────────
-       [AI UPDATE 2026-09-18] New: 100% rule-based customer chat widget
-       (js/smart-assistant.js — no external AI API of any kind). Floating
-       button (bottom-left, mirrors #categoryFab which sits bottom-right)
-       opens the chat sheet. Reads the existing logged-in customer, menu,
-       cart, order-history and coupon data; writes only through the
-       existing cart.js addItem/removeItem/clearCart functions.
+  <!-- ── Siya (Smart Assistant) ──────────────────────────────────
+       [AI UPDATE 2026-09-18] New: rule-based customer chat widget
+       (js/smart-assistant.js). Floating button (bottom-left, mirrors
+       #categoryFab which sits bottom-right) opens the chat sheet. Reads the
+       existing logged-in customer, menu, cart, order-history and coupon
+       data; writes only through the existing cart.js addItem/removeItem/
+       clearCart functions.
+       [AI UPDATE 2026-09-22] Renamed "Smart Assistant" → "Siya" and swapped
+       the sparkle icon for an AI-girl-robot face (.sa-icon-svg, still
+       currentColor so it inherits the existing blue/indigo gradient — see
+       css/style.css). Logic-side: routeMessage() in smart-assistant.js now
+       falls back to Groq (api/voice/interpret.js) for anything the
+       hardcoded rules below don't cover — see that file's header comment.
   ──────────────────────────────────────────────────────────── -->
-  <button class="sa-fab" id="saFab" aria-label="Smart Assistant">
+  <button class="sa-fab" id="saFab" aria-label="Siya">
     <svg class="sa-icon-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M11 2.2c.38 3.35 1.24 5.66 2.6 6.98 1.36 1.32 3.7 2.16 7.15 2.52-3.45.38-5.79 1.22-7.15 2.54-1.36 1.32-2.22 3.63-2.6 6.98-.38-3.35-1.24-5.66-2.6-6.98-1.36-1.32-3.7-2.16-7.15-2.54 3.45-.36 5.79-1.2 7.15-2.52C9.76 7.86 10.62 5.55 11 2.2Z" fill="currentColor"/>
-      <path d="M18.6 1.6c.16 1.42.55 2.4 1.14 3 .6.6 1.6.99 3.06 1.15-1.46.16-2.46.55-3.06 1.15-.59.6-.98 1.58-1.14 3-.16-1.42-.55-2.4-1.14-3-.6-.6-1.6-.99-3.06-1.15 1.46-.16 2.46-.55 3.06-1.15.59-.6.98-1.58 1.14-3Z" fill="currentColor"/>
+      <line x1="12" y1="1.4" x2="12" y2="3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="12" cy="1.1" r="1" fill="currentColor"/>
+      <path d="M4.6 8.4c-1.5.5-2.1 2.1-1.5 4.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M19.4 8.4c1.5.5 2.1 2.1 1.5 4.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <rect x="5" y="4.4" width="14" height="12.4" rx="6.2" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="9.3" cy="10.5" r="1.3" fill="currentColor"/>
+      <circle cx="14.7" cy="10.5" r="1.3" fill="currentColor"/>
+      <path d="M9.6 13.5c.9.85 3.3.85 4.2 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M10.2 16.8v1.6M13.8 16.8v1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
     </svg>
   </button>
 
-  <div class="sa-modal hidden" id="saModal" role="dialog" aria-modal="true" aria-label="Smart Assistant">
+  <div class="sa-modal hidden" id="saModal" role="dialog" aria-modal="true" aria-label="Siya">
     <div class="sa-backdrop" id="saBackdrop"></div>
     <div class="sa-sheet">
       <div class="sa-drag-handle"></div>
@@ -640,12 +653,19 @@
         <div class="sa-header-left">
           <span class="sa-header-icon" aria-hidden="true">
             <svg class="sa-icon-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11 2.2c.38 3.35 1.24 5.66 2.6 6.98 1.36 1.32 3.7 2.16 7.15 2.52-3.45.38-5.79 1.22-7.15 2.54-1.36 1.32-2.22 3.63-2.6 6.98-.38-3.35-1.24-5.66-2.6-6.98-1.36-1.32-3.7-2.16-7.15-2.54 3.45-.36 5.79-1.2 7.15-2.52C9.76 7.86 10.62 5.55 11 2.2Z" fill="currentColor"/>
-              <path d="M18.6 1.6c.16 1.42.55 2.4 1.14 3 .6.6 1.6.99 3.06 1.15-1.46.16-2.46.55-3.06 1.15-.59.6-.98 1.58-1.14 3-.16-1.42-.55-2.4-1.14-3-.6-.6-1.6-.99-3.06-1.15 1.46-.16 2.46-.55 3.06-1.15.59-.6.98-1.58 1.14-3Z" fill="currentColor"/>
+              <line x1="12" y1="1.4" x2="12" y2="3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="12" cy="1.1" r="1" fill="currentColor"/>
+              <path d="M4.6 8.4c-1.5.5-2.1 2.1-1.5 4.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <path d="M19.4 8.4c1.5.5 2.1 2.1 1.5 4.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <rect x="5" y="4.4" width="14" height="12.4" rx="6.2" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="1.5"/>
+              <circle cx="9.3" cy="10.5" r="1.3" fill="currentColor"/>
+              <circle cx="14.7" cy="10.5" r="1.3" fill="currentColor"/>
+              <path d="M9.6 13.5c.9.85 3.3.85 4.2 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <path d="M10.2 16.8v1.6M13.8 16.8v1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
           </span>
           <div>
-            <div class="sa-title">Smart Assistant</div>
+            <div class="sa-title">Siya</div>
             <div class="sa-subtitle">Online</div>
           </div>
         </div>
