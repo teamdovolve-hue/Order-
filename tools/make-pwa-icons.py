@@ -93,7 +93,7 @@ def main():
         # A logo that is already a full-bleed opaque square needs no padding on "any" icons.
         opaque_square = logo.getpixel((0, 0))[3] == 255 and logo.width == logo.height
         any_ratio = 1.0 if opaque_square else 0.88
-        mask_ratio = 0.62  # maskable safe zone = central 80% circle → keep the mark well inside
+        mask_ratio = 0.70  # maskable safe zone = central 80% circle → keep the mark well inside
         src_any = src_mask = logo
     else:
         bg = hex_to_rgb(args.bg) if args.bg else DEFAULT_BG
