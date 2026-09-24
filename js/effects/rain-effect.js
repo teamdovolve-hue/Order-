@@ -36,7 +36,7 @@ const SPLASH_LIFE = 0.32;      // seconds
 const MAX_DPR = 1.5;
 
 export function createRainEffect() {
-  let host, canvas, ctx, lightning, boltCv, boltCtx;
+  let host, canvas, ctx, lightning, boltCv, boltCtx, topFlash;
   let rafId = 0, lastT = 0, running = false;
   let w = 0, h = 0, dpr = 1;
   let layers = [];
@@ -94,6 +94,14 @@ export function createRainEffect() {
     lightning.className = 'fx-flash';
     host.appendChild(lightning);
     document.body.appendChild(host);
+    // Screen-wide lightning tint ABOVE the UI (host itself is behind everything, so opaque cards would
+    // hide the flash). Tiny, pointer-events:none, invisible between strikes, removed in stop().
+    topFlash = document.createElement('div');
+    topFlash.id = HOST_ID + '-flash';
+    topFlash.setAttribute('aria-hidden', 'true');
+    topFlash.style.cssText = 'position:fixed;inset:0;z-index:60;pointer-events:none;opacity:0;will-change:opacity;' +
+      'background:radial-gradient(ellipse at 50% 0%,rgba(215,228,255,.95),rgba(170,195,255,.55) 55%,rgba(150,180,255,.35))';
+    document.body.appendChild(topFlash);
     ctx = canvas.getContext('2d', { alpha: true });
     boltCtx = boltCv.getContext('2d');
     requestAnimationFrame(() => { if (host) host.style.opacity = '1'; }); // fade in
@@ -257,10 +265,10 @@ export function createRainEffect() {
     pass(1.6, 'rgba(255,255,255,.95)');                      // hot core
   }
 
-  function strike() {
+  function strike(forceDist) {
     if (document.hidden || !lightning || !lightning.animate) return;
-    const dist = Math.random();                              // 0 = right overhead, 1 = far away
-    const power = 1 - dist * 0.75;                           // 1 … 0.25 → flash brightness + sound loudness
+    const dist = typeof forceDist === 'number' ? forceDist : Math.random();   // 0 = overhead, 1 = far away
+    const power = 1 - dist * 0.55;                           // 1 … 0.45 → flash brightness + sound loudness
     const pk = 0.28 + 0.34 * power;                          // sky-flash peak opacity (was 0.20 flat)
 
     if (lightningAnim) lightningAnim.cancel();
@@ -270,7 +278,15 @@ export function createRainEffect() {
        { opacity: pk * 0.35, offset: 0.48 }, { opacity: 0 }],
       { duration: 900, easing: 'ease-out' });
 
-    if (power > 0.45 && boltCv && boltCv.animate) {          // distant strikes = only a glow behind the clouds
+    if (topFlash && topFlash.animate) {                      // whole-screen flicker over the UI
+      const tp = 0.10 + 0.14 * power;                        // 0.10 … 0.24
+      topFlash.animate(
+        [{ opacity: 0 }, { opacity: tp, offset: 0.06 }, { opacity: tp * 0.15, offset: 0.14 },
+         { opacity: tp * 0.8, offset: 0.22 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }],
+        { duration: 700, easing: 'ease-out' });
+    }
+
+    if (power > 0.5 && boltCv && boltCv.animate) {           // distant strikes = only a glow behind the clouds
       drawBolt(power);
       if (boltAnim) boltAnim.cancel();
       boltAnim = boltCv.animate(
@@ -281,7 +297,7 @@ export function createRainEffect() {
     }
 
     // light first, sound after — the farther away, the longer the gap
-    if (sndOn && snd) snd.thunder(0.35 + dist * 2.6, power);
+    if (sndOn && snd) snd.thunder(0.35 + dist * 2.2, power);
   }
 
   function scheduleLightning(first) {
@@ -299,7 +315,7 @@ export function createRainEffect() {
 
   // ── optional rain SOUND (Admin flag effects.rainSound; customer opts in; off by default) ──
   const SND_KEY = 'fx_rain_sound';
-  let soundAllowed = false, soundBtn = null, snd = null, sndOn = false, armed = false;
+  let soundAllowed = false, soundBtn = null, snd = null, sndOn = false, armed = false, demoStrike = false;
   const lsGet = () => { try { return localStorage.getItem(SND_KEY); } catch (_) { return null; } };
   const lsSet = (v) => { try { localStorage.setItem(SND_KEY, v); } catch (_) {} };
 
@@ -325,6 +341,7 @@ export function createRainEffect() {
       engine.start().then(() => {
         if (snd !== engine) { engine.stop(); return; }     // muted / turned off meanwhile
         sndOn = true; armed = false; lsSet('1'); paintBtn();
+        if (demoStrike) { demoStrike = false; setTimeout(() => { if (host && sndOn) strike(0.25); }, 1800); }  // instant proof it works
       }).catch(() => { if (snd === engine) snd = null; sndOn = false; paintBtn(); });
     };
     if (sndMod) begin();                                   // sync → keeps the user-gesture activation
@@ -371,7 +388,7 @@ export function createRainEffect() {
     soundBtn.id = 'seasonalFx-rain-snd';
     soundBtn.type = 'button';
     soundBtn.setAttribute('aria-label', 'Rain sound');
-    soundBtn.addEventListener('click', () => { sndOn ? disableSound(true) : enableSound(); });
+    soundBtn.addEventListener('click', () => { if (sndOn) disableSound(true); else { demoStrike = true; enableSound(); } });
     document.body.appendChild(soundBtn);
     loadSoundModule();                            // tiny module; pre-load so the tap can start audio instantly
     if (lsGet() === '1') arm();
@@ -442,6 +459,7 @@ export function createRainEffect() {
                                       : reducedMQ.removeListener(applyMotionPreference);
       }
       const el = host;
+      if (topFlash) { topFlash.remove(); topFlash = null; }
       host = canvas = ctx = lightning = boltCv = boltCtx = null; layers = [];
       el.style.opacity = '0';                  // fade out, then remove
       setTimeout(() => el.remove(), 1300);
