@@ -2,41 +2,72 @@
  * pwa-install.js — installable-PWA prompt (popup → banner above Search)
  * ─────────────────────────────────────────────────────────────────────────────
  * [AI UPDATE 2026-09-24] New file — PWA upgrade.
+ * [AI UPDATE 2026-09-24 v2] Fallback added: Chrome sometimes never fires
+ *   `beforeinstallprompt` (already installed, earlier dismissal cool-down, …). Before,
+ *   that meant NO install UI at all. Now, on a phone, if the event has not arrived
+ *   after FALLBACK_DELAY_MS the same popup/banner is shown with a "How to" button
+ *   that opens a small step-by-step sheet (Chrome ⋮ menu / iOS Safari Share). If the
+ *   real event arrives later the button turns into the real "Install" button.
+ *   Also: `/?pwadebug=1` opens an on-screen checklist (SW / manifest / event status)
+ *   for debugging on a phone without a PC.
  *
- * Uses ONLY the real browser install flow: the `beforeinstallprompt` event is
- * captured (preventDefault) and replayed with event.prompt() when the customer
- * taps Install. Nothing is faked. A PWA can never be installed silently.
+ * The real install flow is unchanged: the `beforeinstallprompt` event is captured
+ * (preventDefault) and replayed with event.prompt() when the customer taps Install.
+ * A PWA can never be installed silently, and nothing here fakes an install.
  *
- * The install UI exists ONLY while installation is genuinely available:
- *   • no `beforeinstallprompt` (iOS Safari, Firefox, unsupported browsers, or
- *     Chrome already knows the app is installed) → nothing is ever shown
- *   • already running as an installed app → nothing is shown
- *   • `appinstalled` (or display-mode flips to standalone) → everything is removed
+ * Install UI is never shown when:
+ *   • already running as an installed app (standalone) or `appinstalled` fired
+ *   • the "scan your table" screen (js/table-gate.js) or the ordering-paused screen is open
+ *   • desktop browser without a real beforeinstallprompt event
  *
- * Flow (per page load — NOTHING is persisted, so the customer is never
- * "opted out"; a refresh may show the banner again):
- *   1. popup   "🍕 Install New Pizza Hut App" [Install]   (floating card)
+ * Flow (per page load):
+ *   1. popup   "🍕 Install New Pizza Hut App" [Install | How to]   (floating card)
  *        • tap outside it (or Esc, or ~12 s) → dismissed immediately, the tap is
  *          NOT swallowed, so the customer is never interrupted
- *   2. banner  compact bar directly above the Search bar   [Install] [✕]
- *        • ✕ hides it until the next page load
- *   Only one of the two is ever visible. While the "scan your table" screen
- *   (js/table-gate.js) is open, neither is shown; the popup appears once the
- *   customer is at a table.
+ *   2. banner  compact bar directly above the Search bar   [Install | How to] [✕]
+ *        • ✕ hides it until the next page load (real-event mode). In FALLBACK mode
+ *          ✕ hides it for 3 days (localStorage) because we cannot know if the app
+ *          is already installed.
+ *   Only one of the two is ever visible.
  *
- * Also registers /sw.js (required for installability).
+ * Also registers /sw.js (required for installability). index.html registers it too,
+ * early, so installability never depends on the app boot sequence finishing.
  */
 
 import { isStandaloneDisplay, isTableEntryRequired } from "./table-session.js";
 
 const POPUP_AUTO_DISMISS_MS = 12000;
+const FALLBACK_DELAY_MS     = 4000;
+const FALLBACK_HIDE_MS      = 3 * 24 * 60 * 60 * 1000;
+const LS_INSTALLED          = "nph_pwa_installed";
+const LS_HELP_HIDDEN_UNTIL  = "nph_pwa_help_hidden_until";
 
-let _deferred    = window.__pwaDeferredPrompt || null; // the captured beforeinstallprompt event
-let _installed   = false;
-let _phase       = "idle";      // idle → (popup) → banner → hidden   (in-memory only)
-let _popup       = null;
-let _banner      = null;
-let _popupTimer  = null;
+let _deferred      = window.__pwaDeferredPrompt || null; // the captured beforeinstallprompt event
+let _installed     = false;
+let _phase         = "idle";      // idle → (popup) → banner → hidden   (in-memory only)
+let _popup         = null;
+let _banner        = null;
+let _help          = null;
+let _popupTimer    = null;
+let _fallbackReady = false;
+
+// ── tiny safe localStorage helpers ───────────────────────────────────────────
+function _lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function _lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
+
+function _isIOS() {
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+function _isMobile() {
+  return _isIOS() || /Android|Mobile/i.test(navigator.userAgent || "");
+}
+function _fallbackAllowed() {
+  if (!_fallbackReady || !_isMobile()) return false;
+  if (_lsGet(LS_INSTALLED) === "1") return false;
+  const until = Number(_lsGet(LS_HELP_HIDDEN_UNTIL) || 0);
+  return !(until && Date.now() < until);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -44,7 +75,7 @@ export function initPwaInstall() {
   _registerServiceWorker();
 
   _installed = isStandaloneDisplay();
-  if (_installed) return; // already installed → never show install UI
+  if (_installed) { _lsSet(LS_INSTALLED, "1"); return; } // already installed → never show install UI
 
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();            // suppress the browser's own mini-infobar; we show ours
@@ -70,14 +101,20 @@ export function initPwaInstall() {
   window.addEventListener("tableGateChange", _evaluate);
   document.addEventListener("visibilitychange", _evaluate);
 
+  // No real event after a few seconds → offer the manual "How to" fallback (phones only).
+  setTimeout(() => { _fallbackReady = true; _evaluate(); }, FALLBACK_DELAY_MS);
+
+  _initDebugPanel();
   _evaluate();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function _canShowUi() {
-  if (_installed || !_deferred) return false;   // not actually installable right now
-  if (isTableEntryRequired()) return false;     // customer is on the "scan your table" screen
+  if (_installed) return false;
+  if (!_deferred && !_fallbackAllowed()) return false; // neither real install nor fallback available
+  if (_help) return false;                             // instruction sheet is open
+  if (isTableEntryRequired()) return false;            // customer is on the "scan your table" screen
   if (document.visibilityState === "hidden") return false;
   const offline = document.getElementById("orderingOfflineScreen");
   if (offline && !offline.classList.contains("hidden")) return false; // ordering-paused screen
@@ -88,6 +125,19 @@ function _evaluate() {
   if (!_canShowUi()) { _removePopup(); _removeBanner(); return; }
   if (_phase === "idle")        _showPopup();
   else if (_phase === "banner") _showBanner();
+  _syncLabels();
+}
+
+/** Button text follows reality: real event → "Install", otherwise → "How to". */
+function _syncLabels() {
+  const real = !!_deferred;
+  const btnText = real ? "Install" : "How to";
+  const subText = real ? "Faster ordering &amp; live order tracking" : "Add it to your home screen in 2 taps";
+  if (_popup) {
+    _popup.querySelector(".pwa-btn").textContent = btnText;
+    _popup.querySelector(".pwa-popup-text span").innerHTML = subText;
+  }
+  if (_banner) _banner.querySelector(".pwa-banner-install").textContent = btnText;
 }
 
 // ── Popup ────────────────────────────────────────────────────────────────────
@@ -158,7 +208,8 @@ function _showBanner() {
     </div>`;
   el.querySelector(".pwa-banner-install").addEventListener("click", _install);
   el.querySelector(".pwa-banner-close").addEventListener("click", () => {
-    _phase = "hidden";          // this page load only — never persisted
+    _phase = "hidden";          // this page load only
+    if (!_deferred) _lsSet(LS_HELP_HIDDEN_UNTIL, String(Date.now() + FALLBACK_HIDE_MS)); // fallback mode only
     _removeBanner();
   });
   // In normal flow (NOT sticky) so the sticky offsets of the header, search bar
@@ -175,7 +226,15 @@ function _removeBanner() {
 
 function _install() {
   const ev = _deferred;
-  if (!ev) return;
+
+  // No real install event (Chrome withheld it / iOS Safari) → show the manual steps.
+  if (!ev) {
+    _phase = "banner";
+    _removePopup();
+    _removeBanner();
+    _showHelp();
+    return;
+  }
 
   // The event is single-use. Take it, and hide our UI so there is never a
   // button that can't do anything. If the customer cancels the native dialog
@@ -185,6 +244,7 @@ function _install() {
   _phase = "banner";
   _removePopup();
   _removeBanner();
+  _fallbackReady = false;       // cancelled the native dialog → do not nag with the manual sheet
 
   try {
     ev.prompt();                                   // MUST run inside the tap handler
@@ -198,8 +258,53 @@ function _onInstalled() {
   _installed = true;
   _deferred  = null;
   window.__pwaDeferredPrompt = null;
+  _lsSet(LS_INSTALLED, "1");
+  _closeHelp();
   _removePopup();
   _removeBanner();
+}
+
+// ── Manual "How to install" sheet ────────────────────────────────────────────
+
+function _showHelp() {
+  if (_help) return;
+  const ios = _isIOS();
+  const steps = ios
+    ? [
+        "Open this page in <b>Safari</b>.",
+        "Tap the <b>Share</b> button (square with an arrow) at the bottom.",
+        "Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.",
+      ]
+    : [
+        "Tap the <b>⋮</b> menu at the top-right of Chrome.",
+        "Tap <b>Install app</b> (or <b>Add to Home screen</b>).",
+        "Tap <b>Install</b> — the app icon appears on your home screen.",
+      ];
+  const note = ios ? "" : "Tip: use Chrome for the best result.";
+
+  const el = document.createElement("div");
+  el.className = "pwa-help";
+  el.id = "pwaHelpSheet";
+  el.setAttribute("role", "dialog");
+  el.setAttribute("aria-label", "How to install the app");
+  el.innerHTML = `
+    <div class="pwa-help-card">
+      <h3>🍕 Install New Pizza Hut App</h3>
+      <ol>${steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+      ${note ? `<p class="pwa-help-note">${note}</p>` : ""}
+      <button type="button" class="pwa-btn">Got it</button>
+    </div>`;
+  el.addEventListener("click", (e) => { if (e.target === el) _closeHelp(); });
+  el.querySelector(".pwa-btn").addEventListener("click", _closeHelp);
+  document.body.appendChild(el);
+  _help = el;
+}
+
+function _closeHelp() {
+  if (!_help) return;
+  _help.remove();
+  _help = null;
+  _evaluate();                  // → banner above Search (unless installed)
 }
 
 // ── Service worker ───────────────────────────────────────────────────────────
@@ -210,4 +315,43 @@ function _registerServiceWorker() {
     .catch((err) => console.warn("[pwa] service worker registration failed:", err));
   if (document.readyState === "complete") reg();
   else window.addEventListener("load", reg, { once: true });
+}
+
+// ── On-phone debug checklist: open  /?pwadebug=1  ────────────────────────────
+
+function _initDebugPanel() {
+  if (!/[?&]pwadebug=1/.test(location.search)) return;
+  setTimeout(async () => {
+    const rows = [];
+    const add = (k, v, ok) => rows.push(`${ok === false ? "❌" : ok === true ? "✅" : "•"} ${k}: ${v}`);
+    add("HTTPS", window.isSecureContext, window.isSecureContext);
+    add("Running as installed app", isStandaloneDisplay());
+    add("Install event received", !!_deferred, !!_deferred);
+    add("Marked installed before", _lsGet(LS_INSTALLED) === "1");
+    try {
+      const r = await navigator.serviceWorker.getRegistration("/");
+      add("Service worker registered", !!r, !!r);
+      add("SW state", r && r.active ? r.active.state : "none", !!(r && r.active));
+    } catch (e) { add("Service worker", "error " + e.message, false); }
+    try {
+      const res = await fetch("/manifest.webmanifest", { cache: "no-store" });
+      const type = res.headers.get("content-type") || "?";
+      add("Manifest", `${res.status} ${type}`, res.ok && /json|manifest/i.test(type));
+      const j = await res.json();
+      add("Manifest icons", (j.icons || []).length, (j.icons || []).length >= 2);
+      for (const ic of (j.icons || []).slice(0, 3)) {
+        const r2 = await fetch(ic.src, { cache: "no-store" });
+        add("Icon " + ic.sizes, `${r2.status} ${r2.headers.get("content-type") || ""}`, r2.ok);
+      }
+    } catch (e) { add("Manifest", "ERROR " + e.message, false); }
+    add("Chrome/Browser", (navigator.userAgent.match(/(Chrome|CriOS|Firefox|SamsungBrowser|Version)\/[\d.]+/) || ["?"])[0]);
+
+    const p = document.createElement("div");
+    p.style.cssText = "position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#111;color:#eee;" +
+      "border:1px solid #f5a623;border-radius:12px;padding:12px;font:12px/1.6 monospace;white-space:pre-wrap;" +
+      "max-height:80vh;overflow:auto";
+    p.textContent = "PWA DEBUG\n" + rows.join("\n") + "\n\n(tap to close)";
+    p.addEventListener("click", () => p.remove());
+    document.body.appendChild(p);
+  }, 6000);
 }
