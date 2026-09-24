@@ -13,7 +13,9 @@
  *   – Low-end auto-detect + adaptive quality: if frames get expensive it thins the rain / drops to 30fps
  *   – Cheaper atmosphere: removed `filter:blur(28px)` (big GPU/memory cost on phones)
  *
- * Contract (unchanged): createRainEffect() → { start(), stop() }; stop() releases EVERYTHING.
+ * Contract: createRainEffect() → { start(), stop(), update?(flags) }; stop() releases EVERYTHING
+ * (incl. the optional sound button + audio). update(flags) lets the manager pass Firestore flags
+ * (used for effects.rainSound — see rain-sound.js).
  * Layering rules (unchanged): see AI_HANDOFF.md → "Seasonal Effects".
  */
 
@@ -218,13 +220,110 @@ export function createRainEffect() {
           [{ opacity: 0 }, { opacity: 0.20, offset: 0.08 }, { opacity: 0.04, offset: 0.2 },
            { opacity: 0.14, offset: 0.32 }, { opacity: 0 }],
           { duration: 1000, easing: 'ease-out' });
+        if (sndOn && snd) snd.thunder(rand(0.8, 2.4));   // light first, sound after
       }
       scheduleLightning();
     }, rand(16000, 42000));
   }
 
+  // ── optional rain SOUND (Admin flag effects.rainSound; customer opts in; off by default) ──
+  const SND_KEY = 'fx_rain_sound';
+  let soundAllowed = false, soundBtn = null, snd = null, sndOn = false, armed = false;
+  const lsGet = () => { try { return localStorage.getItem(SND_KEY); } catch (_) { return null; } };
+  const lsSet = (v) => { try { localStorage.setItem(SND_KEY, v); } catch (_) {} };
+
+  function paintBtn() {
+    if (!soundBtn) return;
+    soundBtn.textContent = sndOn ? '🔊' : '🔇';
+    soundBtn.setAttribute('aria-pressed', String(sndOn));
+    soundBtn.title = sndOn ? 'Rain sound on — tap to mute'
+                           : (armed ? 'Tap anywhere to resume rain sound' : 'Turn on rain sound');
+    soundBtn.classList.toggle('on', sndOn);
+  }
+
+  let sndMod = null;                              // rain-sound.js module (tiny, loaded once)
+  function loadSoundModule() {
+    return sndMod ? Promise.resolve(sndMod)
+      : import('./rain-sound.js').then((m) => (sndMod = m));
+  }
+
+  function enableSound() {                       // called from a user gesture
+    if (sndOn || snd || !soundAllowed || !host) return;
+    const begin = () => {
+      const engine = snd = sndMod.createRainSound();       // fresh engine each time (single-use)
+      engine.start().then(() => {
+        if (snd !== engine) { engine.stop(); return; }     // muted / turned off meanwhile
+        sndOn = true; armed = false; lsSet('1'); paintBtn();
+      }).catch(() => { if (snd === engine) snd = null; sndOn = false; paintBtn(); });
+    };
+    if (sndMod) begin();                                   // sync → keeps the user-gesture activation
+    else loadSoundModule().then(() => { if (soundAllowed && host && !snd) begin(); });
+  }
+
+  function disableSound(persist) {
+    disarm();
+    if (snd) { snd.stop(); snd = null; }
+    sndOn = false;
+    if (persist) lsSet('0');
+    paintBtn();
+  }
+
+  function onFirstGesture() { disarm(); enableSound(); }
+  function arm() {                                // remembered "on": resume on next tap anywhere
+    if (armed) return;
+    armed = true;
+    document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true, passive: true });
+    document.addEventListener('keydown', onFirstGesture, { once: true, capture: true });
+  }
+  function disarm() {
+    armed = false;
+    document.removeEventListener('pointerdown', onFirstGesture, true);
+    document.removeEventListener('keydown', onFirstGesture, true);
+  }
+
+  function mountSoundBtn() {
+    if (soundBtn) return;
+    if (!document.getElementById('seasonalFx-rain-snd-css')) {
+      const st = document.createElement('style');
+      st.id = 'seasonalFx-rain-snd-css';
+      st.textContent = `
+        #seasonalFx-rain-snd{position:fixed;left:18px;bottom:calc(152px + env(safe-area-inset-bottom,0px));z-index:65;
+          width:40px;height:40px;border-radius:50%;border:1.5px solid var(--accent,#f5a623);
+          background:rgba(23,25,35,.92);color:#fff;font-size:18px;line-height:1;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;padding:0;opacity:.85;
+          -webkit-tap-highlight-color:transparent;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+        #seasonalFx-rain-snd.on{opacity:1;background:var(--accent,#f5a623)}
+        body:not(:has(#cartBar:not(.hidden))) #seasonalFx-rain-snd{bottom:calc(86px + env(safe-area-inset-bottom,0px))}`;
+      document.head.appendChild(st);
+    }
+    soundBtn = document.createElement('button');
+    soundBtn.id = 'seasonalFx-rain-snd';
+    soundBtn.type = 'button';
+    soundBtn.setAttribute('aria-label', 'Rain sound');
+    soundBtn.addEventListener('click', () => { sndOn ? disableSound(true) : enableSound(); });
+    document.body.appendChild(soundBtn);
+    loadSoundModule();                            // tiny module; pre-load so the tap can start audio instantly
+    if (lsGet() === '1') arm();
+    paintBtn();
+  }
+
+  function unmountSoundBtn() {
+    disableSound(false);
+    if (soundBtn) { soundBtn.remove(); soundBtn = null; }
+    const st = document.getElementById('seasonalFx-rain-snd-css'); if (st) st.remove();
+  }
+
+  function updateFlags(flags) {                   // called by SeasonalEffectsManager on every snapshot
+    soundAllowed = !!flags && flags.rainSound === true;
+    if (!host) return;
+    soundAllowed ? mountSoundBtn() : unmountSoundBtn();
+  }
+
   // ── lifecycle wiring ─────────────────────────────────────────────────────
-  function onVisibility() { document.hidden ? stopLoop() : startLoop(); }
+  function onVisibility() {
+    if (document.hidden) { stopLoop(); if (sndOn && snd) snd.suspend(); }
+    else { startLoop(); if (sndOn && snd) snd.resume(); }
+  }
   let resizeRaf = 0;
   function onResize() {
     cancelAnimationFrame(resizeRaf);
@@ -255,8 +354,10 @@ export function createRainEffect() {
                                  : reducedMQ.addListener(applyMotionPreference);
       applyMotionPreference();
     },
+    update: updateFlags,
     stop() {
       if (!host) return;
+      unmountSoundBtn();
       stopLoop();
       clearTimeout(lightningTimer);
       cancelAnimationFrame(resizeRaf);

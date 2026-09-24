@@ -79,12 +79,15 @@ class SeasonalEffectsManager {
           if (this.flags[key] !== true) return;      // switched OFF while loading
           fx.start();
           this.active.set(key, fx);
+          if (fx.update) fx.update(this.flags);   // optional extras (e.g. rainSound)
         }).catch((e) => { this.pending.delete(key); console.error(`[seasonal-effects] ${key} failed to start:`, e); });
       } else if (!shouldRun && running) {
         try { this.active.get(key).stop(); } catch (e) { console.error(e); }
         this.active.delete(key);
       }
     }
+    // Let running effects read extra flags (e.g. effects.rainSound) — unknown keys are otherwise ignored.
+    for (const fx of this.active.values()) { try { if (fx.update) fx.update(flags); } catch (e) { console.error(e); } }
   }
 
   destroy() {
