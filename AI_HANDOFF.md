@@ -53,7 +53,10 @@ address bar/`__TABLE_ID__` synced to `/t/n` → overlay closes. Camera denied/un
 and ordering is not paused. Phases (in memory only, nothing persisted): popup "🍕 Install New Pizza Hut App" → (outside tap / Esc / 12 s, tap is NOT swallowed) →
 banner directly above `#searchWrap` (normal flow, NOT sticky, so header/search/category sticky offsets are unchanged) → ✕ hides until next load.
 Install → `event.prompt()` inside the tap; the event is single-use so UI is removed immediately (no dead button). `appinstalled` / display-mode standalone removes everything.
-No `beforeinstallprompt` (iOS Safari, Firefox…) → no install UI at all. `sw.js` is registered here.
+[v2 2026-09-24] No `beforeinstallprompt` (Chrome withheld it, iOS Safari…) → on PHONES only, after 4 s the same popup/banner is shown with a **"How to"** button that opens a step-by-step
+sheet (Chrome ⋮ → Install app / iOS Share → Add to Home Screen). If the real event arrives later the button becomes the real **Install**. Fallback ✕ hides it for 3 days
+(`nph_pwa_help_hidden_until`); `nph_pwa_installed` (set on `appinstalled` / standalone launch) suppresses it. Desktop without a real event → still nothing.
+`/?pwadebug=1` shows an on-screen checklist (HTTPS, SW, manifest, icons, event) after 6 s — for debugging on a phone. `sw.js` is registered in `index.html` (early) AND here.
 
 ### Service worker
 Network-first for navigations, `/js`, `/css`, `/icons`, manifest; cache is only an offline fallback. The shell is cached from `/` only (never `/t/:n`, dev server injects `__TABLE_ID__` there).

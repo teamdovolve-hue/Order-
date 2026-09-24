@@ -101,6 +101,13 @@
       window.__pwaDeferredPrompt = e;
       window.dispatchEvent(new Event("pwa:promptready"));
     });
+    // [AI UPDATE 2026-09-24 v2] Register the service worker right here (not only from js/app.js), so
+    // installability never depends on the app boot sequence finishing. Registering twice is harmless.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(function () {});
+      });
+    }
   </script>
 </head>
 <body>
