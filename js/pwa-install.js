@@ -19,6 +19,9 @@
  *     app is installed — the ✕ only hides it for the current page load (also in
  *     fallback mode; the old 3-day hide was removed).
  *
+ * [AI UPDATE 2026-09-24 v4] Button always reads "Install" (never "How to"); when Chrome gave
+ *   no install event the tap opens the manual steps sheet.
+ *
  * The real install flow is unchanged: the `beforeinstallprompt` event is captured
  * (preventDefault) and replayed with event.prompt() when the customer taps Install.
  * A PWA can never be installed silently, and nothing here fakes an install.
@@ -132,16 +135,15 @@ function _evaluate() {
   _syncLabels();
 }
 
-/** Button text follows reality: real event → "Install", otherwise → "How to". */
+/** [v4] Button always says "Install". With a real install event it opens the native
+ *  install dialog; without one (Chrome withheld it / iOS) tapping it opens the short
+ *  step-by-step sheet — a browser gives no other way to install. */
 function _syncLabels() {
-  const real = !!_deferred;
-  const btnText = real ? "Install" : "How to";
-  const subText = real ? "Faster ordering &amp; live order tracking" : "Add it to your home screen in 2 taps";
   if (_popup) {
-    _popup.querySelector(".pwa-btn").textContent = btnText;
-    _popup.querySelector(".pwa-popup-text span").innerHTML = subText;
+    _popup.querySelector(".pwa-btn").textContent = "Install";
+    _popup.querySelector(".pwa-popup-text span").innerHTML = "Faster ordering &amp; live order tracking";
   }
-  if (_banner) _banner.querySelector(".pwa-banner-install").textContent = btnText;
+  if (_banner) _banner.querySelector(".pwa-banner-install").textContent = "Install";
 }
 
 // ── Popup ────────────────────────────────────────────────────────────────────
