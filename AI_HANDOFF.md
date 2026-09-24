@@ -4,6 +4,15 @@
 
 ---
 
+## [AI UPDATE 2026-09-24] — 🔊 Rain Sound (optional, opt-in)
+
+- New `js/effects/rain-sound.js`: Web Audio synthesized rain (2 pink-noise layers + random swells) + soft thunder after lightning. **No audio files**; module is imported only when Admin enables `effects.rainSound`.
+- `rain-effect.js`: adds `update(flags)`; when `rainSound===true` mounts a small 🔊/🔇 button (bottom-left, above the assistant FAB). **Off by default** — browsers require a tap, and it's a restaurant. Choice saved in `localStorage.fx_rain_sound`; if it was ON, sound resumes on the customer's next tap anywhere. Pauses when tab hidden; `stop()` removes button + closes AudioContext.
+- `seasonal-effects-manager.js`: calls optional `fx.update(flags)` on every snapshot so effects can read extra flags.
+- Firestore: `settings/seasonal_effects.effects.rainSound` (boolean, missing = OFF). Set from Billing → ✨ Effects → "Rain Sound".
+
+---
+
 ## [AI UPDATE 2026-09-24] — Rain v2 (richer look, faster load)
 
 - `rain-effect.js`: wind gusts (slant sways), splash ripples where drops land (ring buffer, 22 max), soft glow on near drops, mist band, 2-stage lightning. Removed `filter:blur` from clouds (pure gradients now). Low-end detect (≤4 cores / ≤2GB → DPR 1, lighter start) + adaptive quality (thins drops / 26–32fps cap if frame cost stays >5.5ms).

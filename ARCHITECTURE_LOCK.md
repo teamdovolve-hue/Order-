@@ -207,7 +207,7 @@ Then wait for the user to apply the Billing Panel change before shipping the Cus
 
 #### `settings/seasonal_effects` — Seasonal Effects switches (added 2026-09-24)
 ```
-{ effects: { rain: boolean, /* future: christmas, diwali, newyear, holi, valentine */ }, updatedAt: number }
+{ effects: { rain: boolean, rainSound: boolean /* optional opt-in sound, needs rain ON */, /* future: christmas, diwali, newyear, holi, valentine */ }, updatedAt: number }
 ```
 Written by the Billing/Admin Panel (`js/effects-admin.js`, "✨ Effects" tab). Read by this panel (`js/effects/seasonal-effects-manager.js`, `onSnapshot`).
 Missing doc / missing key / listener error = effect **OFF**. Public read via the existing `settings/{docId}` rule. Only on/off flags belong here.
