@@ -11,6 +11,14 @@
  *   Also: `/?pwadebug=1` opens an on-screen checklist (SW / manifest / event status)
  *   for debugging on a phone without a PC.
  *
+ * [AI UPDATE 2026-09-24 v3]
+ *   • While the popup is visible the page behind it is softly blurred + dimmed
+ *     (".pwa-backdrop", pointer-events:none so taps/scroll still pass through) and
+ *     the popup uses a brighter amber card so it cannot be missed.
+ *   • The banner above Search now comes back on EVERY page load / refresh until the
+ *     app is installed — the ✕ only hides it for the current page load (also in
+ *     fallback mode; the old 3-day hide was removed).
+ *
  * The real install flow is unchanged: the `beforeinstallprompt` event is captured
  * (preventDefault) and replayed with event.prompt() when the customer taps Install.
  * A PWA can never be installed silently, and nothing here fakes an install.
@@ -25,9 +33,8 @@
  *        • tap outside it (or Esc, or ~12 s) → dismissed immediately, the tap is
  *          NOT swallowed, so the customer is never interrupted
  *   2. banner  compact bar directly above the Search bar   [Install | How to] [✕]
- *        • ✕ hides it until the next page load (real-event mode). In FALLBACK mode
- *          ✕ hides it for 3 days (localStorage) because we cannot know if the app
- *          is already installed.
+ *        • ✕ hides it for this page load only; it comes back on every refresh
+ *          until the app is installed (real-event AND fallback mode).
  *   Only one of the two is ever visible.
  *
  * Also registers /sw.js (required for installability). index.html registers it too,
@@ -36,16 +43,15 @@
 
 import { isStandaloneDisplay, isTableEntryRequired } from "./table-session.js";
 
-const POPUP_AUTO_DISMISS_MS = 12000;
+const POPUP_AUTO_DISMISS_MS = 20000;
 const FALLBACK_DELAY_MS     = 4000;
-const FALLBACK_HIDE_MS      = 3 * 24 * 60 * 60 * 1000;
 const LS_INSTALLED          = "nph_pwa_installed";
-const LS_HELP_HIDDEN_UNTIL  = "nph_pwa_help_hidden_until";
 
 let _deferred      = window.__pwaDeferredPrompt || null; // the captured beforeinstallprompt event
 let _installed     = false;
 let _phase         = "idle";      // idle → (popup) → banner → hidden   (in-memory only)
 let _popup         = null;
+let _backdrop      = null;
 let _banner        = null;
 let _help          = null;
 let _popupTimer    = null;
@@ -64,9 +70,7 @@ function _isMobile() {
 }
 function _fallbackAllowed() {
   if (!_fallbackReady || !_isMobile()) return false;
-  if (_lsGet(LS_INSTALLED) === "1") return false;
-  const until = Number(_lsGet(LS_HELP_HIDDEN_UNTIL) || 0);
-  return !(until && Date.now() < until);
+  return _lsGet(LS_INSTALLED) !== "1";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,6 +162,11 @@ function _showPopup() {
     </div>
     <button type="button" class="pwa-btn">Install</button>`;
   el.querySelector(".pwa-btn").addEventListener("click", _install);
+  const bd = document.createElement("div");
+  bd.className = "pwa-backdrop";
+  bd.setAttribute("aria-hidden", "true");
+  document.body.appendChild(bd);
+  _backdrop = bd;
   document.body.appendChild(el);
   _popup = el;
   _phase = "popup";
@@ -179,6 +188,7 @@ function _removePopup() {
   document.removeEventListener("pointerdown", _onOutsidePointer, true);
   document.removeEventListener("keydown", _onKey, true);
   if (_popup) { _popup.remove(); _popup = null; }
+  if (_backdrop) { _backdrop.remove(); _backdrop = null; }
   if (_phase === "popup") _phase = "idle"; // interrupted (gate opened…) → offer again later
 }
 
@@ -208,8 +218,7 @@ function _showBanner() {
     </div>`;
   el.querySelector(".pwa-banner-install").addEventListener("click", _install);
   el.querySelector(".pwa-banner-close").addEventListener("click", () => {
-    _phase = "hidden";          // this page load only
-    if (!_deferred) _lsSet(LS_HELP_HIDDEN_UNTIL, String(Date.now() + FALLBACK_HIDE_MS)); // fallback mode only
+    _phase = "hidden";          // this page load only — it returns on the next refresh until installed
     _removeBanner();
   });
   // In normal flow (NOT sticky) so the sticky offsets of the header, search bar
