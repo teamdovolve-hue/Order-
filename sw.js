@@ -21,7 +21,7 @@
  * Bump VERSION to force old caches to be dropped on the next activation.
  */
 
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE   = `nph-customer-${VERSION}`;
 
 const OFFLINE_HTML = `<!DOCTYPE html>
