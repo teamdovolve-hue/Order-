@@ -57,6 +57,8 @@ import { initVoiceAssistant }               from "./voice-assistant.js";
 import { syncTrustedTime }                  from "./table-session.js";
 import { initTableGate }                    from "./table-gate.js";
 import { initPwaInstall }                   from "./pwa-install.js";
+// [AI UPDATE 2026-09-24] Seasonal Effects — Admin-controlled (settings/seasonal_effects); currently 🌧️ Rainy Days
+import { initSeasonalEffects }              from "./effects/seasonal-effects-manager.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -73,6 +75,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const _timeSync = syncTrustedTime();
   initAuth();
   initRestaurantStatus();
+  // [AI UPDATE 2026-09-24] Seasonal Effects — realtime, decorative only; must never block boot.
+  try { initSeasonalEffects(); } catch (err) { console.warn("[seasonal-effects] init failed:", err); }
   await Promise.race([
     waitForAuthReady(),
     new Promise((resolve) => setTimeout(resolve, 4000)),

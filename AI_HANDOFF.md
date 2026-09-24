@@ -4,6 +4,45 @@
 
 ---
 
+## [AI UPDATE 2026-09-24] — Rain v2 (richer look, faster load)
+
+- `rain-effect.js`: wind gusts (slant sways), splash ripples where drops land (ring buffer, 22 max), soft glow on near drops, mist band, 2-stage lightning. Removed `filter:blur` from clouds (pure gradients now). Low-end detect (≤4 cores / ≤2GB → DPR 1, lighter start) + adaptive quality (thins drops / 26–32fps cap if frame cost stays >5.5ms).
+- `seasonal-effects-manager.js`: Firestore listener starts only after `load` + idle; effect code is loaded via dynamic `import()` only when its flag is ON (REGISTRY values are now async loaders). Race-safe if toggled while loading.
+- Rules unchanged: `z-index:-1`, no `html` background, no per-particle DOM, `stop()` releases everything. `app.js` untouched.
+
+## [AI UPDATE 2026-09-24] — Seasonal Effects system + 🌧️ Rainy Days (Customer side)
+
+### What
+Admin's new ✨ Effects tab (Billing repo, `js/effects-admin.js`) writes Firestore `settings/seasonal_effects { effects:{ rain:true } }`.
+This panel listens live and shows/hides a subtle rain atmosphere — no customer refresh needed. Missing doc/key ⇒ OFF.
+
+### Architecture
+`app.js → initSeasonalEffects()` → `SeasonalEffectsManager` (REGISTRY key → factory) → `rain-effect.js createRainEffect()` `{start(),stop()}`.
+Rain = fixed host div (`z-index:-1; pointer-events:none`) with CSS haze + 2 drifting cloud banks, ONE canvas with 3 rain layers
+(far/mid/near, typed arrays, one stroke per layer, ~40fps cap, DPR≤1.5, counts scale to viewport), and a rare (14–38 s) very faint
+lightning glow. Pauses when tab hidden; `prefers-reduced-motion` ⇒ haze only; `stop()` fades out and releases rAF/timers/listeners/DOM.
+Config source: existing `js/firebase-config.js` `db` — no new Firebase config, no rules change.
+
+### Why it is visible
+`html` has no background and `body` (bg `var(--bg)`) creates no stacking context, so the body colour propagates to the canvas and the
+`z-index:-1` layer paints above it but beneath everything else. `.main-content` is transparent; header/search/category bars, cards, modals,
+cart and assistant keep their own opaque surfaces, so rain shows only in the gaps/background and never reduces readability. **Do not add a
+background to `html`, or `isolation`/`transform`/`z-index` to `body`, or the rain will disappear.**
+
+### Files changed
+| File | Change |
+|---|---|
+| `js/effects/seasonal-effects-manager.js` | NEW |
+| `js/effects/rain-effect.js` | NEW |
+| `js/app.js` | import + `initSeasonalEffects()` (try/catch) right after `initRestaurantStatus()` |
+| `ARCHITECTURE_LOCK.md` | new `settings/seasonal_effects` contract + rule 16 |
+`sw.js` needs no change (network-first for `/js/`). Billing/orders/cart/auth/QR/table-gate untouched.
+
+### Adding a future effect
+1. `js/effects/<name>-effect.js` exporting a factory → `{start(), stop()}`. 2. Add to `REGISTRY`. 3. In the Billing repo `js/effects-admin.js` flip its `soon:true → false` (same key).
+
+---
+
 ## [AI UPDATE 2026-09-24] — Installable PWA + 3-hour TABLE session (separate from login)
 
 ### Task

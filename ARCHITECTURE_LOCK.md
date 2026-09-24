@@ -205,6 +205,13 @@ Then wait for the user to apply the Billing Panel change before shipping the Cus
 
 ### Firestore Collections
 
+#### `settings/seasonal_effects` — Seasonal Effects switches (added 2026-09-24)
+```
+{ effects: { rain: boolean, /* future: christmas, diwali, newyear, holi, valentine */ }, updatedAt: number }
+```
+Written by the Billing/Admin Panel (`js/effects-admin.js`, "✨ Effects" tab). Read by this panel (`js/effects/seasonal-effects-manager.js`, `onSnapshot`).
+Missing doc / missing key / listener error = effect **OFF**. Public read via the existing `settings/{docId}` rule. Only on/off flags belong here.
+
 #### `customers` — Customer profiles
 
 Keyed by normalised phone number (`+91XXXXXXXXXX`).  
@@ -481,6 +488,8 @@ Every future AI agent working in this repository **MUST** follow these rules:
 
 16. **The table is a TEMPORARY 3-hour session, never a permanent identity, and it is independent of login.** [AI UPDATE 2026-09-24] Table-session expiry must never log a customer out or touch `qrmenu_user`, Firebase Auth, the cart, order history, coupons or loyalty data; logout must not be required for, or clear, the table session. Any new code that needs "the current table" must use `getTableId()` (never read `sessionStorage`/`localStorage` for a table directly). The table-number rule (1…`TOTAL_TABLES`) lives in `js/table-session.js` and must stay equal to `server.js`. Installed-app `start_url` is `/` — never bake a table into `manifest.webmanifest`.
 17. **The service worker stays network-first and never touches Firebase, `/api/*` or non-GET requests, and never caches a `/t/:n` page as the offline shell.** [AI UPDATE 2026-09-24] Do not add stale-while-revalidate/cache-first for `/js` or `/css` (ES-module version mixing). Install UI uses the real `beforeinstallprompt` event; [v2 2026-09-24] on phones where Chrome/Safari never provides it, a clearly-labelled "How to" fallback (instruction sheet, no fake install) is shown instead. Only that fallback's ✕ persists (3 days); the real-event UI holds no persistent "never show again" flag. Everything is hidden when installed.
+
+16. **Seasonal Effects are registry-driven (added 2026-09-24).** Each effect is a self-contained module `{ start(), stop() }` in `js/effects/`, registered in `REGISTRY` of `seasonal-effects-manager.js`; the panel only calls `initSeasonalEffects()`. Never hard-code an effect into menu/cart/app code. Effect layers must be `pointer-events:none`, at `z-index:-1` (behind all UI — relies on `html` having NO background and `body` NOT creating a stacking context; keep it that way), canvas/CSS only (no per-particle DOM), honour `prefers-reduced-motion`, pause when hidden, and fully release rAF/timers/listeners/DOM in `stop()`. Keys must match the Admin `EFFECTS` list.
 
 ---
 
