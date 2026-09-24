@@ -21,6 +21,7 @@ top-left pixel when the logo is opaque there, otherwise the app's dark #1A1E29.
 Override with:  --bg "#RRGGBB"
 """
 import argparse
+import glob
 import os
 import sys
 
@@ -70,6 +71,15 @@ def main():
     ap.add_argument("logo", nargs="?", help="path to the logo PNG (omit for a placeholder)")
     ap.add_argument("--bg", help="background colour, e.g. #1A1E29")
     args = ap.parse_args()
+
+    # [AI UPDATE v3] No argument → auto-pick the logo from attached_assets/ (e.g. "new pizzaa hut.png").
+    if not args.logo:
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "attached_assets")
+        hits = [f for f in glob.glob(os.path.join(root, "*.png"))
+                if "pizz" in os.path.basename(f).lower() and "hut" in os.path.basename(f).lower()]
+        if hits:
+            args.logo = sorted(hits)[0]
+            print("using logo:", os.path.basename(args.logo))
 
     if args.logo:
         if not os.path.isfile(args.logo):
