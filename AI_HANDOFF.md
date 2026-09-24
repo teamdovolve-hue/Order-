@@ -4,6 +4,12 @@
 
 ---
 
+## [AI UPDATE 2026-09-24] — Rain v2 (richer look, faster load)
+
+- `rain-effect.js`: wind gusts (slant sways), splash ripples where drops land (ring buffer, 22 max), soft glow on near drops, mist band, 2-stage lightning. Removed `filter:blur` from clouds (pure gradients now). Low-end detect (≤4 cores / ≤2GB → DPR 1, lighter start) + adaptive quality (thins drops / 26–32fps cap if frame cost stays >5.5ms).
+- `seasonal-effects-manager.js`: Firestore listener starts only after `load` + idle; effect code is loaded via dynamic `import()` only when its flag is ON (REGISTRY values are now async loaders). Race-safe if toggled while loading.
+- Rules unchanged: `z-index:-1`, no `html` background, no per-particle DOM, `stop()` releases everything. `app.js` untouched.
+
 ## [AI UPDATE 2026-09-24] — Seasonal Effects system + 🌧️ Rainy Days (Customer side)
 
 ### What
