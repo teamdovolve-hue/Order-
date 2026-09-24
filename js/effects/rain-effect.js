@@ -4,7 +4,7 @@
  * One <div> host (fixed, pointer-events:none, z-index:-1) containing:
  *   • CSS-only atmosphere: haze + 2 soft cloud banks (NO blur filter — pure gradients) + low mist
  *   • ONE <canvas>: 3 depth layers of rain, wind gusts, and tiny ground splashes/ripples
- *   • a faint two-stage lightning glow (rare)
+ *   • lightning: sky flash + a real jagged bolt (drawn once per strike on a 2nd canvas) + optional thunder sound
  *
  * What's new vs v1 (all canvas/CSS, zero per-particle DOM):
  *   – Wind gusts: slant breathes smoothly, so the rain sways instead of falling like a flat sheet
@@ -36,11 +36,11 @@ const SPLASH_LIFE = 0.32;      // seconds
 const MAX_DPR = 1.5;
 
 export function createRainEffect() {
-  let host, canvas, ctx, lightning;
+  let host, canvas, ctx, lightning, boltCv, boltCtx;
   let rafId = 0, lastT = 0, running = false;
   let w = 0, h = 0, dpr = 1;
   let layers = [];
-  let lightningTimer = 0, lightningAnim = null;
+  let lightningTimer = 0, lightningAnim = null, boltAnim = null, echoTimer = 0;
   let reducedMQ = null, reduced = false;
 
   // adaptive quality: 0 = full, 1 = lighter, 2 = lightest
@@ -78,6 +78,7 @@ export function createRainEffect() {
       #${HOST_ID} .fx-flash{position:absolute;inset:0;opacity:0;will-change:opacity;
         background:radial-gradient(ellipse at 50% 0%,rgba(190,210,255,.55),rgba(120,150,210,.18) 45%,transparent 75%);}
       #${HOST_ID} canvas{position:absolute;inset:0;width:100%;height:100%;}
+      #${HOST_ID} canvas.fx-bolt{opacity:0;will-change:opacity;}
       @keyframes fxCloudDrift{from{transform:translate3d(-4%,0,0)}to{transform:translate3d(4%,3%,0)}}
       @media (prefers-reduced-motion:reduce){#${HOST_ID} .fx-cloud{animation:none}}
     `;
@@ -86,11 +87,15 @@ export function createRainEffect() {
       '<div class="fx-haze"></div><div class="fx-cloud"></div><div class="fx-cloud b"></div><div class="fx-mist"></div>');
     canvas = document.createElement('canvas');
     host.appendChild(canvas);
+    boltCv = document.createElement('canvas');           // bolt canvas: idle (blank + invisible) between strikes
+    boltCv.className = 'fx-bolt';
+    host.appendChild(boltCv);
     lightning = document.createElement('div');
     lightning.className = 'fx-flash';
     host.appendChild(lightning);
     document.body.appendChild(host);
     ctx = canvas.getContext('2d', { alpha: true });
+    boltCtx = boltCv.getContext('2d');
     requestAnimationFrame(() => { if (host) host.style.opacity = '1'; }); // fade in
   }
 
@@ -102,6 +107,7 @@ export function createRainEffect() {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    boltCv.width = Math.round(w); boltCv.height = Math.round(h);
     const area = (w * h) / 1e6;
     layers = LAYERS.map(cfg => {
       const n = Math.max(cfg.min, Math.min(cfg.max, Math.round(cfg.density * area)));
@@ -209,21 +215,86 @@ export function createRainEffect() {
     rafId = 0;
   }
 
-  // ── lightning: rare, subtle double flicker (slightly more atmospheric than v1) ──
-  function scheduleLightning() {
+  // ── lightning: sky flash + jagged bolt + thunder (all one-off draws, zero per-frame cost) ──
+  // Midpoint-displacement polyline from (x0,y0) down to (x1,y1)
+  function bolt(x0, y0, x1, y1, jitter, out) {
+    const pts = [[x0, y0], [x1, y1]];
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = pts.length - 2; i >= 0; i--) {
+        const a = pts[i], b = pts[i + 1];
+        pts.splice(i + 1, 0, [(a[0] + b[0]) / 2 + rand(-jitter, jitter), (a[1] + b[1]) / 2 + rand(-jitter * 0.3, jitter * 0.3)]);
+      }
+      jitter *= 0.55;
+    }
+    out.push(pts);
+    return pts;
+  }
+
+  function drawBolt(power) {
+    if (!boltCtx) return;
+    const c = boltCtx;
+    c.clearRect(0, 0, w, h);
+    const x0 = rand(0.12, 0.88) * w;
+    const y1 = h * rand(0.3, 0.5 + 0.2 * power);            // stronger strike reaches further down
+    const paths = [];
+    const main = bolt(x0, -10, x0 + rand(-0.18, 0.18) * w, y1, w * 0.07, paths);
+    for (let k = 0; k < 2; k++) {                            // 1–2 short branches off the main bolt
+      const at = main[Math.floor(rand(0.25, 0.7) * main.length)];
+      bolt(at[0], at[1], at[0] + rand(-0.22, 0.22) * w, at[1] + h * rand(0.1, 0.22), w * 0.04, paths);
+    }
+    c.lineCap = c.lineJoin = 'round';
+    const pass = (lw, col) => {
+      c.lineWidth = lw; c.strokeStyle = col;
+      c.beginPath();
+      paths.forEach((pts, idx) => {
+        c.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+      });
+      c.stroke();
+    };
+    pass(9,   'rgba(150,180,255,.10)');                      // outer glow
+    pass(4,   'rgba(190,210,255,.30)');
+    pass(1.6, 'rgba(255,255,255,.95)');                      // hot core
+  }
+
+  function strike() {
+    if (document.hidden || !lightning || !lightning.animate) return;
+    const dist = Math.random();                              // 0 = right overhead, 1 = far away
+    const power = 1 - dist * 0.75;                           // 1 … 0.25 → flash brightness + sound loudness
+    const pk = 0.28 + 0.34 * power;                          // sky-flash peak opacity (was 0.20 flat)
+
+    if (lightningAnim) lightningAnim.cancel();
+    lightningAnim = lightning.animate(
+      [{ opacity: 0 }, { opacity: pk, offset: 0.06 }, { opacity: pk * 0.25, offset: 0.14 },
+       { opacity: pk * 0.9, offset: 0.22 }, { opacity: pk * 0.1, offset: 0.4 },
+       { opacity: pk * 0.35, offset: 0.48 }, { opacity: 0 }],
+      { duration: 900, easing: 'ease-out' });
+
+    if (power > 0.45 && boltCv && boltCv.animate) {          // distant strikes = only a glow behind the clouds
+      drawBolt(power);
+      if (boltAnim) boltAnim.cancel();
+      boltAnim = boltCv.animate(
+        [{ opacity: 0 }, { opacity: 1, offset: 0.08 }, { opacity: 0.15, offset: 0.2 },
+         { opacity: 0.9, offset: 0.3 }, { opacity: 0, offset: 0.65 }, { opacity: 0 }],
+        { duration: 600, easing: 'linear' });
+      boltAnim.onfinish = () => { if (boltCtx) boltCtx.clearRect(0, 0, w, h); };
+    }
+
+    // light first, sound after — the farther away, the longer the gap
+    if (sndOn && snd) snd.thunder(0.35 + dist * 2.6, power);
+  }
+
+  function scheduleLightning(first) {
     clearTimeout(lightningTimer);
     if (reduced) return;
     lightningTimer = setTimeout(() => {
-      if (!document.hidden && lightning && lightning.animate) {
-        if (lightningAnim) lightningAnim.cancel();
-        lightningAnim = lightning.animate(
-          [{ opacity: 0 }, { opacity: 0.20, offset: 0.08 }, { opacity: 0.04, offset: 0.2 },
-           { opacity: 0.14, offset: 0.32 }, { opacity: 0 }],
-          { duration: 1000, easing: 'ease-out' });
-        if (sndOn && snd) snd.thunder(rand(0.8, 2.4));   // light first, sound after
+      strike();
+      if (Math.random() < 0.28) {                            // sometimes a quick second strike
+        clearTimeout(echoTimer);
+        echoTimer = setTimeout(strike, rand(450, 1300));
       }
       scheduleLightning();
-    }, rand(16000, 42000));
+    }, first ? rand(6000, 10000) : rand(14000, 34000));      // was 16–42 s; first one arrives quickly
   }
 
   // ── optional rain SOUND (Admin flag effects.rainSound; customer opts in; off by default) ──
@@ -333,11 +404,11 @@ export function createRainEffect() {
     reduced = !!(reducedMQ && reducedMQ.matches);
     if (reduced) {           // keep the calm atmosphere, drop rain + lightning motion
       stopLoop();
-      clearTimeout(lightningTimer);
+      clearTimeout(lightningTimer); clearTimeout(echoTimer);
       ctx && ctx.clearRect(0, 0, w, h);
     } else {
       startLoop();
-      scheduleLightning();
+      scheduleLightning(true);
     }
   }
 
@@ -359,9 +430,10 @@ export function createRainEffect() {
       if (!host) return;
       unmountSoundBtn();
       stopLoop();
-      clearTimeout(lightningTimer);
+      clearTimeout(lightningTimer); clearTimeout(echoTimer);
       cancelAnimationFrame(resizeRaf);
       if (lightningAnim) { lightningAnim.cancel(); lightningAnim = null; }
+      if (boltAnim) { boltAnim.cancel(); boltAnim = null; }
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
       document.removeEventListener('visibilitychange', onVisibility);
@@ -370,7 +442,7 @@ export function createRainEffect() {
                                       : reducedMQ.removeListener(applyMotionPreference);
       }
       const el = host;
-      host = canvas = ctx = lightning = null; layers = [];
+      host = canvas = ctx = lightning = boltCv = boltCtx = null; layers = [];
       el.style.opacity = '0';                  // fade out, then remove
       setTimeout(() => el.remove(), 1300);
     },
