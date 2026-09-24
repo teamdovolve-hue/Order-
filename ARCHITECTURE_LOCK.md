@@ -53,8 +53,15 @@ Customer's phone (this repo)
   │     ├── history.js                   — localStorage order history
   │     ├── smart-assistant.js           — [AI UPDATE 2026-09-18] rule-based
   │     │                                   chat widget (no external AI API)
-  │     └── voice-assistant.js           — [AI UPDATE 2026-09-21] mic button +
-  │                                         voice panel; calls api/voice/* below
+  │     ├── voice-assistant.js           — [AI UPDATE 2026-09-21] mic button +
+  │     │                                   voice panel; calls api/voice/* below
+  │     ├── table-session.js             — [AI UPDATE 2026-09-24] 3-hour TABLE session
+  │     │                                   (leaf module; NOT the login session)
+  │     ├── table-gate.js                — [AI UPDATE 2026-09-24] "scan your table" screen,
+  │     │                                   QR scanner, manual fallback, expiry watcher
+  │     └── pwa-install.js               — [AI UPDATE 2026-09-24] install popup/banner + SW register
+  │
+  ├── manifest.webmanifest, sw.js, icons/ — [AI UPDATE 2026-09-24] installable PWA shell
   │
   ├── api/voice/*.js  (Vercel Serverless Functions — also mounted in server.js
   │     for local/Replit dev, so behaviour is identical in both places)
@@ -89,8 +96,10 @@ The following systems are **production-stable**. Future AI agents **MUST NOT** m
 |---|---|
 | Customer Login | `js/auth.js` |
 | Customer Profile | `js/auth.js`, `js/customer.js` |
-| Customer Session | `js/auth.js` (localStorage key: `qrmenu_user`) |
+| Customer Session | `js/auth.js` (localStorage key: `qrmenu_user`) — [AI UPDATE 2026-09-24] completely separate from the Table Session below |
 | QR Table Detection | `server.js`, `js/order.js` (`getTableId`) |
+| Table Session (3 h) | `js/table-session.js` (localStorage key: `qrmenu_table_session`), `js/table-gate.js` — [AI UPDATE 2026-09-24] NOT frozen yet (brand new); `getTableId()` consults it |
+| PWA shell | `manifest.webmanifest`, `sw.js`, `js/pwa-install.js` — [AI UPDATE 2026-09-24] NOT frozen yet (brand new) |
 | Active Table Lock | `js/order.js` (`loadActiveTableAssignment`) |
 | Cart | `js/cart.js` |
 | Menu Rendering | `js/menu.js` |
@@ -352,6 +361,25 @@ export function setActiveTableId(tableId)  // Override active table (used after 
 export async function placeOrder()         // Submit cart to Firestore as a new order
 ```
 
+> **[AI UPDATE 2026-09-24]** Behaviour only — signatures unchanged: `getTableId()` returns `null` while the
+> "scan your table" screen is open; otherwise server lock → 3-hour table session → legacy URL logic.
+> `VALID_TABLES` now comes from `js/table-session.js` `TOTAL_TABLES`.
+
+### `js/table-session.js`, `js/table-gate.js`, `js/pwa-install.js`
+```js
+// [AI UPDATE 2026-09-24] New files.
+// table-session.js (imports nothing — keep it a leaf so order.js can import it without a cycle)
+export const TOTAL_TABLES, TABLE_SESSION_TTL_MS   // 10, 3 h — TOTAL_TABLES must equal server.js
+export function isValidTableNumber(n), parseTableInput(raw), parseTableFromQr(text)
+export function getTrustedNow(), async syncTrustedTime()
+export function getActiveTableSession()           // → { tableNumber, sessionStartedAt, sessionExpiresAt } | null (null once expired)
+export function startTableSession(n), expireTableSession(), isTableEntryRequired(), reconcileTableSession()
+// table-gate.js
+export function initTableGate()                   // boot: decide panel vs scan screen; events "tableGateChange", "tableSessionChanged"
+// pwa-install.js
+export function initPwaInstall()                  // register /sw.js; popup → banner via the real beforeinstallprompt
+```
+
 ### `js/order-status.js`
 ```js
 export function getStatusLabel(status)     // → human-readable string for a status value
@@ -451,6 +479,9 @@ Every future AI agent working in this repository **MUST** follow these rules:
 14. **The BRIDGE BUILD is intentional.** `auth.js` and `order.js` bypass Cloud Functions and write directly to Firestore while Fast2SMS DLT approval is pending. This is documented in both files. Do not remove or "fix" the bridge without explicit instruction.
 15. **External/paid AI API calls (Deepgram, Groq) are allowed ONLY inside `api/voice/transcribe.js` and `api/voice/interpret.js`, and their API keys ONLY as server-side environment variables** (`DEEPGRAM_API_KEY`, `GROQ_API_KEY`) **read via `process.env`.** [AI UPDATE 2026-09-21] Never hardcode a key in any frontend file, never call Deepgram/Groq (or any other paid AI API) directly from `js/*.js`, and never widen what these two functions return to the browser beyond the whitelisted `{ action, items?, topic?, reply }` / `{ transcript, confidence }` shapes documented in Section 6 — the model's raw output must always be re-validated (`normalizeResult()`), never trusted or forwarded as-is. This does not apply to `js/smart-assistant.js`'s own text chat, which remains 100% rule-based per its Section 6 entry.
 
+16. **The table is a TEMPORARY 3-hour session, never a permanent identity, and it is independent of login.** [AI UPDATE 2026-09-24] Table-session expiry must never log a customer out or touch `qrmenu_user`, Firebase Auth, the cart, order history, coupons or loyalty data; logout must not be required for, or clear, the table session. Any new code that needs "the current table" must use `getTableId()` (never read `sessionStorage`/`localStorage` for a table directly). The table-number rule (1…`TOTAL_TABLES`) lives in `js/table-session.js` and must stay equal to `server.js`. Installed-app `start_url` is `/` — never bake a table into `manifest.webmanifest`.
+17. **The service worker stays network-first and never touches Firebase, `/api/*` or non-GET requests, and never caches a `/t/:n` page as the offline shell.** [AI UPDATE 2026-09-24] Do not add stale-while-revalidate/cache-first for `/js` or `/css` (ES-module version mixing). Install UI is shown ONLY from a real `beforeinstallprompt` event, holds no persistent "never show again" flag, and is hidden when installed.
+
 ---
 
 ## 8. Regression Checklist
@@ -475,6 +506,8 @@ Before considering any task complete, verify that the following still work end-t
 - ✓ Billing Panel Compatibility (no Firestore field, collection, or status changes that break the Billing Panel)
 - ✓ Smart Assistant (AI UPDATE [2026-09-18]) — floating button opens/closes; quick actions and typed commands add real items to the real cart; unavailable items are correctly refused; no external AI API call is ever made
 - ✓ Voice Assistant (AI UPDATE [2026-09-21]) — mic button opens/closes the panel with the page blurred behind it; add-to-cart/coupons/history/account-question voice commands drive the SAME cart/offers/history/Smart-Assistant code the text/manual paths use (never a second data path); an unresolvable item or size asks instead of guessing; `DEEPGRAM_API_KEY`/`GROQ_API_KEY` are read only inside `api/voice/*.js` and never appear in any browser-visible response
+
+- ✓ Table Session / PWA (AI UPDATE [2026-09-24]) — scanning `/t/N` starts a 3-hour session; re-opening the installed app within 3 h keeps the table; after 3 h the "scan your table" screen appears while login, cart, history and coupons stay intact; a new QR/manual valid table starts a fresh 3-hour session and updates the table chip; a reload of an expired `/t/N` tab does not bypass the screen; install popup → banner above Search appears only when the browser offers install, never after install, and never permanently suppressed
 
 **If any item fails, the implementation is NOT complete.**
 

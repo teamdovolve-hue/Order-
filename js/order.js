@@ -27,6 +27,8 @@ import { httpsCallable }                  from "https://www.gstatic.com/firebase
 import { cart, clearCart, cartExtras }    from "./cart.js";
 import { getCustomer }                    from "./customer.js";
 import { waitForAuthReady, getLoginInfo } from "./auth.js";
+// [AI UPDATE 2026-09-24] PWA table session (3-hour, separate from login) — see js/table-session.js
+import { TOTAL_TABLES, getActiveTableSession, isTableEntryRequired } from "./table-session.js";
 
 // ── Read table number from the URL ────────────────────────────────────────────
 //
@@ -43,12 +45,22 @@ import { waitForAuthReady, getLoginInfo } from "./auth.js";
 //   In both cases the validation rule is the same: table must be 1–10.
 //   Returns "Table N" on success, null on invalid/missing table.
 
-const VALID_TABLES = 10;
+const VALID_TABLES = TOTAL_TABLES; // [AI UPDATE 2026-09-24] single source: js/table-session.js (keep equal to server.js TOTAL_TABLES)
 const SESSION_KEY  = "qrmenu_locked_table";
 let _activeTableId = null;
 
 export function getTableId() {
+  // [AI UPDATE 2026-09-24] PWA table session. While the "scan your table" screen is
+  // showing (3-hour session expired) there is NO table — never return a stale one.
+  if (isTableEntryRequired()) return null;
+
   if (_activeTableId) return _activeTableId;
+
+  // [AI UPDATE 2026-09-24] The 3-hour table session (localStorage) is the source of truth
+  // once it exists. js/table-gate.js has already turned a scanned /t/:n URL into a session
+  // at boot, so this covers both "scanned just now" and "re-opened the installed app".
+  const _sess = getActiveTableSession();
+  if (_sess) return `Table ${_sess.tableNumber}`;
 
   if (typeof window.__TABLE_ID__ === "number") {
     const n = window.__TABLE_ID__;
@@ -207,7 +219,15 @@ export async function placeOrder() {
 
 function _updateTableBadge() {
   const badge = document.getElementById("tableBadge");
-  if (badge) badge.textContent = _activeTableId || _getTableIdFromUrl() || "—";
+  if (!badge) return;
+  // [AI UPDATE 2026-09-24] While the "scan your table" screen is up there is no table.
+  // Otherwise: server lock → 3-hour table session → URL (unchanged legacy fallback).
+  if (isTableEntryRequired()) { badge.textContent = "—"; return; }
+  const _sess = getActiveTableSession();
+  badge.textContent = _activeTableId
+    || (_sess ? `Table ${_sess.tableNumber}` : null)
+    || _getTableIdFromUrl()
+    || "—";
 }
 
 function _getTableIdFromUrl() {

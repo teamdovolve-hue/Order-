@@ -4,6 +4,76 @@
 
 ---
 
+## [AI UPDATE 2026-09-24] — Installable PWA + 3-hour TABLE session (separate from login)
+
+### Task
+Turn the customer panel into an installable PWA (real `beforeinstallprompt` flow, popup then banner above Search) and make the
+table a TEMPORARY 3-hour session, because an installed app can be re-opened days later without scanning a QR.
+
+### Audit performed before coding
+- Table detection: `server.js` validates `/t/:n` (1…`TOTAL_TABLES`=10) and injects `window.__TABLE_ID__`; static hosts (Netlify `_redirects`,
+  Vercel rewrite) serve `index.html` and `order.js getTableId()` parses `location.pathname`. The table was only kept in `sessionStorage`
+  (`qrmenu_locked_table`), i.e. never across an app restart. `loadActiveTableAssignment()` (server lock) is a no-op in bridge mode.
+- Login = `localStorage["qrmenu_user"]` (`auth.js`); logout removes named keys only (no `localStorage.clear()`), so a new table key is safe.
+- No manifest, service worker or icons existed. Sticky layout: header `top:0`, `.search-wrap` `top:57px`, `.category-nav` `top:104px`.
+
+### Files
+**New:** `js/table-session.js`, `js/table-gate.js`, `js/pwa-install.js`, `manifest.webmanifest`, `sw.js`, `icons/*` (PLACEHOLDER art),
+`tools/make-pwa-icons.py`.
+**Modified (additive, marked `[AI UPDATE 2026-09-24]`):**
+- `js/order.js` — imports `TOTAL_TABLES`/`getActiveTableSession`/`isTableEntryRequired`; `VALID_TABLES = TOTAL_TABLES`; `getTableId()` returns `null`
+  while the scan screen is up, then server lock, then the table session, then the unchanged legacy URL logic; `_updateTableBadge()` follows the same order.
+- `js/app.js` — starts `syncTrustedTime()` early, step "0a" `initTableGate()` before `getTableId()`, step "5h" `initPwaInstall()` (both wrapped in try/catch).
+- `index.html` — `<head>` only: manifest, icons, iOS meta, early `beforeinstallprompt` capture (`window.__pwaDeferredPrompt`). Replaced `<link rel="icon" href="data:,">`.
+- `css/style.css` — appended block (`.pwa-popup`, `.pwa-banner`, `.tg-*`).
+
+### Table session architecture
+- Storage: `localStorage["qrmenu_table_session"] = { tableNumber, sessionStartedAt, sessionExpiresAt }` (epoch ms). TTL 3 h (`TABLE_SESSION_TTL_MS`).
+- Time: `getTrustedNow()` = `Date.now()` + offset learned from the `Date` (+`Age`) header of a same-origin `HEAD /?_tt=…`; offline falls back to the device clock.
+  A session is also treated as expired if the clock is earlier than its start, and an expiry beyond start+3 h is capped (tamper guard).
+- `reconcileTableSession()` at boot → `"active" | "expired" | "none" | "legacy"`:
+  - URL/injected table present = a QR scan → new session, EXCEPT same table with a valid session (refresh does not extend), and EXCEPT
+    reload/back-forward when the stored session already expired (a reload is not a scan; otherwise it would bypass the expiry screen).
+  - No table in the URL (installed app opens `start_url` `/?source=pwa`) → reuse the session while valid, else scan screen.
+  - Never scanned + normal browser tab → `"legacy"`: unchanged old behaviour (table "Unknown", menu browsable). Installed app with no session → scan screen.
+- Expiry while the app is open/backgrounded: a timer plus `visibilitychange`/`pageshow`/`focus`/`storage` re-checks (`table-gate.js`).
+- Expiry only: clears the in-memory table, the `sessionStorage` table and sets the "entry required" flag. The expired record stays until the next scan overwrites it.
+
+### Login / session separation (must be preserved)
+Table expiry never touches `qrmenu_user`, Firebase Auth, `qrmenu_cart`, `qrmenu_history`, coupons or loyalty. Logging out does not clear the table session either.
+
+### QR / manual recovery flow
+Scan screen (overlay, z-index 9000; the panel keeps booting underneath): "📷 Scan QR Code" opens an in-app camera (native `BarcodeDetector`, else jsQR from
+jsdelivr loaded on demand; any `…/t/N` payload with N valid is accepted) and a small manual "Table No." field. Both validate with `isValidTableNumber()`
+(1…`TOTAL_TABLES`); invalid manual input → "Invalid table number.". Success → `startTableSession(n)` → `setActiveTableId("Table n")` (updates the chip) →
+address bar/`__TABLE_ID__` synced to `/t/n` → overlay closes. Camera denied/unsupported → message + manual fallback.
+
+### PWA install flow
+`pwa-install.js`: `beforeinstallprompt` → `preventDefault()` + stash. UI exists only while an event is stashed, the app is not standalone, the scan screen is closed
+and ordering is not paused. Phases (in memory only, nothing persisted): popup "🍕 Install New Pizza Hut App" → (outside tap / Esc / 12 s, tap is NOT swallowed) →
+banner directly above `#searchWrap` (normal flow, NOT sticky, so header/search/category sticky offsets are unchanged) → ✕ hides until next load.
+Install → `event.prompt()` inside the tap; the event is single-use so UI is removed immediately (no dead button). `appinstalled` / display-mode standalone removes everything.
+No `beforeinstallprompt` (iOS Safari, Firefox…) → no install UI at all. `sw.js` is registered here.
+
+### Service worker
+Network-first for navigations, `/js`, `/css`, `/icons`, manifest; cache is only an offline fallback. The shell is cached from `/` only (never `/t/:n`, dev server injects `__TABLE_ID__` there).
+Firebase, gstatic, `/api/*`, non-GET (incl. the time-sync HEAD) pass through. Bump `VERSION` in `sw.js` to drop old caches.
+
+### Testing performed
+Node unit tests of `table-session.js` (parsing, 3 h boundary, refresh, reload, clock rollback, tampering, storage unavailable) and 52 headless-Chromium checks against the real
+`app.js` with Firebase stubbed (install popup/banner/native prompt/`appinstalled`, gate copy, invalid/valid manual entry, login+cart+history intact, expiry while open, scanner with a stubbed
+decoder, camera-denied path, sticky offsets, service worker + Chrome installability = no errors).
+NOT tested: jsQR CDN fallback (no network), a real camera/QR, a real install on a phone/iOS.
+
+### Known issues / notes
+- `icons/*` are PLACEHOLDERS. Run `python3 tools/make-pwa-icons.py "new pizza hut logo.png"` (repo root) once the logo file is present; the logo was not in the uploaded zip.
+- Table numbers: `TOTAL_TABLES` in `js/table-session.js` must equal `TOTAL_TABLES` in `server.js`. There is no backend table config to validate against.
+- A server table lock (`loadActiveTableAssignment`, only once Cloud Functions are restored) still outranks the table session in `getTableId()` — unchanged pre-existing semantics.
+- Active Orders are tracked by customer uid, so they survive the scan screen and reappear after the customer picks a table.
+- Billing Panel changes required: none.
+
+---
+
 ## [AI UPDATE 2026-09-22] — Fix: floating AI assistant / Menu button overlapping "My Offers" and "My Orders"
 
 ### Symptom

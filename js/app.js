@@ -13,6 +13,13 @@
  *   8. Wire "View Details" button → Order Review Sheet → requireLogin → placeOrder
  *   9. Wire overlay close buttons
  *
+ * [AI UPDATE 2026-09-24] PWA upgrade. New boot step "0a" (after auth, before the table chip):
+ * initTableGate() applies the 3-hour TABLE session (js/table-session.js) — a scanned /t/:n
+ * starts one, an installed app re-opened later reuses it while valid, and an expired one shows
+ * the "scan your table" screen. That is completely separate from login: nothing here touches
+ * the customer session, cart, history or coupons. initPwaInstall() (step 5h) adds the install
+ * popup/banner + service worker.
+ *
  * [AI UPDATE 2026-08-01] Step 8: cart bar button now opens the Order Review Sheet
  * (review.js) instead of triggering requireLogin/placeOrder directly. The review
  * sheet's "Place Order →" button continues to the existing requireLogin/placeOrder
@@ -46,6 +53,10 @@ import { initVariantPicker }                from "./variant-picker.js";
 import { initSmartAssistant }               from "./smart-assistant.js";
 // [AI UPDATE 2026-09-21] Voice Assistant — mic button beside Search (Deepgram STT + Groq NLU via /api/voice/*)
 import { initVoiceAssistant }               from "./voice-assistant.js";
+// [AI UPDATE 2026-09-24] PWA — 3-hour table session gate + install prompt
+import { syncTrustedTime }                  from "./table-session.js";
+import { initTableGate }                    from "./table-gate.js";
+import { initPwaInstall }                   from "./pwa-install.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -57,6 +68,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // (e.g. domain not yet in Auth authorized list, CDN hiccup) never freezes
   // the page — customers can still browse the menu; login is only required
   // when they actually tap "Place Order".
+  // [AI UPDATE 2026-09-24] Learn the real time (server Date header) in parallel with auth so the
+  // 3-hour table session is judged against a trustworthy clock. Never throws / never blocks >2.5 s.
+  const _timeSync = syncTrustedTime();
   initAuth();
   initRestaurantStatus();
   await Promise.race([
@@ -64,6 +78,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     new Promise((resolve) => setTimeout(resolve, 4000)),
   ]);
   if (isLoggedIn()) await loadActiveTableAssignment().catch(() => {});
+
+  // ── 0a. Table session (3 h) — [AI UPDATE 2026-09-24] ──────────
+  //   Scanned QR (/t/:n) → new session; installed app re-opened → reuse while valid;
+  //   expired → "scan your table" overlay. Login is NOT affected. Guarded: a failure here
+  //   must never stop the core panel booting (legacy behaviour then applies).
+  await _timeSync;
+  try { initTableGate(); } catch (err) { console.warn("[table-session] init failed:", err); }
 
   // ── 0. Table ID — no gate, always proceeds ───────────────────
   //   Returns "Table N" for valid QR URLs, "Unknown" for direct access.
@@ -73,7 +94,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── 1. Table badge ────────────────────────────────────────────
   const badge = document.getElementById("tableBadge");
-  if (badge) badge.textContent = tableId;
+  // [AI UPDATE 2026-09-24] getTableId() is null while the "scan your table" screen is up.
+  if (badge) badge.textContent = tableId || "—";
 
   // ── 2. Menu ───────────────────────────────────────────────────
   initMenu();
@@ -116,6 +138,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // cart / offers / history code above through their existing entry points.
   // Guarded: an add-on feature must never be able to stop the core panel's boot sequence below.
   try { initVoiceAssistant(); } catch (err) { console.warn("[voice] init failed:", err); }
+
+  // ── 5h. PWA install prompt + service worker ───────────────────
+  // [AI UPDATE 2026-09-24] Real `beforeinstallprompt` flow only; shows nothing when
+  // installation isn't available or the app is already installed. Guarded like the voice add-on.
+  try { initPwaInstall(); } catch (err) { console.warn("[pwa] init failed:", err); }
 
   // ── 6. Auth state watcher ─────────────────────────────────────
   const _handleAuthChange = async (user) => {
