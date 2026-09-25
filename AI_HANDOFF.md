@@ -4,6 +4,68 @@
 
 ---
 
+## [AI UPDATE 2026-09-25] — Weather + Effect Engine: depth pass on snow/cloudy/sunny/fog
+
+### Why
+Rain (`rain-effect.js`) already had real depth (3 canvas layers, wind gusts,
+ground splashes, lightning). The other 4 weather effects were comparatively
+flat: `snow-effect.js` was one layer of identical dots, `cloudy-effect.js` was
+2 near-identical blobs, `sunny-effect.js` was one uniform dust-mote layer, and
+`fog-effect.js` was 2 bands drifting at slightly different speeds. Brought all
+4 up to the same visual standard as rain, same performance discipline
+throughout (low-end auto-detect, capped DPR, pause on tab-hidden, respects
+`prefers-reduced-motion`, `stop()` releases everything) — **no contract
+changes**: every effect is still `create<Name>Effect() → { start(), stop(),
+update(flags) }`, called the same way by `seasonal-effects-manager.js`, so
+`effect-resolver.js`, `weather-normalizer.js`, `weather-service.js` and
+`api/weather.js` were **not touched**.
+
+### What changed, per file
+- `js/effects/snow-effect.js` — was 1 flat canvas layer → now 3 depth layers
+  (far/mid/near: size, speed, alpha and glow all scale with depth), a shared
+  wind-gust sway (same "two slow sines" trick as rain), and a soft radial-glow
+  halo on the near layer. `sleet` variant now draws short icy streaks instead
+  of dots (was just smaller/faster dots).
+- `js/effects/cloudy-effect.js` — was 2 identical cloud blobs at 2 speeds →
+  now 3 depth banks (far/mid/near, each own size/opacity/speed — the classic
+  far-slow/near-fast parallax cue), a soft moving light-shaft that only shows
+  for the `few` variant (sun breaking through gaps), and a slow rolling
+  shadow band for `overcast`/`storm`. Still pure CSS gradients, no
+  `filter:blur`, no canvas, no per-particle DOM — same cost class as before.
+- `js/effects/sunny-effect.js` — was 1 dust-mote layer + flat wash → now a
+  pulsing sun-glow disc, two faint rotating conic-gradient ray sweeps behind
+  it, TWO dust-mote depth layers (far: small/dim/slow, near: big/bright/fast
+  — was one uniform layer), and actual twinkling stars at night (was just a
+  color-shifted wash, no stars). Still zero canvas, zero per-frame JS.
+- `js/effects/fog-effect.js` — was 2 bands → now 3 depth bands (far/mid/near,
+  each its own height/opacity/speed/direction) plus a slow rolling "billow"
+  highlight inside the near band so it reads as volume rather than a flat
+  gradient sliding sideways. Deliberately still **no canvas / no
+  per-particle DOM** — this file's original design note ("do NOT create heavy
+  particle systems" for the 7xx atmosphere group) still applies; the added
+  depth is pure CSS layering, same cost class as before.
+
+### Not touched
+`rain-effect.js`, `rain-sound.js`, `weather-normalizer.js`, `effect-resolver.js`,
+`weather-service.js`, `api/weather.js`, `seasonal-effects-manager.js`, `app.js`.
+No Firestore schema change, no new flags — `update(flags)` still only ever
+receives `{ variant, isNight, rainSound }` from the manager.
+
+### Tests performed
+`node --check` (ESM) on all 4 rewritten files — syntax clean. **NOT tested**:
+visually in a real browser (no network/display in this environment), on a
+real low-end phone, or against a live OpenWeather feed. Recommend a quick
+visual pass per variant (light/moderate/heavy/sleet for snow; few/scattered/
+broken/overcast/storm for cloudy; day/night for sunny; each of the 7 tints
+for fog) before/instead of relying on this note alone.
+
+### Billing Panel changes required
+None for this entry specifically (see the separate "Effects tab Live Status"
+entry in the Billing repo's own AI_HANDOFF.md for the related admin-side work
+done in the same pass).
+
+---
+
 ## [AI UPDATE 2026-09-24] — 🔊 Rain Sound (optional, opt-in)
 
 - New `js/effects/rain-sound.js`: Web Audio synthesized rain (2 pink-noise layers + random swells) + soft thunder after lightning. **No audio files**; module is imported only when Admin enables `effects.rainSound`.
