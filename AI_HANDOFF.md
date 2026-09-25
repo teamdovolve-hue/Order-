@@ -2317,3 +2317,101 @@ exports/imports/routes were added, per file list above).
 collections beyond what the Customer Panel (and its existing Smart
 Assistant) already reads. No Billing Panel file, rule, or schema change is
 needed.
+
+## Weather + Manual Effect Engine [AI UPDATE 2026-09-24]
+
+Upgraded the existing "Seasonal Effects" system (previously just the Rainy
+Days boolean toggle) into a full Weather + Manual Effect engine, driven by
+OpenWeather. Architecture:
+
+```
+Weather Service  ->  Weather Normalizer  ->  Effect Resolver  ->  Active Effect
+  (fetch)             (condition -> id)        (priority)         (renderer)
+
+Admin Settings
+  (Global ON/OFF, Automatic Weather, Manual Override)  ->  Effect Resolver
+```
+
+**New files (Customer Panel):**
+- `api/weather.js` — Vercel serverless function, `GET /api/weather?lat=&lon=`.
+  Reads `OPENWEATHER_API_KEY` from `process.env` server-side only; the key
+  never reaches the browser, GitHub, or Firestore. In-memory per-instance
+  cache (10 min TTL, matches OpenWeather's update cadence) plus a
+  `Cache-Control` header so Vercel's network cache absorbs repeat requests.
+  Any failure (missing key, network error, bad upstream response) resolves
+  to `{ ok:false }` with HTTP 200 — never a hard error the frontend has to
+  handle specially.
+- `js/effects/weather-service.js` — client fetcher. Caches the normalized
+  result in `sessionStorage` for 10 minutes so the panel does not call the
+  endpoint on every render/navigation. Reads the restaurant's coordinates
+  from the new `settings/restaurant_location` Firestore doc (public-read).
+  Every failure path resolves to `null`; callers must keep the previous
+  effect rather than clearing it.
+- `js/effects/weather-normalizer.js` — the ONLY place OpenWeather condition
+  ids (`weather[0].id`, per https://openweathermap.org/weather-conditions)
+  are mapped to internal effect ids. Covers every condition group (2xx
+  thunderstorm, 3xx drizzle, 5xx rain, 6xx snow, 7xx atmosphere, 800 clear,
+  80x clouds) plus day/night via the icon suffix. Several OpenWeather ids
+  intentionally collapse onto one internal effect (e.g. all rain/drizzle/
+  thunderstorm ids -> `rain`, since the existing rain effect already
+  includes lightning/thunder) with a `variant` string carrying the finer
+  distinction to the effect module.
+- `js/effects/effect-resolver.js` — centralized priority logic (pure
+  function, no I/O): global OFF > manual override > automatic weather > none.
+  This is the single source of truth for that rule; nothing else
+  re-implements it.
+- `js/effects/sunny-effect.js`, `cloudy-effect.js`, `fog-effect.js`,
+  `snow-effect.js` — new lightweight effect renderers (CSS-first, canvas only
+  for snow), following the same contract and performance discipline as the
+  existing `rain-effect.js` (pointer-events:none, paused on
+  `visibilitychange`, respects `prefers-reduced-motion`, adaptive
+  quality/DPR cap on low-end devices, `stop()` releases everything).
+  `fog-effect.js` covers mist/fog/haze/smoke/dust/sand/ash as tinted variants
+  of one shared implementation per the "no heavy particle systems" rule for
+  those conditions. Squall/tornado map to `cloudy-effect.js`'s `storm`
+  variant (a darker tint only — no cartoon tornado).
+
+**Changed files:**
+- `js/effects/seasonal-effects-manager.js` — rewritten from a boolean map
+  (`effects: { rain: true, ... }`, multiple could run) into an engine that
+  tracks a single `activeKey` and swaps effect modules, so exactly one
+  full-screen effect ever renders (per the "no stacking" requirement). Polls
+  the weather service every 10 minutes (cheap no-op most calls thanks to the
+  caching above) and re-resolves on every Firestore config change. The
+  existing Rainy Days implementation is reused unmodified — it is simply one
+  more entry in the registry (`rain`), selected automatically for every
+  rain/drizzle/thunderstorm weather condition or manually as "Rain /
+  Thunderstorm" from the Admin panel.
+- `server.js` — mounted `/api/weather` for local/Replit dev-server parity
+  with the Vercel function, same pattern as the existing
+  `/api/voice/*` routes.
+
+**Firestore schema** (`settings/seasonal_effects`, public-read /
+operator-write — unchanged rule, see `firestore.rules`):
+```
+{
+  effectsEnabled: boolean,           // global master switch (default true if absent)
+  automaticWeatherEnabled: boolean,  // OpenWeather drives the effect (default false)
+  manualEffectId: string|null,       // explicit override, wins over weather
+  effects: { rainSound: boolean },   // kept as-is: rain-effect's optional sound
+  updatedAt: number,
+}
+```
+New doc `settings/restaurant_location`: `{ lat: number, lon: number,
+updatedAt: number }`, written from the Admin panel's Effects tab. Covered by
+the existing `match /settings/{docId}` rule — no rules change needed.
+
+**Fallback behavior:** OpenWeather down/unconfigured -> customer panel shows
+no weather effect (or keeps the last valid one if it had already loaded one
+this session) and never blocks menu rendering; the effect
+Firestore-listener/weather-fetch are both scheduled via `requestIdleCallback`
+after first paint, exactly like the pre-existing Rainy Days effect. Firestore
+`settings/seasonal_effects` unreachable -> same fail-safe (`config = {}` ->
+resolver returns "no effect" only if nothing else applies, since
+`effectsEnabled` defaults to true but `automaticWeatherEnabled` defaults to
+false and `manualEffectId` defaults to null, so an empty/missing doc is
+inert, matching the old behavior of "no effect until Admin turns one on").
+
+**Important:** the OpenWeather API key must be added to Vercel's Environment
+Variables as `OPENWEATHER_API_KEY` by the project owner — this was
+intentionally not (and cannot safely be) done from here.

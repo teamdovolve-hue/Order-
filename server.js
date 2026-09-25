@@ -144,6 +144,10 @@ app.get("/", (req, res) => {
 app.all("/api/voice/transcribe", require("./api/voice/transcribe.js"));
 app.all("/api/voice/interpret",  require("./api/voice/interpret.js"));
 
+// ── [AI UPDATE 2026-09-24] Weather + Effect Engine API — dev-server parity ───
+//   Same handler as the Vercel Serverless Function at /api/weather.
+app.all("/api/weather", require("./api/weather.js"));
+
 // ── Serve static assets (js/, css/, images, etc.) ────────────────────────────
 app.use(express.static(path.join(__dirname), { index: false }));
 
