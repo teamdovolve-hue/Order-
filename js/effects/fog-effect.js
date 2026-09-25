@@ -2,11 +2,16 @@
  * fog-effect.js — Weather + Effect Engine: 🌫️ Mist / Fog / Haze / Smoke / Dust / Sand / Ash
  * ─────────────────────────────────────────────────────────────────────────────
  * [AI UPDATE 2026-09-24] NEW FILE.
- * ONE soft, low-opacity, slow-moving atmosphere layer shared by every
- * "atmosphere" OpenWeather condition (group 7xx). These conditions are all
- * visually similar — reduced-contrast haze — so per spec ("do NOT create
- * heavy particle systems") they share one lightweight CSS implementation and
- * differ only by tint/opacity via `variant`.
+ * [AI UPDATE 2026-09-25] DEPTH PASS — was 2 bands drifting at slightly
+ * different speeds/opacities. Now 3 bands at 3 depths (far/mid/near) with
+ * their own height, opacity, drift speed AND direction, plus a slow rolling
+ * "billow" (a softly moving radial highlight inside the near band) so the fog
+ * reads as rolling volume rather than a flat gradient sliding sideways.
+ * Deliberately still ZERO canvas / zero per-particle DOM — every "atmosphere"
+ * OpenWeather condition (group 7xx) is visually similar low-contrast haze, and
+ * the original spec for this effect ("do NOT create heavy particle systems")
+ * still applies; the added depth here is pure CSS layering, same cost class
+ * as before. Contract, variants and tint table are unchanged.
  *
  * Variants: 'mist' | 'fog' (cool grey) · 'haze' | 'smoke' (warm grey) ·
  *           'dust' | 'sand' (warm tan) · 'ash' (dark grey).
@@ -38,16 +43,35 @@ export function createFogEffect() {
 
     const style = document.createElement("style");
     style.textContent = `
-      #${HOST_ID} .fx-layer{position:absolute;left:-20%;right:-20%;bottom:0;height:60%;
+      /* 3 depth bands: far sits high/thin/faint and drifts slowest, near sits
+         low/tall/densest and drifts fastest -- the speed+size gradient across
+         bands IS the depth cue (classic parallax), no blur filters needed. */
+      #${HOST_ID} .fx-layer{position:absolute;left:-25%;right:-25%;bottom:0;
         background:linear-gradient(0deg,var(--fx-tint,rgba(150,168,190,.30)),transparent);
-        will-change:transform;animation:fxFogDrift 60s ease-in-out infinite alternate;}
-      #${HOST_ID} .fx-layer.b{bottom:20%;height:40%;opacity:.7;animation-duration:80s;animation-direction:alternate-reverse;}
+        will-change:transform;}
+      #${HOST_ID} .fx-layer.far{height:38%;opacity:.5;bottom:30%;
+        animation:fxFogDrift 100s ease-in-out infinite alternate;}
+      #${HOST_ID} .fx-layer.mid{height:52%;opacity:.75;
+        animation:fxFogDrift2 62s ease-in-out infinite alternate-reverse;}
+      #${HOST_ID} .fx-layer.near{height:64%;opacity:.95;
+        animation:fxFogDrift3 40s ease-in-out infinite alternate;}
+      /* Rolling billow: a soft moving highlight inside the near band, giving
+         the fog a sense of internal motion/volume instead of a flat wash. */
+      #${HOST_ID} .fx-billow{position:absolute;left:-40%;right:-40%;bottom:0;height:50%;
+        background:radial-gradient(ellipse 40% 70% at 30% 100%,rgba(255,255,255,.10),transparent 70%),
+                   radial-gradient(ellipse 34% 60% at 75% 100%,rgba(255,255,255,.07),transparent 70%);
+        animation:fxFogBillow 34s ease-in-out infinite alternate;}
       #${HOST_ID}.fx-night{filter:brightness(.75);}
-      @keyframes fxFogDrift{from{transform:translate3d(-3%,0,0)}to{transform:translate3d(3%,0,0)}}
-      @media (prefers-reduced-motion:reduce){#${HOST_ID} .fx-layer{animation:none}}
+      @keyframes fxFogDrift{from{transform:translate3d(-2%,0,0)}to{transform:translate3d(2%,0,0)}}
+      @keyframes fxFogDrift2{from{transform:translate3d(-4%,0,0)}to{transform:translate3d(4%,0,0)}}
+      @keyframes fxFogDrift3{from{transform:translate3d(-6%,0,0)}to{transform:translate3d(6%,0,0)}}
+      @keyframes fxFogBillow{from{transform:translate3d(-5%,0,0)}to{transform:translate3d(5%,0,0)}}
+      @media (prefers-reduced-motion:reduce){#${HOST_ID} .fx-layer,#${HOST_ID} .fx-billow{animation:none}}
     `;
     host.appendChild(style);
-    host.insertAdjacentHTML("beforeend", '<div class="fx-layer"></div><div class="fx-layer b"></div>');
+    host.insertAdjacentHTML("beforeend",
+      '<div class="fx-layer far"></div><div class="fx-layer mid"></div>' +
+      '<div class="fx-layer near"></div><div class="fx-billow"></div>');
     document.body.appendChild(host);
     requestAnimationFrame(() => { if (host) host.style.opacity = "1"; });
   }
