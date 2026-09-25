@@ -545,6 +545,46 @@ After every implementation, the agent **must**:
 
 ---
 
+## 9a. Weather + Manual Effect Engine [AI UPDATE 2026-09-24]
+
+The Customer Panel's visual atmosphere (previously just a Rainy Days on/off
+flag) is now governed by a fixed pipeline:
+
+```
+Weather Service -> Weather Normalizer -> Effect Resolver -> Active Effect
+```
+
+Rules that must be preserved:
+
+1. **One active effect at a time.** `seasonal-effects-manager.js` tracks a
+   single `activeKey`; it must never run two full-screen effects
+   simultaneously. A new effect always fully `stop()`s the previous one
+   before starting.
+2. **Effect priority is centralized in `js/effects/effect-resolver.js`.**
+   No other file may re-implement the OFF > manual > automatic-weather > none
+   ordering. Changing the priority means changing that one function.
+3. **OpenWeather condition -> effect id mapping lives ONLY in
+   `js/effects/weather-normalizer.js`.** No other file may branch on a raw
+   OpenWeather condition id, `main` string, or icon code.
+4. **The OpenWeather API key is read only inside `api/weather.js`, from
+   `process.env.OPENWEATHER_API_KEY`.** It must never be sent to the
+   browser, committed to the repo, or written to Firestore.
+5. **Every effect module exports `{ start(), stop(), update?(flags) }`** and
+   registers a lazy `import()` loader in `seasonal-effects-manager.js`'s
+   `REGISTRY` — effect code must not add to the initial bundle unless that
+   effect is actually active.
+6. **Weather lookups must stay cheap.** Both the server (`api/weather.js`,
+   in-memory + `Cache-Control`) and the client (`weather-service.js`,
+   `sessionStorage`) cache for 10 minutes. Do not remove either cache layer
+   or call `/api/weather` on every render.
+7. **Failure of the weather API or the `settings/seasonal_effects` /
+   `settings/restaurant_location` Firestore docs must never block menu
+   rendering or throw a visible error** — always fail to "no effect" or the
+   previously active effect.
+8. **New collections:** `settings/restaurant_location` (`{ lat, lon }`,
+   public-read, operator-write — covered by the existing
+   `match /settings/{docId}` rule).
+
 ## 10. Source of Truth
 
 This document is the **permanent source of truth** for the architectural constraints of the Customer Panel. Its goal is to keep the architecture stable while allowing small, isolated, backward-compatible improvements without breaking existing functionality.
