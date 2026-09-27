@@ -16,10 +16,15 @@
  * Environment variables (set in Vercel → Project → Settings → Environment Variables):
  *   DEEPGRAM_API_KEY    (required)
  *   DEEPGRAM_MODEL      (optional, default "nova-3")
- *   DEEPGRAM_LANGUAGE   (optional; omitted by default = Deepgram's English. Examples:
- *                        "en-IN" for Indian English, "hi" for Hindi/Hinglish, "multi"
- *                        for multilingual code-switching — check Deepgram's model /
+ *   DEEPGRAM_LANGUAGE   (optional, default "multi" — see [AI UPDATE 2026-09-27] below.
+ *                        Set to "en-IN" to force Indian English only, "hi" to force Hindi
+ *                        only, or any other Deepgram-supported code; check Deepgram's model /
  *                        language matrix before changing.)
+ *
+ * [AI UPDATE 2026-09-27] Hindi support — customers speak English, Hindi and Hinglish
+ * (mixed) in the same session. nova-3 with language="multi" code-switches between them
+ * automatically (Hindi is one of its 10 supported multilingual languages), so that is now
+ * the default instead of Deepgram's plain English, unless DEEPGRAM_LANGUAGE overrides it.
  */
 
 const { sendJson, readRawBody, isSameOrigin, isRateLimited } = require("../_lib/voice-shared.js");
@@ -72,8 +77,8 @@ module.exports = async function handler(req, res) {
   const params = new URLSearchParams({
     model: process.env.DEEPGRAM_MODEL || "nova-3",
     smart_format: "true",
+    language: process.env.DEEPGRAM_LANGUAGE || "multi",
   });
-  if (process.env.DEEPGRAM_LANGUAGE) params.set("language", process.env.DEEPGRAM_LANGUAGE);
 
   let upstream;
   try {
