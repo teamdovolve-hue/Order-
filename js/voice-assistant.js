@@ -129,26 +129,33 @@ let _lastTranscript = "";
 
 // ── Speech (Siya talks back) ──────────────────────────────────────────────────
 const _tts = window.speechSynthesis || null;
-let _ttsVoice = null;
+// [AI UPDATE 2026-09-27] Hindi support: Siya's replies can be English, Hindi (Devanagari)
+// or Hinglish (Latin script) from one request to the next, so a single fixed voice for the
+// whole session is wrong — we keep one voice per script and pick between them per reply.
+let _ttsVoiceEn = null;
+let _ttsVoiceHi = null;
 let _ttsVoiceReady = false;
+const DEVANAGARI_RE = /[\u0900-\u097F]/; // Hindi text written in Devanagari script
 
-function _pickTtsVoice() {
-  if (!_tts) return null;
+/** Best available voice whose lang starts with the given 2-letter code (e.g. "hi", "en"). */
+function _pickVoiceFor(voices, code) {
+  const exact = voices.find((v) => v.lang?.toLowerCase() === `${code}-in`);
+  if (exact) return exact;
+  return voices.find((v) => v.lang?.toLowerCase().startsWith(code)) || null;
+}
+
+function _pickTtsVoices() {
+  if (!_tts) return;
   const voices = _tts.getVoices();
-  if (!voices.length) return null;
-  for (const lang of TTS_LANG_PREF) {
-    const exact = voices.find((v) => v.lang === lang);
-    if (exact) return exact;
-    const partial = voices.find((v) => v.lang?.startsWith(lang.split("-")[0]));
-    if (partial) return partial;
-  }
-  return voices[0];
+  if (!voices.length) return;
+  _ttsVoiceEn = _pickVoiceFor(voices, "en") || voices[0];
+  _ttsVoiceHi = _pickVoiceFor(voices, "hi"); // null if the device has no Hindi voice installed
 }
 
 if (_tts) {
   // Voice list loads async in most browsers.
   _tts.addEventListener?.("voiceschanged", () => {
-    _ttsVoice = _pickTtsVoice();
+    _pickTtsVoices();
     _ttsVoiceReady = true;
   });
 }
@@ -162,11 +169,15 @@ function _stopSpeaking() {
 function _speak(text) {
   if (!_tts || !text) return;
   _stopSpeaking();
-  if (!_ttsVoiceReady) _ttsVoice = _pickTtsVoice();
+  if (!_ttsVoiceReady) _pickTtsVoices();
+  // Devanagari text needs the Hindi voice; Hinglish (Hindi typed in Latin letters) and English
+  // both read fine on an Indian English voice, so only Devanagari script switches the voice.
+  const useHindi = DEVANAGARI_RE.test(text) && _ttsVoiceHi;
+  const voice = useHindi ? _ttsVoiceHi : _ttsVoiceEn;
   try {
     const u = new SpeechSynthesisUtterance(text);
-    if (_ttsVoice) u.voice = _ttsVoice;
-    u.lang = _ttsVoice?.lang || "en-IN";
+    if (voice) u.voice = voice;
+    u.lang = voice?.lang || (useHindi ? "hi-IN" : "en-IN");
     u.rate = 1;
     u.pitch = 1;
     _tts.speak(u);
@@ -243,7 +254,7 @@ function _armWakeListening() {
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
-    rec.lang = _ttsVoice?.lang || TTS_LANG_PREF[0];
+    rec.lang = _ttsVoiceEn?.lang || TTS_LANG_PREF[0];
 
     rec.onresult = (e) => {
       if (!_isHomeScreenActive()) return; // an overlay opened between speaking and this callback
