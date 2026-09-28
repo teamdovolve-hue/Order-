@@ -61,50 +61,32 @@ import { openVariantPicker } from "./variant-picker.js";
 const MENU_COLLECTION  = "menu_items";
 const SIZES_DOC        = "settings/pizza_sizes";   // billing panel writes here
 
-// AI UPDATE [2026-09-13] — Read reduction.
-// products/categories/menu_items were live onSnapshot listeners, re-subscribed
-// (= a full fresh collection read) on every initMenu() call — every page
-// boot AND every "Retry" click, for every visitor. The menu changes rarely
-// (only when staff edits it), so there's no need to pay a live-listener read
-// bill for every visit. Cache the fully-processed flat item list in
-// sessionStorage for a few minutes; a cache hit costs zero Firestore reads.
-// pizza_sizes is NOT cached — it's a single document (1 read on subscribe,
-// 1 per change), far too cheap to bother with, and size-availability toggles
-// should still reflect within the same visit.
-const MENU_CACHE_KEY     = "menuCache_v1";
-const MENU_CACHE_TTL_MS  = 5 * 60 * 1000; // 5 minutes
-
-function _readMenuCache() {
-  try {
-    const raw = sessionStorage.getItem(MENU_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.items) || !parsed.ts) return null;
-    if (Date.now() - parsed.ts > MENU_CACHE_TTL_MS) return null;
-    return parsed;
-  } catch (_) {
-    return null;
-  }
-}
-
-function _writeMenuCache(items) {
-  try {
-    sessionStorage.setItem(MENU_CACHE_KEY, JSON.stringify({
-      ts: Date.now(),
-      items,
-      catDisplayOrderEntries: Array.from(_catDisplayOrderMap.entries()),
-    }));
-  } catch (_) {
-    // sessionStorage full/unavailable (private browsing etc.) — just skip
-    // caching for this visit, Firestore reads still work as before.
-  }
-}
-
-/** Clears the cached menu so the next initMenu() call re-fetches from
- *  Firestore. Call this after any customer-visible menu edit if you want
- *  changes to show up immediately instead of waiting out the TTL. */
+// [AI UPDATE 2026-09-27] BUG FIX — root cause of stale ON/OFF toggles, stale
+// variant availability and new products not appearing without a refresh.
+//
+// The [AI UPDATE 2026-09-13] "Read reduction" change below replaced the live
+// onSnapshot() listeners on `products` / `categories` / `menu_items` with a
+// ONE-TIME getDocs() fetch, further wrapped in a 5-minute sessionStorage
+// cache. That meant this page only ever saw Firestore's menu state once per
+// tab session (or once per 5 minutes) — any Admin/POS Menu Control toggle,
+// variant availability change, edit, delete or brand-new product made after
+// that fetch was invisible to an already-open Customer Panel until the
+// sessionStorage cache expired or the page was hard-refreshed. That is
+// exactly the symptom reported (OFF→ON "often remains OFF until refresh",
+// new products missing until refresh).
+//
+// Fix: restore real-time onSnapshot() listeners (as before 2026-09-13) so
+// every toggle/edit/add/delete made in the Admin Panel is pushed to any open
+// Customer Panel tab immediately, with no polling and no manual refresh.
+// The sessionStorage cache is removed entirely — it is fundamentally
+// incompatible with "no refresh should ever be required". This does NOT
+// reintroduce a "full menu reload per toggle": Firestore's realtime SDK only
+// transmits the changed document(s) over the already-open listener channel;
+// it is not a fresh network fetch of the whole collection every time.
 export function invalidateMenuCache() {
-  try { sessionStorage.removeItem(MENU_CACHE_KEY); } catch (_) {}
+  // No-op — kept only so any external caller of the old cache-invalidation
+  // API doesn't throw. There is no cache to invalidate any more; menu state
+  // is always live via the onSnapshot listeners below.
 }
 
 let allItems       = [];
@@ -327,14 +309,15 @@ let _pizzaSizes = { regular: true, medium: true, large: true };
 
 export function initMenu() {
   showLoading(true);
-  // Clean up all existing listeners
+  // Clean up all existing listeners — prevents duplicate listeners piling up
+  // if initMenu() is ever called again (e.g. the "Retry" button).
   if (_unsub)        { _unsub();        _unsub        = null; }
   if (_unsubProducts){ _unsubProducts();_unsubProducts = null; }
   if (_unsubCats)    { _unsubCats();    _unsubCats    = null; }
 
   // ── Listen to pizza-size availability (billing panel toggle) ──
-  // Kept live — a single document, cheap regardless, and staff toggling
-  // size availability mid-visit should reflect immediately.
+  // A single document, cheap regardless, and staff toggling size
+  // availability mid-visit should reflect immediately.
   if (!_unsubSizes) {
     _unsubSizes = onSnapshot(doc(db, "settings", "pizza_sizes"), (snap) => {
       if (snap.exists()) {
@@ -354,63 +337,51 @@ export function initMenu() {
     });
   }
 
-  // ── Cache hit? Skip Firestore entirely for this call ──────────
-  const cached = _readMenuCache();
-  if (cached) {
-    _catDisplayOrderMap.clear();
-    (cached.catDisplayOrderEntries || []).forEach(([name, order]) => {
-      _catDisplayOrderMap.set(name, order);
-    });
-    _processRawItems(cached.items, /* fromCache */ true);
-    return;
-  }
-
   _catDisplayOrderMap.clear();
 
-  // ── Detect which schema is active, then fetch once from the right one ──
+  // ── Detect which schema is active, then attach the matching REAL-TIME
+  //    listener(s). This one-shot check only decides which collection to
+  //    subscribe to; it is not what keeps the menu in sync — the onSnapshot
+  //    listeners started below are.
   //
   // New schema (products + categories): Admin Panel >= 2026-08-03
   // Legacy schema (menu_items): original flat collection.
   //   Used when products is empty OR the check fails (network error, etc.).
   //
-  // AI UPDATE [2026-09-13] — this probe used to be a bare getDocs(collection),
-  // which bills a read for EVERY document just to check .empty. limit(1)
-  // makes it cost exactly 1 read regardless of collection size.
+  // limit(1) keeps this probe to exactly 1 read regardless of collection size.
   getDocs(query(collection(db, "products"), limit(1))).then((prodCheck) => {
     if (!prodCheck.empty) {
       // ── New schema path ──────────────────────────────────────────
-      console.log("[menu] Using new products/categories schema.");
-      _fetchProductsOnce();
+      console.log("[menu] Using new products/categories schema (live).");
+      _startProductsListeners();
     } else {
       // ── Legacy path ──────────────────────────────────────────────
-      console.log("[menu] products empty — using legacy menu_items schema.");
-      _fetchMenuItemsOnce();
+      console.log("[menu] products empty — using legacy menu_items schema (live).");
+      _startMenuItemsListener();
     }
   }).catch((err) => {
     console.warn("[menu] products check failed, falling back to menu_items:", err.message);
-    _fetchMenuItemsOnce();
+    _startMenuItemsListener();
   });
 }
 
-// ── New-schema listener (products + categories) ───────────────
+// ── New-schema listeners (products + categories) ───────────────
+
+/** Most recent category map (catId → {name, displayOrder, imageUrl}), kept
+ *  so a products-only snapshot update can re-flatten without waiting on a
+ *  categories update, and vice versa. */
+let _latestCatMap = {};
+/** Most recent products snapshot docs, kept for the same reason. */
+let _latestProductDocs = null;
 
 /**
- * Fetch `products` + `categories` ONCE (no live listener) and feed the
- * result through the same processing pipeline as the legacy path.
- *
- * AI UPDATE [2026-09-13] — was two onSnapshot listeners re-subscribed (=
- * full collection read) on every initMenu() call, for every visitor. Menu
- * data changes rarely; a one-time fetch + sessionStorage cache (see
- * MENU_CACHE_TTL_MS above) gets the same result for a fraction of the reads.
- * If you need live updates back for a specific reason, swap getDocs() below
- * for onSnapshot() and re-add the unsubscribe calls in initMenu().
+ * Subscribe to `products` + `categories` with live onSnapshot() listeners.
+ * Either collection changing (a toggle, edit, add, delete, or a category
+ * reorder) re-flattens and re-renders immediately — no polling, no refresh,
+ * no cache TTL to wait out.
  */
-function _fetchProductsOnce() {
-  Promise.all([
-    getDocs(collection(db, "categories")),
-    getDocs(collection(db, "products")),
-  ]).then(([catSnap, prodSnap]) => {
-    // Build catMap: catId → { name, displayOrder, imageUrl }
+function _startProductsListeners() {
+  _unsubCats = onSnapshot(collection(db, "categories"), (catSnap) => {
     const catMap = {};
     catSnap.docs.forEach(d => {
       catMap[d.id] = {
@@ -419,6 +390,7 @@ function _fetchProductsOnce() {
         imageUrl:     d.data().imageUrl     || null,
       };
     });
+    _latestCatMap = catMap;
 
     // Refresh global category display-order map (used by sort + tab render)
     _catDisplayOrderMap.clear();
@@ -426,11 +398,21 @@ function _fetchProductsOnce() {
       if (c.name) _catDisplayOrderMap.set(c.name, c.displayOrder);
     });
 
-    // Convert products snapshot to flat items
-    const flatItems = _productsToFlatItems(prodSnap.docs, catMap);
+    // A categories-only change (e.g. reorder) still needs to re-flatten
+    // using whatever products snapshot we already have.
+    if (_latestProductDocs) {
+      _processRawItems(_productsToFlatItems(_latestProductDocs, _latestCatMap));
+    }
+  }, (err) => {
+    console.warn("[menu] categories listener error:", err.message);
+  });
+
+  _unsubProducts = onSnapshot(collection(db, "products"), (prodSnap) => {
+    _latestProductDocs = prodSnap.docs;
+    const flatItems = _productsToFlatItems(prodSnap.docs, _latestCatMap);
     _processRawItems(flatItems);
-  }).catch((err) => {
-    console.error("[menu] products/categories fetch error:", err);
+  }, (err) => {
+    console.error("[menu] products listener error:", err);
     showError("Couldn't load the menu. Please check your connection.");
   });
 }
@@ -556,13 +538,15 @@ function _productsToFlatItems(prodDocs, catMap) {
 
 // ── Legacy path (menu_items) ───────────────────────────────────
 
-// AI UPDATE [2026-09-13] — one-time fetch instead of a live onSnapshot, same
-// reasoning as _fetchProductsOnce() above.
-function _fetchMenuItemsOnce() {
-  getDocs(query(collection(db, MENU_COLLECTION))).then((snap) => {
+/**
+ * Subscribe to `menu_items` with a live onSnapshot() listener. Any add,
+ * edit, delete or availability toggle re-renders immediately.
+ */
+function _startMenuItemsListener() {
+  _unsub = onSnapshot(collection(db, MENU_COLLECTION), (snap) => {
     const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     _processRawItems(raw);
-  }).catch((err) => {
+  }, (err) => {
     console.error("[menu] Firestore error:", err);
     showError("Couldn't load the menu. Please check your connection.");
   });
@@ -573,16 +557,12 @@ function _fetchMenuItemsOnce() {
 /**
  * Process a raw flat-item array (from either menu_items or _productsToFlatItems).
  * Splits off Extra Topping items, sorts, builds lookup maps, and renders.
+ * Called every time the underlying onSnapshot listener(s) fire, so the menu
+ * is always re-derived from the latest live Firestore state.
  */
-function _processRawItems(raw, fromCache = false) {
+function _processRawItems(raw) {
   // Keep ALL items — do NOT filter by availability here.
   // OOS items are shown with a badge and ordering disabled.
-
-  // Cache whatever we just fetched from Firestore so the next initMenu()
-  // call within MENU_CACHE_TTL_MS (page reload, "Retry" click, etc.) doesn't
-  // re-read the whole collection. Don't re-cache data that came FROM the
-  // cache — that would just keep resetting its own TTL clock forever.
-  if (!fromCache) _writeMenuCache(raw);
 
   // [AI UPDATE 2026-08-02] UX upgrade — split Extra Topping into separate pool
   _extraToppings = raw.filter(i =>
