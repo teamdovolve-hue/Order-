@@ -4,6 +4,109 @@
 
 ---
 
+## [AI UPDATE 2026-09-27] — Menu Management sync bug fix (root cause + fix)
+
+### Reported symptoms (cross-repo bug report, both Admin/Billing/POS + this repo)
+1. Product OFF synced instantly; OFF→ON often needed a refresh here to show up.
+2. Variant ON/OFF (Pizza Regular/Medium/Large) needed auditing end-to-end.
+3. A brand-new product added from Admin didn't appear here without a refresh.
+4. General: stale UI, stale cache, dead/duplicate realtime listeners, search
+   bypassing unavailable state.
+
+### Root cause — found in `js/menu.js`
+On **2026-09-13**, an `[AI UPDATE]` here ("Read reduction") replaced the live
+`onSnapshot()` listeners on `products` / `categories` / `menu_items` — which
+is what `ARCHITECTURE_LOCK.md` §3 documents as the **locked, intended**
+architecture ("Menu loads in real-time (Firestore onSnapshot...)",
+`initMenu()` doc comment: "Start real-time Firestore listener; render menu")
+— with a **one-time `getDocs()` fetch**, further wrapped in a **5-minute
+`sessionStorage` cache** (`MENU_CACHE_KEY` / `MENU_CACHE_TTL_MS`), reasoned
+as a Firestore-read-cost optimization.
+
+The effect: once a Customer Panel tab loaded the menu, it would never see
+another Firestore update for that menu — not a toggle, not a variant
+availability change, not an edit, not a delete, not a new product — until
+either the 5-minute cache TTL expired *and* the page was reloaded/retried, or
+a hard refresh happened. This is precisely bugs #1, #2 and #3 as reported,
+and is a direct regression against the architecture this file itself
+documents as locked.
+
+The **OOS/variant logic itself was already correct** — `_productsToFlatItems()`
+already:
+- Marks only the specific OFF variant as `oos` when the product has variants
+  (sibling variants stay available).
+- Cascades `prod.inStock === false` (product-level OFF) to *every* variant
+  when the product itself — not a single variant — is turned off.
+- Never hides items outright (existing product design: OOS items render with
+  a badge and disabled Add, they don't disappear) — this was **not** changed,
+  it was already correct and is unrelated to the sync bug.
+
+So the only thing wrong was **staleness of the data feeding that logic**, not
+the logic itself.
+
+### Fix
+- **Removed** `_readMenuCache()` / `_writeMenuCache()` and the
+  `sessionStorage` cache entirely (`MENU_CACHE_KEY`, `MENU_CACHE_TTL_MS`).
+  `invalidateMenuCache()` is kept exported as a no-op (nothing imports it
+  today, but keeping the symbol avoids breaking any external caller) —
+  documented inline as to why.
+- **Restored real-time `onSnapshot()` listeners**:
+  - New schema: `_startProductsListeners()` — a `categories` listener and a
+    `products` listener, each independently re-flattening
+    (`_productsToFlatItems()`, unchanged) using the latest snapshot of the
+    *other* collection it has (`_latestCatMap` / `_latestProductDocs`), so a
+    category-only change (e.g. reorder) and a product-only change (e.g. a
+    toggle) both re-render immediately without waiting on the other.
+  - Legacy schema: `_startMenuItemsListener()` — a single `onSnapshot()` on
+    `menu_items`.
+  - The one-shot `getDocs(query(collection(db,"products"), limit(1)))` probe
+    is **kept** — it's not the bug (it's a single cheap read used only to
+    decide which schema is active before subscribing), and is unrelated to
+    why the menu was stale.
+  - `initMenu()` now unsubscribes all three listeners (`_unsub`,
+    `_unsubProducts`, `_unsubCats`) before resubscribing, same as before —
+    this already prevented duplicate listeners on repeated `initMenu()` calls
+    (e.g. the "Retry" button) and required no change.
+  - The `pizza_sizes` single-document listener was already live and correct;
+    unchanged.
+- `_processRawItems()` lost its `fromCache` parameter and the cache-write
+  call — otherwise unchanged (Extra Topping pool split, sort, render).
+- This is a **live push**, not "a full menu reload per toggle": Firestore's
+  realtime SDK sends only the changed document(s) over the already-open
+  listener channel — it does not re-run a fresh network query on every
+  change. No second menu/availability system was introduced; this purely
+  restores the pre-2026-09-13 read path documented as locked in
+  `ARCHITECTURE_LOCK.md`.
+
+### Files changed (this repo)
+- `js/menu.js` only. No other file in this repo was touched — cart, search
+  (`search.js` just filters `allItems`/groups produced by `menu.js`, needed
+  no change), item sheet, variant picker, category tabs, pricing and order
+  history all consume the same output shape as before.
+
+### Companion fix (Billing/POS repo)
+The Admin/Billing repo's **own** `js/menu.js` (the POS order-taking item
+grid, separate from its "Menu Control" drawer `js/menu-management.js`, which
+already had correct live listeners) had the *same class of bug* independently
+— it only ever fetched the menu once, on page load, with no live listener at
+all. Fixed there too; see that repo's `AI_HANDOFF.md` for details. No change
+was needed on this repo's side for that.
+
+### ARCHITECTURE_LOCK.md
+No changes needed — §3 (`js/menu.js` row, `initMenu()` doc comment) already
+documents live `onSnapshot()` as the intended architecture. This fix restores
+compliance with the existing lock; it doesn't change what's locked.
+
+### Testing notes
+- Open Customer Panel, toggle a product OFF then ON from Admin → badge
+  appears/disappears within roughly a second, no refresh.
+- Toggle a single Pizza variant (e.g. Regular) OFF → only that size shows
+  "Out of Stock" here; Medium/Large stay orderable, cart unaffected.
+- Add a brand-new product from Admin → appears here live, correct category.
+- Edit a product's price/name/image, or delete it → reflects here live.
+
+---
+
 ## [AI UPDATE 2026-09-25] — Weather + Effect Engine: depth pass on snow/cloudy/sunny/fog
 
 ### Why
