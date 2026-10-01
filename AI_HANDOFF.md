@@ -4,6 +4,28 @@
 
 ---
 
+## [AI UPDATE 2026-10-01] — Staff can edit a customer's name/phone from the POS: login + session support
+
+### Why this repo changed
+The Billing POS now has an "Edit Customer" pencil (see the Billing repo's `AI_HANDOFF.md`, 2026-10-01). It edits the real profile `customers/{+91…}`. Because **the phone is the document ID** and **`passwordHash = SHA-256(password + ":" + phone)`**, a phone change moves the document and would have (a) broken the customer's password and (b) left this panel's saved session pointing at a document that no longer exists.
+
+### File changed — `js/auth.js` only
+1. **`_onLoginSubmit`** — after the normal hash check fails, also tries `profile.passwordHashPhone` (the phone the stored hash was made with; written by the POS migration) as the salt. The typed/current phone is always tried first, so a staff-assisted recovery reset (hashes with the current phone, Worker unchanged) keeps working.
+2. **NEW `_refreshSessionFromProfile()`**, called once per page load from `onAuthStateChanged` when a session exists: re-reads `customers/{session.phone}`; if missing, follows `customer_phone_redirects/{oldPhone}.newPhone` (max 5 hops); adopts the current `name` / `phone` / `username`, saves the session, refreshes the greeting chip and dispatches `customAuthStateChanged` (so `js/offers.js` restarts its coupon watch on the new phone). **`uid` is never changed** and a uid mismatch leaves the session untouched (the number now belongs to someone else). Fire-and-forget, errors only `console.warn`.
+
+### Contract additions (owned by the Billing repo)
+`customers/{phone}`: optional `passwordHashPhone`, `previousPhones[]`, `phoneChangedAt`. New collection `customer_phone_redirects/{oldPhone}` `{ newPhone, uid, name, movedAt }` — read-only from here (`firestore.rules` in the Billing repo must be deployed).
+
+### Unchanged
+Order placement (`js/order.js`), history (`js/history.js`, keyed by `uid`), offers query (`coupons where phone == session.phone`; the POS re-points coupons in the same transaction), Worker recovery endpoints, `sw.js` (network-first for app files, no bump needed).
+
+### Notes
+- Until this file is deployed, a customer whose phone was changed by staff cannot log in with their existing password.
+- After a phone change the OLD number is no longer a customer: logging in with it starts a fresh registration.
+- Tested only through the billing repo's mock-Firestore logic test; `auth.js` itself was syntax-checked, not run against live Firebase.
+
+---
+
 ## [AI UPDATE 2026-09-27] — Menu Management sync bug fix (root cause + fix)
 
 ### Reported symptoms (cross-repo bug report, both Admin/Billing/POS + this repo)

@@ -227,6 +227,10 @@ Keyed by normalised phone number (`+91XXXXXXXXXX`).
 | `createdAt` | Timestamp | Server timestamp — set once at creation |
 | `updatedAt` | Timestamp | Server timestamp — updated on every write |
 | `lastLoginAt` | Timestamp | Server timestamp — updated non-critically on every sign-in |
+| `passwordHashPhone` | string (optional) | [2026-10-01] Phone the `passwordHash` was computed with, set by the Billing POS when staff change this customer's phone. `auth.js` login tries it as a second salt. Never write it from here. |
+| `previousPhones` / `phoneChangedAt` | string[] / Timestamp (optional) | [2026-10-01] Written only by the Billing POS phone migration |
+
+> **[2026-10-01] The phone/document ID can change.** Billing staff can correct a customer's name/phone from the POS; the profile is migrated atomically to the new phone while `uid` (the key of `customer_order_history`) stays the same. Forwarding record: `customer_phone_redirects/{oldPhone}` → `{ newPhone, uid, name, movedAt }` (written by Billing, read-only here). `js/auth.js` `_refreshSessionFromProfile()` heals a saved session. Never treat the phone as permanent; key history on `uid`.
 
 ---
 
