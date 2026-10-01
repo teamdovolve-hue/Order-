@@ -174,9 +174,12 @@ function renderHistory() {
           ${(order.items || []).map((it) => `
             <li class="history-item-row">
               <span class="history-item-name">${esc(it.name)}</span>
-              <span class="history-item-detail">×${it.quantity}&nbsp;&nbsp;${fmt(it.subtotal || 0)}</span>
+              <span class="history-item-detail">${it.freeOffer
+                ? `×1&nbsp;&nbsp;<b style="color:#16a34a;">FREE</b> ₹0`
+                : `×${it.quantity}&nbsp;&nbsp;${fmt(it.subtotal || 0)}`}</span>
             </li>`).join("")}
         </ul>
+        ${order.offer ? `<div style="font-size:0.8rem;color:#16a34a;font-weight:600;margin:6px 0;">🎁 ${esc(order.offer.label || "")} — ${esc(order.offer.status || "Claimed")} (${fmt(order.offer.value || 0)})</div>` : ""}
         ${discountRow(order)}
         <div class="history-order-footer">
           <div class="history-footer-left">

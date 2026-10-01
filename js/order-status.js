@@ -338,6 +338,8 @@ export async function startOrderTracking(callbacks = {}) {
         // customer_order_history.customDiscount field — `total` above is already the FINAL payable
         // and is never recalculated here.
         customDiscount:   Number(d.data().customDiscount) || 0,
+        // [AI UPDATE 2026-10-01] Pizza → Spring Roll FREE offer record saved by the POS (null if none).
+        offer:            d.data().offer            || null,
         completedAt:      d.data().completedAt      || null,
         orderedAt:        d.data().orderedAt        || "",
         completionReason: d.data().completionReason || "",
@@ -535,6 +537,7 @@ function _syncHistoryToLocalStorage(orders) {
     totalPrice:       order.total,        // history.js reads .totalPrice
     // [AI UPDATE 2026-09-20] carry the saved Custom Instant Discount through to history.js (display only).
     customDiscount:   order.customDiscount || 0,
+    offer:            order.offer || null, // [AI UPDATE 2026-10-01]
     placedAt:         order.orderedAt || null,
     completedAt:      order.completedAt,
     completionReason: order.completionReason || "",

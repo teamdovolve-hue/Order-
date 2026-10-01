@@ -38,7 +38,7 @@
  */
 
 import { db } from "./firebase-config.js";
-import { collection, query, where, getDocs, onSnapshot }
+import { collection, query, where, getDocs, onSnapshot, doc, getDoc, getDocFromServer }
   from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { getLoginInfo, requireLogin } from "./auth.js";
 
@@ -102,6 +102,43 @@ function closeOffers() {
   document.body.style.overflow = "";
 }
 
+// [AI UPDATE 2026-10-01] "Any Pizza → Spring Roll FREE" — one-time, customer-specific.
+// SAME authoritative claim the POS/Admin use: customers/{phone}.offerClaims.pizza_spring_roll
+// (written only by the Billing POS, operator-only per firestore.rules). Read-only here: the offer
+// is redeemed at the counter, so the card just shows Available / Claimed.
+const PIZZA_OFFER_ID = "pizza_spring_roll";
+async function _readPizzaOfferClaim(phone) {
+  const ref = doc(db, "customers", phone);
+  let snap;
+  try { snap = await getDocFromServer(ref); } catch (_) { snap = await getDoc(ref); } // never trust a stale cache for a one-time claim
+  return snap.exists() ? (snap.data().offerClaims?.[PIZZA_OFFER_ID] || null) : null;
+}
+function _pizzaOfferCardHtml(claim) {
+  const claimed = !!claim;
+  const when = claim?.settledAt?.toMillis?.() ?? claim?.claimedAt?.toMillis?.() ?? 0;
+  const dateStr = when ? new Date(when).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
+  return `
+      <div class="history-order" style="border-left:3px solid ${claimed ? "#9ca3af" : "#22c55e"};">
+        <div class="history-order-meta">
+          <div class="history-order-left">
+            <span class="history-order-num">🥟 Any Pizza → Spring Roll FREE</span>
+          </div>
+        </div>
+        <p style="font-size:0.85rem;color:#4b5563;margin:8px 0 4px;line-height:1.4;">
+          ${claimed
+            ? `Already claimed${claim.value ? ` (worth ${fmt(claim.value)})` : ""}${dateStr ? ` on ${esc(dateStr)}` : ""}. This offer can be used only once.`
+            : "Order any Pizza and ask the staff for your free Spring Roll. One-time offer."}
+        </p>
+        <div class="history-order-footer">
+          <div class="history-footer-left">
+            <span class="history-status-badge" style="background:${claimed ? "#e5e7eb" : "#dcfce7"};color:${claimed ? "#6b7280" : "#16a34a"};">
+              ${claimed ? "✅ Claimed" : "🟢 Available"}
+            </span>
+          </div>
+        </div>
+      </div>`;
+}
+
 async function renderOffers() {
   const list = document.getElementById("offersList");
   if (!list) return;
@@ -126,16 +163,17 @@ async function renderOffers() {
     snap.forEach((d) => coupons.push({ id: d.id, ...d.data() }));
     coupons.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
+    let _pizzaClaim = null;
+    try { _pizzaClaim = await _readPizzaOfferClaim(info.phone); }
+    catch (e) { console.warn("[offers] pizza offer claim read failed:", e); }
+    const _pizzaCard = _pizzaOfferCardHtml(_pizzaClaim);
+
     if (coupons.length === 0) {
-      list.innerHTML = `
-        <div class="history-empty">
-          <span class="history-empty-icon">🎟️</span>
-          <p>No offers yet.<br/>Order more to unlock rewards!</p>
-        </div>`;
+      list.innerHTML = _pizzaCard;
       return;
     }
 
-    list.innerHTML = coupons.map((cp) => {
+    list.innerHTML = _pizzaCard + coupons.map((cp) => {
       const active = !cp.used;
       return `
       <div class="history-order" style="border-left:3px solid ${active ? "#22c55e" : "#9ca3af"};">
