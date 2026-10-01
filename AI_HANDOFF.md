@@ -4,6 +4,17 @@
 
 ---
 
+## [AI UPDATE 2026-10-01] — "Any Pizza → Spring Roll FREE" offer (read-only on this side)
+
+Same authoritative claim as the Billing repo: `customers/{phone}.offerClaims.pizza_spring_roll` (written only by the POS/operator; see Billing `AI_HANDOFF.md`). 
+- `js/offers.js`: `_readPizzaOfferClaim()` (server read, cache fallback) + `_pizzaOfferCardHtml()`; My Offers always shows the offer card — 🟢 Available or ✅ Claimed (value/date) — above the coupons. No claim logic/writes here; redemption happens at the counter.
+- `js/order-status.js`: passes `offer` from `customer_order_history` through (both the live history mapping and `_syncHistoryToLocalStorage`).
+- `js/history.js`: roll shows `FREE ₹0` and an offer line (`order.offer`).
+- `sw.js`: VERSION v2 → v3.
+Note: `order-panel-updates/js/order-status.js` in the Billing repo is an older mirror and was not changed.
+
+---
+
 ## [AI UPDATE 2026-10-01] — Staff can edit a customer's name/phone from the POS: login + session support
 
 ### Why this repo changed
