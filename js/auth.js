@@ -249,9 +249,51 @@ export function initAuth() {
       signInAnonymously(auth).catch(() => {});
     } else if (user && _currentUser) {
       _dispatchAuthChange(_currentUser);
+      _refreshSessionFromProfile(); // [AI UPDATE 2026-10-01] pick up staff edits (name/phone)
     }
   });
   _updateGreeting();
+}
+
+// ── Live profile refresh (POS "Edit Customer") ───────────────────────────────
+// [AI UPDATE 2026-10-01] Staff can correct a customer's name/phone from the billing POS.
+// customers/{phone} is the source of truth, so a session saved before the edit may hold a stale
+// name or a phone whose document no longer exists (the doc ID is the phone, so a phone change
+// moves the doc). Once per page load, re-read the profile:
+//   • found at session phone (and same uid) → adopt current name/phone/username
+//   • missing → follow customer_phone_redirects/{oldPhone} → { newPhone } (max 5 hops)
+// uid is NEVER changed (customer_order_history is keyed by it). A uid mismatch means the number
+// now belongs to someone else, so the session is left untouched. Fire-and-forget, non-fatal.
+let _sessionRefreshDone = false;
+async function _refreshSessionFromProfile() {
+  if (_sessionRefreshDone || !_currentUser?.phone) return;
+  _sessionRefreshDone = true;
+  try {
+    let phone = _currentUser.phone;
+    for (let hop = 0; hop < 5; hop++) {
+      const snap = await getDoc(doc(db, "customers", phone));
+      if (snap.exists()) {
+        const p    = snap.data();
+        const pUid = p.uid || p.authUid || "";
+        if (_currentUser.uid && pUid && pUid !== _currentUser.uid) return;
+        const name      = p.name  || _currentUser.name;
+        const livePhone = p.phone || phone;
+        const username  = p.username || _currentUser.username || "";
+        if (name !== _currentUser.name || livePhone !== _currentUser.phone || username !== _currentUser.username) {
+          _currentUser = { ..._currentUser, name, phone: livePhone, username };
+          _saveSession(_currentUser);
+          _updateGreeting();
+          _dispatchAuthChange(_currentUser); // offers.js restarts its coupon watch on the new phone
+        }
+        return;
+      }
+      const r = await getDoc(doc(db, "customer_phone_redirects", phone));
+      if (!r.exists() || !r.data().newPhone) return;
+      phone = r.data().newPhone;
+    }
+  } catch (err) {
+    console.warn("[auth] profile refresh skipped:", err?.code || err);
+  }
 }
 
 export function onAuthReady(cb) {
@@ -490,8 +532,17 @@ async function _onLoginSubmit() {
 
   try {
     const hash = await _hashPassword(password, _pendingPhone);
+    // [AI UPDATE 2026-10-01] POS "Edit Customer" phone change: the stored hash was computed with
+    // the ORIGINAL phone, which staff can't re-derive (they never know the password). The billing
+    // panel records that phone in customers.passwordHashPhone — accept it as an alternate salt.
+    // The current phone is always tried first, so a staff-assisted recovery reset (which hashes
+    // with the current phone) keeps working with no Worker change.
+    let _pwOk = hash === _pendingLoginProfile.passwordHash;
+    if (!_pwOk && _pendingLoginProfile.passwordHashPhone && _pendingLoginProfile.passwordHashPhone !== _pendingPhone) {
+      _pwOk = (await _hashPassword(password, _pendingLoginProfile.passwordHashPhone)) === _pendingLoginProfile.passwordHash;
+    }
 
-    if (hash !== _pendingLoginProfile.passwordHash) {
+    if (!_pwOk) {
       _setError("otpLoginError", "Incorrect password. Please try again.");
       if (passEl) { passEl.value = ""; passEl.focus(); }
       return;
