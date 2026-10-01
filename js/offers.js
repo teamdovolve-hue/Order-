@@ -114,26 +114,31 @@ async function _readPizzaOfferClaim(phone) {
   return snap.exists() ? (snap.data().offerClaims?.[PIZZA_OFFER_ID] || null) : null;
 }
 function _pizzaOfferCardHtml(claim) {
-  const claimed = !!claim;
+  // claim.finalized === false → reserved on an open POS bill (not used up yet); true/undefined → used.
+  const pending = !!claim && claim.finalized === false;
+  const claimed = !!claim && !pending;
   const when = claim?.settledAt?.toMillis?.() ?? claim?.claimedAt?.toMillis?.() ?? 0;
   const dateStr = when ? new Date(when).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const accent = claimed ? "#9ca3af" : pending ? "#f59e0b" : "#22c55e";
+  const msg = claimed
+    ? `Already claimed${claim.value ? ` (worth ${fmt(claim.value)})` : ""}${dateStr ? ` on ${esc(dateStr)}` : ""}. This offer can be used only once.`
+    : pending
+      ? "Your free Spring Roll is added to your current bill at the counter."
+      : "Order any Pizza and ask the staff for your free Spring Roll. One-time offer.";
+  const badgeBg = claimed ? "#e5e7eb" : pending ? "#fef3c7" : "#dcfce7";
+  const badgeFg = claimed ? "#6b7280" : pending ? "#b45309" : "#16a34a";
+  const badge   = claimed ? "✅ Claimed" : pending ? "🟡 In use on your bill" : "🟢 Available";
   return `
-      <div class="history-order" style="border-left:3px solid ${claimed ? "#9ca3af" : "#22c55e"};">
+      <div class="history-order" style="border-left:3px solid ${accent};">
         <div class="history-order-meta">
           <div class="history-order-left">
             <span class="history-order-num">🥟 Any Pizza → Spring Roll FREE</span>
           </div>
         </div>
-        <p style="font-size:0.85rem;color:#4b5563;margin:8px 0 4px;line-height:1.4;">
-          ${claimed
-            ? `Already claimed${claim.value ? ` (worth ${fmt(claim.value)})` : ""}${dateStr ? ` on ${esc(dateStr)}` : ""}. This offer can be used only once.`
-            : "Order any Pizza and ask the staff for your free Spring Roll. One-time offer."}
-        </p>
+        <p style="font-size:0.85rem;color:#4b5563;margin:8px 0 4px;line-height:1.4;">${msg}</p>
         <div class="history-order-footer">
           <div class="history-footer-left">
-            <span class="history-status-badge" style="background:${claimed ? "#e5e7eb" : "#dcfce7"};color:${claimed ? "#6b7280" : "#16a34a"};">
-              ${claimed ? "✅ Claimed" : "🟢 Available"}
-            </span>
+            <span class="history-status-badge" style="background:${badgeBg};color:${badgeFg};">${badge}</span>
           </div>
         </div>
       </div>`;
