@@ -340,7 +340,6 @@ see its own header comment). That shared panel was:
    `.category-fab-modal` 180) already sits above both FABs at 180+ — only history/offers had been left behind.
 
 ### Fix (CSS-only for the layout; two 1-line JS additions for the keyboard case)
-
 **`css/style.css`** — `.history-backdrop` / `.history-panel` rule block (used by both `#historyPanel` and `#offersPanel`):
 - **Centered vertically**: panel re-anchored with `position:fixed; top:50%; left:50%; transform:translate(-50%,-50%)` —
   the same centered-overlay technique this file already uses for `#successOverlay`/`#errorOverlay` (`.overlay`/`.overlay-card`) —
