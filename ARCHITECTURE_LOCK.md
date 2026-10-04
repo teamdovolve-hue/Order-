@@ -166,6 +166,7 @@ Order lifecycle complete
 
 **Side branches (do not alter):**
 - `dismissed` / `rejected` → order silently removed from Active Orders, NOT saved to history
+- **[2026-10-04] 3-hour expiry:** an active order older than 3 h (by `pending_table_orders.createdAt`) is hidden by the existing active-orders listener in `js/order-status.js` and retired in Firestore as `dismissed` (`dismissReason: "auto_expired_3h"`) — never saved to history. No new status value; do not move this to a second listener or a frontend-only timer.
 - `releaseTableLock` callable fired by Billing Panel on Bill & Settle / Save & Exit
 
 ---

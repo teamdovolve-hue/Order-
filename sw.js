@@ -21,8 +21,7 @@
  * Bump VERSION to force old caches to be dropped on the next activation.
  */
 
-const VERSION = "v4"; // [AI UPDATE 2026-10-01] v3 → v4: offers.js pending-claim card state
-// // [AI UPDATE 2026-10-01] v2 → v3: offers.js, history.js, order-status.js (Pizza → Spring Roll FREE offer card)
+const VERSION = "v5"; // [AI UPDATE 2026-10-04] v4 → v5: Free Spring Roll offer REMOVED (offers.js, history.js, order-status.js) + 3-hour active-order expiry (order-status.js)
 const CACHE   = `nph-customer-${VERSION}`;
 
 const OFFLINE_HTML = `<!DOCTYPE html>

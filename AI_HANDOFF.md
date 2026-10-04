@@ -4,14 +4,24 @@
 
 ---
 
-## [AI UPDATE 2026-10-01] — "Any Pizza → Spring Roll FREE" offer (read-only on this side)
+## [AI UPDATE 2026-10-04] — Free Spring Roll offer REMOVED + 3-hour auto expiry for active orders
 
-Same authoritative claim as the Billing repo: `customers/{phone}.offerClaims.pizza_spring_roll` (written only by the POS/operator; see Billing `AI_HANDOFF.md`). 
-- `js/offers.js`: `_readPizzaOfferClaim()` (server read, cache fallback) + `_pizzaOfferCardHtml()`; My Offers always shows the offer card — 🟢 Available or ✅ Claimed (value/date) — above the coupons. No claim logic/writes here; redemption happens at the counter.
-- `js/order-status.js`: passes `offer` from `customer_order_history` through (both the live history mapping and `_syncHistoryToLocalStorage`).
-- `js/history.js`: roll shows `FREE ₹0` and an offer line (`order.offer`).
-- `sw.js`: VERSION v2 → v3.
-Note: `order-panel-updates/js/order-status.js` in the Billing repo is an older mirror and was not changed.
+### 1. Free Spring Roll offer — removed (this repo)
+- `js/offers.js`: deleted `PIZZA_OFFER_ID`, `_readPizzaOfferClaim()`, `_pizzaOfferCardHtml()` and the claim read in `renderOffers()`; "My Offers" shows only coupons again (a plain "No offers yet." empty state when there are none). Unused imports (`doc`, `getDoc`, `getDocFromServer`) dropped.
+- `js/order-status.js`: no longer passes `offer` through (live history mapping + `_syncHistoryToLocalStorage`).
+- `js/history.js`: removed the `FREE ₹0` row variant and the offer line.
+- `sw.js`: VERSION v4 → v5. No Firestore reads/writes for the offer remain here. Old `offerClaims` / `offer` data in Firestore is simply ignored.
+- `order-panel-updates/js/*` in the Billing repo are older mirrors and were not changed.
+
+### 2. 3-hour expiry of active orders (`js/order-status.js`)
+**Rule:** an active order (any status except `completed` / `dismissed` / `rejected` — i.e. `pending`, `accepted`/Order Received, `kot`/Preparing) is never shown for more than 3 h after its original order time.
+**Authority:** the stored `pending_table_orders.createdAt` (server timestamp written by `js/order.js`) — not a frontend timer. Orders whose `createdAt` is still unresolved (`null`, local pending write) or missing (very old legacy docs) are never expired.
+**Where:** integrated into the EXISTING active-orders listener in `startOrderTracking()` — no second listener. New helpers: `ACTIVE_ORDER_TTL_MS`, `_orderCreatedMs`, `_isOrderExpired`, `_retireExpiredOrder`, `_mapActiveOrder`, `_publishActive`, `_hookExpiryWakeup`. Every snapshot (including the first one after page load / login / another device) goes through `_publishActive()`, which drops expired orders from the list handed to `onActiveOrders` (so the card, `getActiveOrdersSnapshot()` and the smart assistant all stop showing it immediately) and retires them.
+**Cleanup:** an expired order is updated once per session to `status: "dismissed"` (+ `dismissReason: "auto_expired_3h"`, `expiredAt`) — the existing contract the POS "Dismiss"/"Cancel Order" uses, allowed by `firestore.rules` (`isAllowedStatusUpdate`). A `Set` (`_expiryHandled`) prevents repeated writes on re-renders/snapshots; a failed write is non-fatal (still hidden client-side; retried next load). It is NEVER written to `customer_order_history`, so it does not appear in history; completed/settled history is not touched.
+**Existing stale orders:** handled automatically — the first snapshot after the next customer-panel load/sync finds them via `createdAt` and removes + retires them; no manual per-customer deletion.
+**Open screen:** one `setTimeout` (re-armed per publish, cleared by `stopOrderTracking()`) fires at the earliest expiry; `visibilitychange` / `focus` / `online` re-run the check (phones suspend timers). Correctness never depends on the timer.
+**Billing side effect:** the POS Incoming Orders drawer stops listing a stale `pending` order. An order already imported to a POS table keeps its cart; settling it later still writes history through the POS (`syncCustomerOrderCompletion`).
+Untested live — verify with an order whose `createdAt` is > 3 h old (edit it in the Firebase console): it disappears on load, its doc becomes `dismissed`, and nothing is added to history; a < 3 h order keeps showing and disappears at the 3 h mark with the screen open.
 
 ---
 
