@@ -101,6 +101,7 @@ import { db, auth }             from "./firebase-config.js";
 import {
   collection, query, where,
   onSnapshot, orderBy,
+  doc, updateDoc, serverTimestamp,
 }                               from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { waitForAuthReady, getLoginInfo } from "./auth.js";
 // [AI UPDATE 2026-07-29 v2] Task 6 — import updateFromFirestore so history drawer
@@ -195,6 +196,97 @@ function _stopPreparingTimer() {
     if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
 }
 
+// ── 3-HOUR ACTIVE-ORDER EXPIRY ─────────────────────────────────────────────────
+// [AI UPDATE 2026-10-04] An active (not completed / dismissed / rejected) order must never stay visible for
+// more than 3 HOURS after its original order time. The authority is the stored Firestore `createdAt`
+// (server timestamp written by js/order.js) — NOT a frontend timer — so the rule holds across refresh,
+// logout/login, other devices and reopening the panel: every snapshot (including the first one after load)
+// is checked against createdAt. Expired orders are (1) dropped from the active list immediately and
+// (2) retired in Firestore with the EXISTING `dismissed` status — the same contract the POS "Dismiss" /
+// "Cancel Order" uses, which the firestore.rules allow and every listener already treats as "gone".
+// They are NEVER written to customer_order_history (that collection is only written by the POS when an order
+// is actually completed via Save & Exit / Bill & Settle), so expired orders never appear in history.
+// This is integrated into the existing active-orders listener — no second listener. The setTimeout below only
+// makes an already-open screen drop the order at the 3 h mark; correctness never depends on it.
+const ACTIVE_ORDER_TTL_MS = 3 * 60 * 60 * 1000;
+
+let _activeCallbacks = null;       // callbacks of the running tracking session (null when stopped)
+let _rawActive       = [];         // last raw active docs [{ id, ...data }] from the listener
+let _expiryTimer     = null;
+const _expiryHandled = new Set();  // ids already sent for Firestore cleanup this session (no repeat writes)
+let _expiryHooked    = false;
+
+// Original order time in ms, or null when unknown (e.g. serverTimestamp not yet resolved locally).
+function _orderCreatedMs(o) { return _tsToMs(o && o.createdAt); }
+
+function _isOrderExpired(o, now) {
+  const ms = _orderCreatedMs(o);
+  return ms !== null && (now - ms) >= ACTIVE_ORDER_TTL_MS;
+}
+
+// Retire a stale order in Firestore exactly once per session. Failure is non-fatal: the order stays hidden
+// client-side (createdAt check on every snapshot) and the cleanup is retried on the next load.
+function _retireExpiredOrder(o) {
+  if (!o || !o.id || _expiryHandled.has(o.id)) return;
+  _expiryHandled.add(o.id);
+  updateDoc(doc(db, "pending_table_orders", o.id), {
+    status:        "dismissed",
+    dismissReason: "auto_expired_3h",
+    expiredAt:     serverTimestamp(),
+  }).catch(err => console.warn("[order-status] Expired-order cleanup failed (non-fatal):", err.code || err.message));
+}
+
+function _mapActiveOrder(o) {
+  return {
+    id:          o.id,
+    tableId:     o.tableId    || "",
+    status:      o.status     || "pending",
+    statusLabel: getStatusLabel(o.status),
+    statusColor: getStatusColor(o.status),
+    items:       o.items      || [],
+    total:       o.totalPrice || 0,
+    createdAt:   o.createdAt  || null,
+    kotAt:       o.kotAt      || null,   // order-level kotAt (backward compat fallback)
+    // [AI UPDATE 2026-07-31] Per-item status/timer map written by Billing Panel.
+    // Keys are stable item IDs matching items[].itemId or items[].id.
+    // null when Billing Panel has not yet deployed the itemMeta feature.
+    itemMeta:    o.itemMeta   || null,
+  };
+}
+
+// Filters expired orders out of the raw snapshot, retires them, re-arms the single expiry timer and
+// publishes the live list. Called for every listener snapshot, by the timer, and when the tab wakes up.
+function _publishActive() {
+  if (!_activeCallbacks) return;
+  const now = Date.now();
+  const live = [];
+  for (const o of _rawActive) {
+    if (_isOrderExpired(o, now)) _retireExpiredOrder(o);
+    else live.push(o);
+  }
+
+  if (_expiryTimer) { clearTimeout(_expiryTimer); _expiryTimer = null; }
+  let next = Infinity;
+  for (const o of live) {
+    const ms = _orderCreatedMs(o);
+    if (ms !== null) next = Math.min(next, ms + ACTIVE_ORDER_TTL_MS - now);
+  }
+  if (next !== Infinity) _expiryTimer = setTimeout(_publishActive, Math.max(1000, next + 500));
+
+  if (typeof _activeCallbacks.onActiveOrders === "function") {
+    _activeCallbacks.onActiveOrders(live.map(_mapActiveOrder));
+  }
+}
+
+// Phones throttle/suspend timers in the background — re-check the moment the tab is visible again.
+function _hookExpiryWakeup() {
+  if (_expiryHooked || typeof document === "undefined") return;
+  _expiryHooked = true;
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) _publishActive(); });
+  window.addEventListener("focus", _publishActive);
+  window.addEventListener("online", _publishActive);
+}
+
 // ── Public API (used by app.js) ───────────────────────────────────────────────
 
 /**
@@ -272,10 +364,14 @@ export async function startOrderTracking(callbacks = {}) {
     where("customer.uid", "==", uid)
   );
 
+  _activeCallbacks = callbacks;
+  _rawActive = [];
+  _hookExpiryWakeup();
+
   _unsubActive = onSnapshot(
     activeQuery,
     (snap) => {
-      const active = snap.docs
+      _rawActive = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         // Preserve "rejected" in filter — silently removed, not saved to history
         .filter(o => !["completed", "dismissed", "rejected"].includes(
@@ -288,25 +384,8 @@ export async function startOrderTracking(callbacks = {}) {
           return tB - tA;
         });
 
-      const mapped = active.map(o => ({
-        id:          o.id,
-        tableId:     o.tableId    || "",
-        status:      o.status     || "pending",
-        statusLabel: getStatusLabel(o.status),
-        statusColor: getStatusColor(o.status),
-        items:       o.items      || [],
-        total:       o.totalPrice || 0,
-        createdAt:   o.createdAt  || null,
-        kotAt:       o.kotAt      || null,   // order-level kotAt (backward compat fallback)
-        // [AI UPDATE 2026-07-31] Per-item status/timer map written by Billing Panel.
-        // Keys are stable item IDs matching items[].itemId or items[].id.
-        // null when Billing Panel has not yet deployed the itemMeta feature.
-        itemMeta:    o.itemMeta   || null,
-      }));
-
-      if (typeof callbacks.onActiveOrders === "function") {
-        callbacks.onActiveOrders(mapped);
-      }
+      // [AI UPDATE 2026-10-04] 3-hour expiry: drops/retires stale orders, then fires onActiveOrders.
+      _publishActive();
     },
     (err) => {
       console.warn("[order-status] Active orders listener error:", err.code || err.message);
@@ -338,8 +417,6 @@ export async function startOrderTracking(callbacks = {}) {
         // customer_order_history.customDiscount field — `total` above is already the FINAL payable
         // and is never recalculated here.
         customDiscount:   Number(d.data().customDiscount) || 0,
-        // [AI UPDATE 2026-10-01] Pizza → Spring Roll FREE offer record saved by the POS (null if none).
-        offer:            d.data().offer            || null,
         completedAt:      d.data().completedAt      || null,
         orderedAt:        d.data().orderedAt        || "",
         completionReason: d.data().completionReason || "",
@@ -369,6 +446,10 @@ export function stopOrderTracking() {
   if (_unsubActive)  { _unsubActive();  _unsubActive  = null; }
   if (_unsubHistory) { _unsubHistory(); _unsubHistory = null; }
   _stopPreparingTimer();
+  // [AI UPDATE 2026-10-04] stop the 3-hour expiry timer + drop the session state with the listener.
+  if (_expiryTimer) { clearTimeout(_expiryTimer); _expiryTimer = null; }
+  _activeCallbacks = null;
+  _rawActive = [];
 }
 
 // ── DOM rendering (used by initOrderStatus) ───────────────────────────────────
@@ -537,7 +618,6 @@ function _syncHistoryToLocalStorage(orders) {
     totalPrice:       order.total,        // history.js reads .totalPrice
     // [AI UPDATE 2026-09-20] carry the saved Custom Instant Discount through to history.js (display only).
     customDiscount:   order.customDiscount || 0,
-    offer:            order.offer || null, // [AI UPDATE 2026-10-01]
     placedAt:         order.orderedAt || null,
     completedAt:      order.completedAt,
     completionReason: order.completionReason || "",
